@@ -141,8 +141,12 @@ export function Sidebar() {
     }, 0);
   };
 
-  const loadSavedQuery = (sql: string, connectionId?: string) => {
-    updateTab(activeTabId, { sql, connectionId: connectionId || activeConnectionId });
+  const loadSavedQuery = (name: string, sql: string, connectionId?: string) => {
+    addTab(connectionId);
+    setTimeout(() => {
+      const tabId = useStore.getState().activeTabId;
+      updateTab(tabId, { sql, title: name, connectionId: connectionId || activeConnectionId });
+    }, 0);
   };
 
   const handleDeleteSaved = async (id: string) => {
@@ -462,7 +466,7 @@ export function Sidebar() {
                 return (
                   <div
                     key={query.id}
-                    onClick={() => loadSavedQuery(query.sql, query.connectionId)}
+                    onClick={() => loadSavedQuery(query.name, query.sql, query.connectionId)}
                     onMouseEnter={() => setHovered(`query-${query.id}`)}
                     onMouseLeave={() => setHovered(null)}
                     style={{
@@ -480,16 +484,13 @@ export function Sidebar() {
                       transition: "all 150ms ease",
                     }}
                   >
-                    <IconBookmark size={15} color="var(--accent)" style={{ flexShrink: 0 }} />
+                    <IconBookmark size={15} color="var(--accent)" style={{ flexShrink: 0, alignSelf: "flex-start", marginTop: 2 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <Text size="xs" fw={600} truncate c="secondary.9" style={{ fontSize: 12 }}>{query.name}</Text>
-                      <Text size="xs" c="dimmed" ff="monospace" truncate style={{ marginTop: 2, fontSize: 10 }}>
-                        {query.sql.slice(0, 60)}
+                      <Text size="xs" fw={600} c="secondary.9" style={{ fontSize: 12, lineHeight: 1.4, wordBreak: "break-word" }}>{query.name}</Text>
+                      <Text c="dimmed" ff="monospace" style={{ marginTop: 4, fontSize: 9, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-all", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                        {query.sql.trim()}
                       </Text>
                     </div>
-                    {query.isShared && (
-                      <Badge size="xs" variant="light" color="primary" styles={{ root: { fontSize: 8 } }}>shared</Badge>
-                    )}
                     <Tooltip label="Delete" position="right">
                       <ActionIcon
                         size="xs"

@@ -69,21 +69,24 @@ export function initDatabase(): void {
 }
 
 function seedPhiRules(): void {
-  const count = db.prepare("SELECT COUNT(*) as cnt FROM phi_field_rules").get() as { cnt: number };
-  if (count.cnt > 0) return;
+  const existing = db.prepare("SELECT pattern FROM phi_field_rules").all() as { pattern: string }[];
+  const existingPatterns = new Set(existing.map((r) => r.pattern));
+
+  const missing = DEFAULT_PHI_RULES.filter((r) => !existingPatterns.has(r.pattern));
+  if (missing.length === 0) return;
 
   const insert = db.prepare(
     "INSERT INTO phi_field_rules (id, pattern, masking_type, always_masked) VALUES (?, ?, ?, ?)"
   );
 
   const insertMany = db.transaction(() => {
-    for (const rule of DEFAULT_PHI_RULES) {
+    for (const rule of missing) {
       insert.run(randomUUID(), rule.pattern, rule.maskingType, rule.alwaysMasked ? 1 : 0);
     }
   });
 
   insertMany();
-  console.log(`Seeded ${DEFAULT_PHI_RULES.length} default PHI masking rules`);
+  console.log(`Seeded ${missing.length} PHI masking rules`);
 }
 
 // --- Saved Queries ---

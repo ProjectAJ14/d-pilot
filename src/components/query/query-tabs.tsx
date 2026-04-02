@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from "react";
 import { Text, ActionIcon, Tooltip } from "@mantine/core";
 import { IconPlus, IconX } from "@tabler/icons-react";
 import { useStore } from "../../store";
@@ -8,6 +9,23 @@ export function QueryTabs() {
   const setActiveTab = useStore((s) => s.setActiveTab);
   const addTab = useStore((s) => s.addTab);
   const closeTab = useStore((s) => s.closeTab);
+  const updateTab = useStore((s) => s.updateTab);
+  const [editingTabId, setEditingTabId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editingTabId && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editingTabId]);
+
+  const commitRename = (tabId: string) => {
+    const trimmed = editValue.trim();
+    if (trimmed) updateTab(tabId, { title: trimmed });
+    setEditingTabId(null);
+  };
 
   return (
     <div
@@ -40,9 +58,42 @@ export function QueryTabs() {
             transition: "all 0.15s",
           }}
         >
-          <Text size="xs" fw={tab.id === activeTabId ? 600 : 400}>
-            {tab.title}
-          </Text>
+          {editingTabId === tab.id ? (
+            <input
+              ref={inputRef}
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onBlur={() => commitRename(tab.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRename(tab.id);
+                if (e.key === "Escape") setEditingTabId(null);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                border: "none",
+                outline: "none",
+                background: "transparent",
+                fontSize: 12,
+                fontWeight: 500,
+                color: "inherit",
+                fontFamily: "inherit",
+                width: Math.max(40, editValue.length * 7),
+                padding: 0,
+              }}
+            />
+          ) : (
+            <Text
+              size="xs"
+              fw={tab.id === activeTabId ? 600 : 400}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setEditingTabId(tab.id);
+                setEditValue(tab.title);
+              }}
+            >
+              {tab.title}
+            </Text>
+          )}
           {tab.loading && (
             <div
               style={{

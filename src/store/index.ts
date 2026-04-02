@@ -13,6 +13,7 @@ interface AuthUser {
 interface AppConfig {
   appName: string;
   logoUrl: string | null;
+  lightLogoUrl: string | null;
   emailDomain: string | null;
 }
 
@@ -51,6 +52,7 @@ interface AppState {
   savedQueries: SavedQuery[];
   setSavedQueries: (queries: SavedQuery[]) => void;
   addSavedQuery: (query: SavedQuery) => void;
+  updateSavedQuery: (query: SavedQuery) => void;
   removeSavedQuery: (id: string) => void;
 
   // Sidebar
@@ -83,7 +85,7 @@ const initialTab = createTab();
 
 export const useStore = create<AppState>((set, get) => ({
   // Config
-  config: { appName: "D-Pilot", logoUrl: null, emailDomain: null },
+  config: { appName: "D-Pilot", logoUrl: null, lightLogoUrl: null, emailDomain: null },
   setConfig: (config) => set({ config }),
 
   // Auth
@@ -163,6 +165,8 @@ export const useStore = create<AppState>((set, get) => ({
   setSavedQueries: (queries) => set({ savedQueries: queries }),
   addSavedQuery: (query) =>
     set((s) => ({ savedQueries: [query, ...s.savedQueries] })),
+  updateSavedQuery: (query) =>
+    set((s) => ({ savedQueries: s.savedQueries.map((q) => (q.id === query.id ? query : q)) })),
   removeSavedQuery: (id) =>
     set((s) => ({ savedQueries: s.savedQueries.filter((q) => q.id !== id) })),
 

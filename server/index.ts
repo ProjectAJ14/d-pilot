@@ -34,6 +34,7 @@ app.get("/api/config", (_req, res) => {
   res.json({
     appName: process.env.APP_NAME || "D-Pilot",
     logoUrl: process.env.LOGO_URL || null,
+    lightLogoUrl: process.env.LIGHT_LOGO_URL || null,
     emailDomain: process.env.EMAIL_DOMAIN || null,
   });
 });

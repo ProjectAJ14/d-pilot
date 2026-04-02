@@ -29,7 +29,7 @@ router.post("/", (req: Request, res: Response) => {
     connectionId,
     createdBy: user.sub,
     createdByEmail: user.email,
-    isShared: isShared ?? false,
+    isShared: isShared ?? true,
     tags: tags ?? [],
   });
 

@@ -10,13 +10,13 @@ import {
   Tooltip,
   TextInput,
   Modal,
-  Checkbox,
 } from "@mantine/core";
 import {
   IconPlayerPlay,
   IconDeviceFloppy,
   IconFileExport,
   IconAlignJustified,
+  IconArrowsVertical,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useStore } from "../../store";
@@ -25,6 +25,9 @@ import type { DatabaseType, QueryTab, TableInfo, ColumnInfo } from "../../types"
 
 interface Props {
   tab: QueryTab;
+  height?: number;
+  expanded?: boolean;
+  onToggleHeight?: () => void;
 }
 
 // Cache schema data for autocomplete
@@ -410,13 +413,18 @@ function registerQueryCompletions(monaco: any, connectionId: string, dbType: Dat
   }
 }
 
-export function QueryEditor({ tab }: Props) {
+// Toolbar + padding takes roughly 56px; subtract from total height for the editor area
+const TOOLBAR_HEIGHT = 56;
+
+export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
   const updateTab = useStore((s) => s.updateTab);
   const connections = useStore((s) => s.connections);
   const addSavedQuery = useStore((s) => s.addSavedQuery);
+  const savedQueries = useStore((s) => s.savedQueries);
+  const updateSavedQueryInStore = useStore((s) => s.updateSavedQuery);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
-  const [saveShared, setSaveShared] = useState(true);
+  const [editingSavedId, setEditingSavedId] = useState<string | null>(null);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<any>(null);
 
@@ -450,7 +458,16 @@ export function QueryEditor({ tab }: Props) {
   }, [tab.connectionId, activeConn?.type]);
 
   const handleRun = useCallback(async () => {
-    if (!tab.sql.trim() || !tab.connectionId) {
+    const editor = editorRef.current;
+    const selection = editor?.getSelection();
+    const model = editor?.getModel();
+    const selectedText =
+      selection && model && !selection.isEmpty()
+        ? model.getValueInRange(selection)
+        : "";
+    const sqlToRun = selectedText.trim() || tab.sql.trim();
+
+    if (!sqlToRun || !tab.connectionId) {
       notifications.show({
         message: "Enter a query and select a connection first",
         color: "orange",
@@ -461,7 +478,7 @@ export function QueryEditor({ tab }: Props) {
     updateTab(tab.id, { loading: true, error: null });
 
     try {
-      const result = await api.executeQuery(tab.connectionId, tab.sql);
+      const result = await api.executeQuery(tab.connectionId, sqlToRun);
       updateTab(tab.id, { result, loading: false });
     } catch (err: any) {
       updateTab(tab.id, {
@@ -476,20 +493,49 @@ export function QueryEditor({ tab }: Props) {
   const handleSave = async () => {
     if (!saveName.trim()) return;
     try {
-      const saved = await api.createSavedQuery({
-        name: saveName,
-        sql: tab.sql,
-        connectionId: tab.connectionId,
-        isShared: saveShared,
-        tags: [],
-      });
-      addSavedQuery(saved);
+      if (editingSavedId) {
+        const updated = await api.updateSavedQuery(editingSavedId, {
+          name: saveName,
+          sql: tab.sql,
+          connectionId: tab.connectionId,
+        });
+        updateSavedQueryInStore(updated);
+        notifications.show({ message: "Query updated!", color: "green" });
+      } else {
+        const saved = await api.createSavedQuery({
+          name: saveName,
+          sql: tab.sql,
+          connectionId: tab.connectionId,
+          isShared: true,
+          tags: [],
+        });
+        addSavedQuery(saved);
+        notifications.show({ message: "Query saved!", color: "green" });
+      }
       setSaveModalOpen(false);
       setSaveName("");
-      notifications.show({ message: "Query saved!", color: "green" });
+      setEditingSavedId(null);
     } catch (err: any) {
       notifications.show({ message: err.message, color: "red" });
     }
+  };
+
+  const openSaveAsNew = () => {
+    setEditingSavedId(null);
+    setSaveName("");
+    setSaveModalOpen(true);
+  };
+
+  const openUpdateExisting = () => {
+    const match = savedQueries.find((q) => q.name === tab.title);
+    if (match) {
+      setEditingSavedId(match.id);
+      setSaveName(match.name);
+    } else {
+      setEditingSavedId(null);
+      setSaveName(tab.title.startsWith("Query ") ? "" : tab.title);
+    }
+    setSaveModalOpen(true);
   };
 
   const handleExportCsv = async () => {
@@ -523,7 +569,7 @@ export function QueryEditor({ tab }: Props) {
 
     // Cmd+S / Ctrl+S to save query
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      setSaveModalOpen(true);
+      openUpdateExisting();
     });
 
     const connId = tab.connectionId || "";
@@ -557,6 +603,19 @@ export function QueryEditor({ tab }: Props) {
             padding: "8px 14px",
           }}
         >
+          <Button
+            size="xs"
+            color="green"
+            leftSection={<IconPlayerPlay size={14} />}
+            loading={tab.loading}
+            onClick={handleRun}
+            styles={{
+              root: { fontWeight: 700 },
+            }}
+          >
+            Run
+          </Button>
+
           <Text
             size="xs"
             fw={700}
@@ -577,13 +636,11 @@ export function QueryEditor({ tab }: Props) {
             )}
           </Text>
 
-          {activeConn && (
-            <Badge size="sm" variant="light" color="gray" ff="monospace">
-              {activeConn.name}
-            </Badge>
-          )}
-
-          <div style={{ flex: 1 }} />
+          <Tooltip label={expanded ? "Collapse editor" : "Expand editor"}>
+            <ActionIcon variant="subtle" color="gray" onClick={onToggleHeight}>
+              <IconArrowsVertical size={16} />
+            </ActionIcon>
+          </Tooltip>
 
           <Tooltip label="Format SQL (Ctrl+Shift+F)">
             <ActionIcon variant="subtle" color="gray">
@@ -595,7 +652,7 @@ export function QueryEditor({ tab }: Props) {
             <ActionIcon
               variant="subtle"
               color="gray"
-              onClick={() => setSaveModalOpen(true)}
+              onClick={openUpdateExisting}
             >
               <IconDeviceFloppy size={16} />
             </ActionIcon>
@@ -611,38 +668,19 @@ export function QueryEditor({ tab }: Props) {
             </ActionIcon>
           </Tooltip>
 
-          <Button
-            size="xs"
-            color="green"
-            leftSection={<IconPlayerPlay size={14} />}
-            loading={tab.loading}
-            onClick={handleRun}
-            styles={{
-              root: { fontWeight: 700 },
-            }}
-          >
-            Run
-            <Text
-              component="span"
-              size="xs"
-              ff="monospace"
-              ml={6}
-              style={{
-                background: "rgba(0,0,0,0.2)",
-                padding: "1px 5px",
-                borderRadius: 3,
-                fontSize: 9,
-              }}
-            >
-              ⌘↵
-            </Text>
-          </Button>
+          <div style={{ flex: 1 }} />
+
+          {activeConn && (
+            <Badge size="sm" variant="light" color="gray" ff="monospace">
+              {activeConn.name}
+            </Badge>
+          )}
         </div>
 
         {/* Monaco Editor */}
         <div style={{ margin: "0 14px 12px", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
           <Editor
-            height="150px"
+            height={height ? `${Math.max(60, height - TOOLBAR_HEIGHT)}px` : "150px"}
             language={monacoLanguageForDb(activeConn?.type ?? null)}
             theme="vs"
             value={tab.sql}
@@ -687,8 +725,8 @@ export function QueryEditor({ tab }: Props) {
       {/* Save Query Modal */}
       <Modal
         opened={saveModalOpen}
-        onClose={() => setSaveModalOpen(false)}
-        title="Save Query"
+        onClose={() => { setSaveModalOpen(false); setEditingSavedId(null); }}
+        title={editingSavedId ? "Update Query" : "Save Query"}
         size="sm"
       >
         <TextInput
@@ -696,19 +734,13 @@ export function QueryEditor({ tab }: Props) {
           placeholder="e.g., Patient orders with missing kits"
           value={saveName}
           onChange={(e) => setSaveName(e.currentTarget.value)}
-          mb="sm"
-        />
-        <Checkbox
-          label="Share with team"
-          checked={saveShared}
-          onChange={(e) => setSaveShared(e.currentTarget.checked)}
           mb="md"
         />
         <Group justify="flex-end">
-          <Button variant="subtle" onClick={() => setSaveModalOpen(false)}>
+          <Button variant="subtle" onClick={() => { setSaveModalOpen(false); setEditingSavedId(null); }}>
             Cancel
           </Button>
-          <Button onClick={handleSave}>Save</Button>
+          <Button onClick={handleSave}>{editingSavedId ? "Update" : "Save"}</Button>
         </Group>
       </Modal>
     </>
