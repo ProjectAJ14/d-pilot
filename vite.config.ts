@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tsconfigPaths()],
     server: {
       port: clientPort,
+      host: true,
       proxy: {
         "/api": {
           target: `http://localhost:${serverPort}`,

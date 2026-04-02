@@ -75,11 +75,11 @@ if (process.env.NODE_ENV === "production") {
 initDatabase();
 initAuthTables();
 
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`
   ╔══════════════════════════════════════════╗
   ║   BG D-Pilot — Internal Query Tool      ║
-  ║   Running on http://localhost:${PORT}        ║
+  ║   Running on http://0.0.0.0:${PORT}        ║
   ║   PHI Masking: ENABLED                   ║
   ║   Auth: Local JWT                        ║
   ╚══════════════════════════════════════════╝
