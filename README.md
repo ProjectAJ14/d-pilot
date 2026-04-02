@@ -165,9 +165,7 @@ cp /path/to/Barlow-*.ttf public/fonts/Barlow/
 
 > These directories are gitignored — they won't be pushed back to the repo.
 
-### 5. Run as a Background Service
-
-#### Option A: systemd (recommended for Linux)
+### 5. Run as a Background Service (systemd)
 
 Create `/etc/systemd/system/d-pilot.service`:
 
@@ -189,6 +187,14 @@ Environment=NODE_ENV=production
 WantedBy=multi-user.target
 ```
 
+Ensure the `www-data` user owns the application directory:
+
+```bash
+sudo chown -R www-data:www-data /opt/d-pilot
+```
+
+Enable and start:
+
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable d-pilot
@@ -199,24 +205,6 @@ sudo systemctl status d-pilot
 
 # View logs
 sudo journalctl -u d-pilot -f
-```
-
-#### Option B: pm2
-
-```bash
-npm install -g pm2
-
-cd /opt/d-pilot
-pm2 start dist/server/index.js --name d-pilot
-pm2 save
-pm2 startup    # generates system startup script
-```
-
-```bash
-# Useful commands
-pm2 status
-pm2 logs d-pilot
-pm2 restart d-pilot
 ```
 
 ### 6. Reverse Proxy (Optional but Recommended)

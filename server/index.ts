@@ -64,7 +64,7 @@ app.use("/api/users", userRoutes);
 
 // Serve static frontend in production
 if (process.env.NODE_ENV === "production") {
-  const clientDir = path.join(__dirname, "../dist/client");
+  const clientDir = path.join(__dirname, "../client");
   app.use(express.static(clientDir));
   app.get("*", (_req, res) => {
     res.sendFile(path.join(clientDir, "index.html"));
