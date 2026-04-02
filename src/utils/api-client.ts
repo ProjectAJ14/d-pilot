@@ -26,16 +26,16 @@ async function request<T>(
     headers,
   });
 
-  if (res.status === 401) {
-    // Token expired or invalid — clear and redirect to login
-    localStorage.removeItem("dbpilot_token");
-    localStorage.removeItem("dbpilot_user");
-    window.location.reload();
-    throw new Error("Session expired");
-  }
-
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
+
+    if (res.status === 401 && token) {
+      // Token expired — logout via store so React re-renders to login screen
+      const { useStore } = await import("../store");
+      useStore.getState().logout();
+      throw new Error("Session expired");
+    }
+
     throw new Error(body.error || `Request failed: ${res.status}`);
   }
 
