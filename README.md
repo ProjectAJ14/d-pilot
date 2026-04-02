@@ -46,13 +46,12 @@ By default, the dev client runs at `http://localhost:3100` and the server at `ht
 
 ### Changing ports
 
-| Port | Where to change | Default |
-|------|----------------|---------|
-| Server | `PORT` in `.env` | `3101` |
-| Dev client | `server.port` in `vite.config.ts` | `3100` |
-| API proxy target | `server.proxy["/api"].target` in `vite.config.ts` | `http://localhost:3101` |
+Both ports are configured in `.env`:
 
-If you change the server port, update the proxy target in `vite.config.ts` to match.
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `PORT` | Server port (also used as proxy target in dev) | `3101` |
+| `VITE_PORT` | Dev client port (defaults to `PORT - 1` if not set) | `3100` |
 
 ## Configuration
 
@@ -61,6 +60,7 @@ Copy `.env.example` to `.env` and set the following:
 ```env
 # Server
 PORT=3101
+VITE_PORT=3100
 NODE_ENV=production
 
 # JWT — CHANGE THIS to a random string (e.g. openssl rand -hex 32)
