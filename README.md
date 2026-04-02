@@ -42,7 +42,8 @@ npm run build
 npm start
 ```
 
-The app runs at `http://localhost:3101` by default.
+Dev server runs at `http://localhost:3100` (client) with API proxied to `http://localhost:3101` (server).
+In production, the app is served at `http://localhost:3101`.
 
 ## Configuration
 
