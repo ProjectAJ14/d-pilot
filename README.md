@@ -42,8 +42,17 @@ npm run build
 npm start
 ```
 
-Dev server runs at `http://localhost:3100` (client) with API proxied to `http://localhost:3101` (server).
-In production, the app is served at `http://localhost:3101`.
+By default, the dev client runs at `http://localhost:3100` and the server at `http://localhost:3101`.
+
+### Changing ports
+
+| Port | Where to change | Default |
+|------|----------------|---------|
+| Server | `PORT` in `.env` | `3101` |
+| Dev client | `server.port` in `vite.config.ts` | `3100` |
+| API proxy target | `server.proxy["/api"].target` in `vite.config.ts` | `http://localhost:3101` |
+
+If you change the server port, update the proxy target in `vite.config.ts` to match.
 
 ## Configuration
 
