@@ -1,0 +1,14 @@
+node_modules/
+dist/
+data/
+.env
+*.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+.DS_Store
+.idea/
+.vscode/
+*.log
+public/logo/
+public/fonts/
