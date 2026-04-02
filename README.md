@@ -1,36 +1,52 @@
-# D-Pilot — Deployment Guide
+# D-Pilot
 
-This guide covers deploying D-Pilot on a server accessible via IP address.
+Internal SQL explorer with built-in PHI masking, multi-database support, and role-based access control.
 
----
+## Features
 
-## Prerequisites
+- **Multi-database support** — PostgreSQL, SQL Server, MongoDB, Elasticsearch
+- **PHI masking** — Automatic detection and masking of protected health information with configurable rules
+- **Monaco SQL editor** — Syntax highlighting, autocompletion, and multi-tab query workspace
+- **Schema browser** — Explore tables, columns, and relationships across connections
+- **Saved queries** — Save, organize, and share frequently used queries
+- **Export** — Download query results in multiple formats
+- **Audit logging** — Track all query executions and data access
+- **Role-based access** — Admin and user roles with configurable permissions
+- **White-label branding** — Custom logo, app name, and fonts via environment variables
 
-- **Node.js** >= 20.x (`node -v` to check)
-- **npm** >= 10.x
-- **Git** (to clone the repo)
-- Network access from the server to your database hosts (PostgreSQL, SQL Server, MongoDB, Elasticsearch)
+## Tech Stack
 
----
+| Layer | Technology |
+|-------|------------|
+| Frontend | React 19, TypeScript, Vite, Mantine UI v8, Monaco Editor, AG Grid |
+| Backend | Node.js, Express, TypeScript |
+| App Database | SQLite (via better-sqlite3) |
+| State Management | Zustand |
+| Auth | JWT (bcrypt + jsonwebtoken) |
 
-## 1. Clone & Install
+## Quick Start
 
 ```bash
-git clone <repo-url> /opt/d-pilot
-cd /opt/d-pilot
+# Install dependencies
 npm install
-```
 
----
-
-## 2. Configure Environment
-
-```bash
+# Copy and configure environment
 cp .env.example .env
-nano .env    # or vi, your choice
+# Edit .env with your settings (see Configuration below)
+
+# Development (hot-reload client + server)
+npm run dev
+
+# Production build
+npm run build
+npm start
 ```
 
-### Required settings:
+The app runs at `http://localhost:3101` by default.
+
+## Configuration
+
+Copy `.env.example` to `.env` and set the following:
 
 ```env
 # Server
@@ -76,7 +92,7 @@ MAX_ROWS=10000
 QUERY_TIMEOUT_MS=30000
 ```
 
-### Connection types supported:
+### Supported connection types
 
 | Type | Required fields |
 |------|----------------|
@@ -85,29 +101,25 @@ QUERY_TIMEOUT_MS=30000
 | `mongodb` | uri (full connection string) |
 | `elasticsearch` | host, port, username, password, schema (`http` or `https`) |
 
----
+## First-Run Behavior
 
-## 3. Add Brand Assets (Optional)
-
-If you set `LOGO_URL=/logo/your-logo.svg`, place the file at:
-
-```bash
-mkdir -p public/logo
-cp /path/to/your-logo.svg public/logo/your-logo.svg
-```
-
-For custom fonts (e.g. Barlow), place them in:
-
-```bash
-mkdir -p public/fonts/Barlow
-cp /path/to/Barlow-*.ttf public/fonts/Barlow/
-```
-
-> These directories are gitignored — they won't be pushed back to the repo.
+- SQLite database created at `data/dbpilot.sqlite`
+- Default admin user seeded: `admin@<EMAIL_DOMAIN>` with `DEFAULT_ADMIN_PASSWORD`
+- 24 default PHI masking rules seeded
 
 ---
 
-## 4. Build
+## Deployment
+
+### 1. Clone & Install
+
+```bash
+git clone <repo-url> /opt/d-pilot
+cd /opt/d-pilot
+npm install
+```
+
+### 2. Build
 
 ```bash
 npm run build
@@ -117,9 +129,7 @@ This produces:
 - `dist/client/` — optimized frontend (HTML, JS, CSS)
 - `dist/server/` — compiled backend
 
----
-
-## 5. Run
+### 3. Run
 
 ```bash
 npm start
@@ -127,16 +137,27 @@ npm start
 
 The app will be available at `http://<server-ip>:3101`.
 
-### First-run behavior:
-- SQLite database created at `data/dbpilot.sqlite`
-- Default admin user seeded: `admin@<EMAIL_DOMAIN>` with `DEFAULT_ADMIN_PASSWORD`
-- 24 default PHI masking rules seeded
+### 4. Brand Assets (Optional)
 
----
+If you set `LOGO_URL=/logo/your-logo.svg`, place the file at:
 
-## 6. Run as a Background Service
+```bash
+mkdir -p public/logo
+cp /path/to/your-logo.svg public/logo/your-logo.svg
+```
 
-### Option A: systemd (recommended for Linux)
+For custom fonts (e.g. Barlow):
+
+```bash
+mkdir -p public/fonts/Barlow
+cp /path/to/Barlow-*.ttf public/fonts/Barlow/
+```
+
+> These directories are gitignored — they won't be pushed back to the repo.
+
+### 5. Run as a Background Service
+
+#### Option A: systemd (recommended for Linux)
 
 Create `/etc/systemd/system/d-pilot.service`:
 
@@ -170,7 +191,7 @@ sudo systemctl status d-pilot
 sudo journalctl -u d-pilot -f
 ```
 
-### Option B: pm2
+#### Option B: pm2
 
 ```bash
 npm install -g pm2
@@ -188,9 +209,7 @@ pm2 logs d-pilot
 pm2 restart d-pilot
 ```
 
----
-
-## 7. Reverse Proxy (Optional but Recommended)
+### 6. Reverse Proxy (Optional but Recommended)
 
 To serve on port 80/443 or add SSL, put Nginx in front.
 
@@ -224,18 +243,14 @@ sudo systemctl restart nginx
 
 Now accessible at `http://<server-ip>` (port 80).
 
-### Adding SSL with Let's Encrypt (if you have a domain):
+#### Adding SSL with Let's Encrypt (if you have a domain):
 
 ```bash
 sudo apt install certbot python3-certbot-nginx
 sudo certbot --nginx -d your-domain.com
 ```
 
----
-
-## 8. Firewall
-
-Open the required port:
+### 7. Firewall
 
 ```bash
 # If using Nginx (port 80/443)
@@ -245,8 +260,6 @@ sudo ufw allow 443/tcp
 # If accessing Node directly (port 3101)
 sudo ufw allow 3101/tcp
 ```
-
----
 
 ## Updating
 
@@ -264,8 +277,6 @@ pm2 restart d-pilot               # pm2
 
 > The SQLite database (`data/dbpilot.sqlite`) persists across updates. Users, saved queries, PHI rules, and audit logs are preserved.
 
----
-
 ## Backup
 
 The only stateful file is `data/dbpilot.sqlite`. Back it up regularly:
@@ -273,8 +284,6 @@ The only stateful file is `data/dbpilot.sqlite`. Back it up regularly:
 ```bash
 cp data/dbpilot.sqlite data/dbpilot-backup-$(date +%Y%m%d).sqlite
 ```
-
----
 
 ## Troubleshooting
 
