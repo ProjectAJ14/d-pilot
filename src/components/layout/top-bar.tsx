@@ -7,6 +7,7 @@ import {
   IconUser,
   IconLogout,
   IconKey,
+  IconFileText,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useNavigate } from "react-router-dom";
@@ -46,9 +47,10 @@ export function TopBar() {
   const logout = useStore((s) => s.logout);
 
   const navigate = useNavigate();
-  const { appName, logoUrl } = useStore((s) => s.config);
+  const { appName, logoUrl, phiMaskedEnvironments } = useStore((s) => s.config);
   const activeConn = connections.find((c) => c.id === activeConnectionId);
-  const isProdOrStg = activeConn?.env === "PROD" || activeConn?.env === "STG";
+  const maskedEnvs = phiMaskedEnvironments || ["PROD"];
+  const isEnvMasked = activeConn ? maskedEnvs.includes(activeConn.env) : false;
 
   const handlePhiToggle = () => {
     if (!phiEnabled) {
@@ -57,15 +59,15 @@ export function TopBar() {
       return;
     }
 
-    if (!user?.isAdmin) {
+    if (!user?.canUnmaskPhi) {
       notifications.show({
-        message: "Only ADMIN can de-tokenize PHI",
+        message: "PHI de-tokenization requires admin or phi_viewer role",
         color: "red",
       });
       return;
     }
 
-    if (isProdOrStg) {
+    if (isEnvMasked) {
       PhiUnmaskModal.open();
     } else {
       setPhi(false);
@@ -164,7 +166,7 @@ export function TopBar() {
                       : undefined
                   }
                   rightSection={
-                    (conn.env === "PROD" || conn.env === "STG") ? (
+                    maskedEnvs.includes(conn.env) ? (
                       <IconShieldLock size={12} color="var(--token)" />
                     ) : null
                   }
@@ -277,11 +279,11 @@ export function TopBar() {
             <Text fw={600} size="sm">{user?.name || user?.username}</Text>
             <Badge
               size="xs"
-              color={user?.isAdmin ? "red" : "blue"}
+              color={user?.isAdmin ? "red" : user?.role === "phi_viewer" ? "orange" : "blue"}
               variant="light"
               mt={5}
             >
-              {user?.role?.toUpperCase()}
+              {user?.role === "phi_viewer" ? "PHI VIEWER" : user?.role?.toUpperCase()}
             </Badge>
           </div>
           <Menu.Item leftSection={<IconUser size={14} />} onClick={() => navigate("/profile")}>
@@ -290,6 +292,11 @@ export function TopBar() {
           {user?.isAdmin && (
             <Menu.Item leftSection={<IconSettings size={14} />} onClick={() => navigate("/settings")}>
               Settings
+            </Menu.Item>
+          )}
+          {user?.isAdmin && (
+            <Menu.Item leftSection={<IconFileText size={14} />} onClick={() => navigate("/settings?tab=audit")}>
+              Audit Log
             </Menu.Item>
           )}
           <Menu.Item

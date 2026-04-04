@@ -75,6 +75,8 @@ export interface AuditEntry {
   executionMs?: number;
   phiAccessed: boolean;
   phiFieldsUnmasked?: string[];
+  phiUnmaskReason?: string;
+  phiUnmaskNotes?: string;
   timestamp: string;
 }
 
@@ -101,4 +103,5 @@ export interface AuthUser {
   name?: string;
   roles: string[];
   isAdmin: boolean;
+  canUnmaskPhi: boolean;
 }

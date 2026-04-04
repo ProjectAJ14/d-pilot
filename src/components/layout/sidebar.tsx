@@ -47,6 +47,8 @@ export function Sidebar() {
   const updateTab = useStore((s) => s.updateTab);
   const activeTabId = useStore((s) => s.activeTabId);
   const addTab = useStore((s) => s.addTab);
+  const phiMaskedEnvironments = useStore((s) => s.config.phiMaskedEnvironments);
+  const maskedEnvLabel = (phiMaskedEnvironments || ["PROD"]).join(" + ");
 
   const [activeSection, setActiveSection] = useState<"explorer" | "saved" | "history">("explorer");
   const [history, setHistory] = useState<any[]>([]);
@@ -56,7 +58,9 @@ export function Sidebar() {
   const [tables, setTables] = useState<Record<string, TableInfo[]>>({});
   const [columns, setColumns] = useState<Record<string, ColumnInfo[]>>({});
   const [expandedTable, setExpandedTable] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const [explorerSearch, setExplorerSearch] = useState("");
+  const [savedSearch, setSavedSearch] = useState("");
+  const [historySearch, setHistorySearch] = useState("");
   const [loadingConn, setLoadingConn] = useState<string | null>(null);
   const [loadingTable, setLoadingTable] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -227,11 +231,16 @@ export function Sidebar() {
       {/* Search */}
       <div style={{ padding: "10px 12px 6px" }}>
         <TextInput
-          placeholder={activeSection === "explorer" ? "Search tables..." : "Search saved queries..."}
+          placeholder={activeSection === "explorer" ? "Search tables..." : activeSection === "saved" ? "Search saved queries..." : "Search history..."}
           size="xs"
           leftSection={<IconSearch size={14} color="var(--muted)" />}
-          value={search}
-          onChange={(e) => setSearch(e.currentTarget.value)}
+          value={activeSection === "explorer" ? explorerSearch : activeSection === "saved" ? savedSearch : historySearch}
+          onChange={(e) => {
+            const v = e.currentTarget.value;
+            if (activeSection === "explorer") setExplorerSearch(v);
+            else if (activeSection === "saved") setSavedSearch(v);
+            else setHistorySearch(v);
+          }}
           styles={{
             input: {
               background: "#ffffff",
@@ -354,7 +363,7 @@ export function Sidebar() {
                           {expandedConn === conn.id && tables[conn.id] && (
                             <div style={{ paddingLeft: 14, paddingBottom: 4 }}>
                               {tables[conn.id]
-                                .filter((t) => !search || t.name.toLowerCase().includes(search.toLowerCase()))
+                                .filter((t) => !explorerSearch || t.name.toLowerCase().includes(explorerSearch.toLowerCase()))
                                 .map((table) => {
                                   const tableKey = `${conn.id}:${table.name}`;
                                   const isTableHovered = hovered === `table-${tableKey}`;
@@ -458,8 +467,8 @@ export function Sidebar() {
           <div style={{ padding: "4px 8px" }}>
             {savedQueries
               .filter((q) =>
-                q.name.toLowerCase().includes(search.toLowerCase()) ||
-                q.sql.toLowerCase().includes(search.toLowerCase())
+                q.name.toLowerCase().includes(savedSearch.toLowerCase()) ||
+                q.sql.toLowerCase().includes(savedSearch.toLowerCase())
               )
               .map((query) => {
                 const isQueryHovered = hovered === `query-${query.id}`;
@@ -523,7 +532,7 @@ export function Sidebar() {
         {activeSection === "history" && (
           <div style={{ padding: "4px 8px" }}>
             {history
-              .filter((h) => !search || h.sql?.toLowerCase().includes(search.toLowerCase()))
+              .filter((h) => !historySearch || h.sql?.toLowerCase().includes(historySearch.toLowerCase()))
               .map((entry) => {
                 const isEntryHovered = hovered === `hist-${entry.id}`;
                 return (
@@ -604,7 +613,7 @@ export function Sidebar() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--accent)" }}>
           <IconShieldLock size={10} style={{ flexShrink: 0 }} />
-          PHI tokenized on PROD + STG
+          PHI tokenized on {maskedEnvLabel}
         </div>
       </div>
     </div>

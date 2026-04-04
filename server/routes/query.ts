@@ -2,8 +2,8 @@ import { Router, Request, Response } from "express";
 import { getConnection } from "../config/connections.js";
 import { validateQuery, executeQuery } from "../services/query-executor.js";
 import { maskQueryResults } from "../services/phi-masking.js";
-import { logAudit, getQueryHistory } from "../services/sqlite-store.js";
-import type { QueryRequest, QueryResult } from "../types/index.js";
+import { logAudit, getQueryHistory, getPhiMaskedEnvs } from "../services/sqlite-store.js";
+import type { QueryRequest, QueryResult, Environment } from "../types/index.js";
 
 const router = Router();
 
@@ -32,8 +32,33 @@ router.post("/execute", async (req: Request, res: Response) => {
   try {
     const rawResult = await executeQuery(conn, sql);
 
-    // Apply PHI masking
-    const phiEnabled = req.headers["x-phi-shield"] !== "off";
+    // Server-side PHI enforcement
+    const maskedEnvs = getPhiMaskedEnvs();
+    const envRequiresMasking = maskedEnvs.includes(conn.env as Environment);
+    const clientRequestsUnmask = req.headers["x-phi-shield"] === "off";
+    const unmaskReason = req.headers["x-phi-unmask-reason"] as string | undefined;
+    const unmaskNotes = req.headers["x-phi-unmask-notes"] as string | undefined;
+
+    let phiEnabled = true; // default: masked
+    if (clientRequestsUnmask) {
+      if (!user.canUnmaskPhi) {
+        // Unauthorized unmask attempt — silently ignore, keep masked, log denial
+        logAudit({
+          userId: user.sub,
+          userEmail: user.email,
+          action: "PHI_UNMASK_DENIED",
+          connectionId,
+          phiAccessed: false,
+        });
+      } else if (envRequiresMasking && !unmaskReason) {
+        // Masked env requires a reason — keep masked
+        phiEnabled = true;
+      } else {
+        // User has permission — unmask
+        phiEnabled = false;
+      }
+    }
+
     const { maskedRows, maskedColumns, maskedFieldNames } = maskQueryResults(
       rawResult.columns,
       rawResult.rows,
@@ -66,6 +91,8 @@ router.post("/execute", async (req: Request, res: Response) => {
       executionMs: rawResult.executionTimeMs,
       phiAccessed: !phiEnabled && maskedFieldNames.length > 0,
       phiFieldsUnmasked: !phiEnabled ? maskedFieldNames : [],
+      phiUnmaskReason: !phiEnabled ? unmaskReason : undefined,
+      phiUnmaskNotes: !phiEnabled ? unmaskNotes : undefined,
     });
 
     res.json(result);

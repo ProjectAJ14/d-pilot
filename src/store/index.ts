@@ -8,6 +8,7 @@ interface AuthUser {
   name: string;
   role: string;
   isAdmin: boolean;
+  canUnmaskPhi: boolean;
 }
 
 interface AppConfig {
@@ -15,6 +16,7 @@ interface AppConfig {
   logoUrl: string | null;
   lightLogoUrl: string | null;
   emailDomain: string | null;
+  phiMaskedEnvironments: string[];
 }
 
 interface AppState {
@@ -85,7 +87,7 @@ const initialTab = createTab();
 
 export const useStore = create<AppState>((set, get) => ({
   // Config
-  config: { appName: "D-Pilot", logoUrl: null, lightLogoUrl: null, emailDomain: null },
+  config: { appName: "D-Pilot", logoUrl: null, lightLogoUrl: null, emailDomain: null, phiMaskedEnvironments: ["PROD"] },
   setConfig: (config) => set({ config }),
 
   // Auth
@@ -157,6 +159,10 @@ export const useStore = create<AppState>((set, get) => ({
     }),
   setPhi: (enabled) => {
     localStorage.setItem("phi_shield", enabled ? "on" : "off");
+    if (enabled) {
+      localStorage.removeItem("phi_unmask_reason");
+      localStorage.removeItem("phi_unmask_notes");
+    }
     set({ phiEnabled: enabled });
   },
 

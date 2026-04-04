@@ -145,7 +145,7 @@ This produces:
 npm start
 ```
 
-The app will be available at `http://<server-ip>:3101`.
+The app will be available at `http://<server-ip>:<PORT>` (default `3101`, configurable via `.env`).
 
 ### 4. Brand Assets (Optional)
 

@@ -86,7 +86,7 @@ export interface User {
   username: string;
   email: string;
   displayName: string;
-  role: "admin" | "read";
+  role: "admin" | "phi_viewer" | "read";
   createdAt: string;
   lastLogin?: string;
 }

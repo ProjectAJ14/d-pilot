@@ -2,7 +2,19 @@ import { Router, Request, Response } from "express";
 import { getConnection } from "../config/connections.js";
 import { validateQuery, executeQuery } from "../services/query-executor.js";
 import { maskQueryResults } from "../services/phi-masking.js";
-import { logAudit } from "../services/sqlite-store.js";
+import { logAudit, getPhiMaskedEnvs } from "../services/sqlite-store.js";
+import type { Environment } from "../types/index.js";
+
+function resolvePhiEnabled(req: Request, connEnv: string): boolean {
+  const maskedEnvs = getPhiMaskedEnvs();
+  const envRequiresMasking = maskedEnvs.includes(connEnv as Environment);
+  const clientRequestsUnmask = req.headers["x-phi-shield"] === "off";
+
+  if (!clientRequestsUnmask) return true; // masked
+  if (!req.user!.canUnmaskPhi) return true; // unauthorized, keep masked
+  if (envRequiresMasking && !req.headers["x-phi-unmask-reason"]) return true; // no reason
+  return false; // allowed to unmask
+}
 
 const router = Router();
 
@@ -29,7 +41,7 @@ router.post("/csv", async (req: Request, res: Response) => {
 
   try {
     const rawResult = await executeQuery(conn, sql);
-    const phiEnabled = req.headers["x-phi-shield"] !== "off";
+    const phiEnabled = resolvePhiEnabled(req, conn.env);
     const { maskedRows, maskedColumns } = maskQueryResults(
       rawResult.columns,
       rawResult.rows,
@@ -60,6 +72,8 @@ router.post("/csv", async (req: Request, res: Response) => {
       connectionId,
       rowsReturned: maskedRows.length,
       phiAccessed: !phiEnabled,
+      phiUnmaskReason: !phiEnabled ? (req.headers["x-phi-unmask-reason"] as string) : undefined,
+      phiUnmaskNotes: !phiEnabled ? (req.headers["x-phi-unmask-notes"] as string) : undefined,
     });
 
     res.setHeader("Content-Type", "text/csv");
@@ -93,7 +107,7 @@ router.post("/json", async (req: Request, res: Response) => {
 
   try {
     const rawResult = await executeQuery(conn, sql);
-    const phiEnabled = req.headers["x-phi-shield"] !== "off";
+    const phiEnabled = resolvePhiEnabled(req, conn.env);
     const { maskedRows } = maskQueryResults(
       rawResult.columns,
       rawResult.rows,
@@ -108,6 +122,8 @@ router.post("/json", async (req: Request, res: Response) => {
       connectionId,
       rowsReturned: maskedRows.length,
       phiAccessed: !phiEnabled,
+      phiUnmaskReason: !phiEnabled ? (req.headers["x-phi-unmask-reason"] as string) : undefined,
+      phiUnmaskNotes: !phiEnabled ? (req.headers["x-phi-unmask-notes"] as string) : undefined,
     });
 
     res.setHeader("Content-Type", "application/json");

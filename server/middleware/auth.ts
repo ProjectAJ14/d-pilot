@@ -20,18 +20,55 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "24h";
 
 export function initAuthTables(): void {
   const db = getDb();
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      username TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      email TEXT,
-      display_name TEXT,
-      role TEXT NOT NULL DEFAULT 'read' CHECK(role IN ('admin', 'read')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      last_login TEXT
-    );
-  `);
+
+  // Check if users table exists and needs migration for phi_viewer role
+  const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();
+  if (tableExists) {
+    // Test if phi_viewer is accepted — if not, migrate
+    let needsMigration = false;
+    try {
+      db.exec("SAVEPOINT role_check");
+      db.prepare("INSERT INTO users (id, username, password_hash, role) VALUES ('__test__', '__test__', '__test__', 'phi_viewer')").run();
+      db.prepare("DELETE FROM users WHERE id = '__test__'").run();
+      db.exec("RELEASE SAVEPOINT role_check");
+    } catch {
+      db.exec("ROLLBACK TO SAVEPOINT role_check");
+      db.exec("RELEASE SAVEPOINT role_check");
+      needsMigration = true;
+    }
+
+    if (needsMigration) {
+      db.exec(`
+        CREATE TABLE users_new (
+          id TEXT PRIMARY KEY,
+          username TEXT UNIQUE NOT NULL,
+          password_hash TEXT NOT NULL,
+          email TEXT,
+          display_name TEXT,
+          role TEXT NOT NULL DEFAULT 'read' CHECK(role IN ('admin', 'phi_viewer', 'read')),
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          last_login TEXT
+        );
+        INSERT INTO users_new SELECT * FROM users;
+        DROP TABLE users;
+        ALTER TABLE users_new RENAME TO users;
+      `);
+      console.log("Migrated users table to support phi_viewer role");
+    }
+  } else {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        email TEXT,
+        display_name TEXT,
+        role TEXT NOT NULL DEFAULT 'read' CHECK(role IN ('admin', 'phi_viewer', 'read')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        last_login TEXT
+      );
+    `);
+  }
 
   // Migrate legacy 'viewer' role to 'read'
   db.prepare("UPDATE users SET role = 'read' WHERE role = 'viewer'").run();
@@ -93,6 +130,7 @@ export function handleLogin(req: Request, res: Response): void {
       name: user.display_name,
       role: user.role,
       isAdmin: user.role === "admin",
+      canUnmaskPhi: user.role === "admin" || user.role === "phi_viewer",
     },
   });
 }
@@ -100,7 +138,21 @@ export function handleLogin(req: Request, res: Response): void {
 // --- Get current user ---
 
 export function handleMe(req: Request, res: Response): void {
-  res.json(req.user);
+  const db = getDb();
+  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user!.sub) as any;
+  if (!user) {
+    res.json(req.user);
+    return;
+  }
+  res.json({
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    name: user.display_name,
+    role: user.role,
+    isAdmin: user.role === "admin",
+    canUnmaskPhi: user.role === "admin" || user.role === "phi_viewer",
+  });
 }
 
 // --- Change password ---
@@ -154,6 +206,7 @@ export function handleUpdateProfile(req: Request, res: Response): void {
     displayName: updated.display_name,
     role: updated.role,
     isAdmin: updated.role === "admin",
+    canUnmaskPhi: updated.role === "admin" || updated.role === "phi_viewer",
   });
 }
 
@@ -178,6 +231,7 @@ export function authMiddleware() {
         name: payload.name,
         roles: [payload.role],
         isAdmin: payload.role === "admin",
+        canUnmaskPhi: payload.role === "admin" || payload.role === "phi_viewer",
       };
 
       next();

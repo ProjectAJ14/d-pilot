@@ -54,7 +54,8 @@ router.post("/", (req: Request, res: Response) => {
     return;
   }
 
-  const userRole = role === "admin" ? "admin" : "read";
+  const validRoles = ["admin", "phi_viewer", "read"];
+  const userRole = validRoles.includes(role) ? role : "read";
 
   const db = getDb();
 
@@ -108,8 +109,8 @@ router.put("/:id", (req: Request, res: Response) => {
   }
 
   if (role !== undefined) {
-    if (role !== "admin" && role !== "read") {
-      res.status(400).json({ error: "Role must be 'admin' or 'read'" });
+    if (!["admin", "phi_viewer", "read"].includes(role)) {
+      res.status(400).json({ error: "Role must be 'admin', 'phi_viewer', or 'read'" });
       return;
     }
     updates.push("role = ?");

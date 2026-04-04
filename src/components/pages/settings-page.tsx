@@ -24,6 +24,10 @@ import {
   IconTrash,
   IconArrowLeft,
   IconKey,
+  IconCheck,
+  IconFileText,
+  IconAlertTriangle,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useStore } from "../../store";
@@ -66,7 +70,7 @@ export function SettingsPage() {
         Settings
       </Text>
       <Text size="sm" c="dimmed" mb="lg">
-        Manage users, roles, and PHI tokenization rules
+        Manage users, roles, PHI tokenization rules, and audit logs
       </Text>
 
       <Tabs
@@ -80,6 +84,9 @@ export function SettingsPage() {
           <Tabs.Tab value="phi" leftSection={<IconShieldLock size={14} />}>
             PHI Tokenization
           </Tabs.Tab>
+          <Tabs.Tab value="audit" leftSection={<IconFileText size={14} />}>
+            Audit Log
+          </Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="users">
@@ -88,6 +95,10 @@ export function SettingsPage() {
 
         <Tabs.Panel value="phi">
           <PhiManagementTab />
+        </Tabs.Panel>
+
+        <Tabs.Panel value="audit">
+          <AuditLogTab />
         </Tabs.Panel>
       </Tabs>
     </div>
@@ -166,10 +177,10 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
                 <Table.Td>
                   <Badge
                     size="sm"
-                    color={u.role === "admin" ? "red" : "primary"}
+                    color={u.role === "admin" ? "red" : u.role === "phi_viewer" ? "orange" : "primary"}
                     variant="light"
                   >
-                    {u.role.toUpperCase()}
+                    {u.role === "phi_viewer" ? "PHI VIEWER" : u.role.toUpperCase()}
                   </Badge>
                 </Table.Td>
                 <Table.Td>
@@ -312,7 +323,8 @@ function AddUserModal({ opened, onClose, onSuccess, emailDomain }: { opened: boo
       <Select
         label="Role"
         data={[
-          { value: "read", label: "Read — View queries, cannot modify settings" },
+          { value: "read", label: "Read — View queries, cannot unmask PHI" },
+          { value: "phi_viewer", label: "PHI Viewer — Can unmask PHI on permitted environments" },
           { value: "admin", label: "Admin — Full access to all features" },
         ]}
         value={role}
@@ -337,7 +349,7 @@ function AddUserModal({ opened, onClose, onSuccess, emailDomain }: { opened: boo
 }
 
 function EditUserModal({ user, onClose, onSuccess }: { user: User | null; onClose: () => void; onSuccess: () => void }) {
-  const [role, setRole] = useState(user?.role || "read");
+  const [role, setRole] = useState<string>(user?.role || "read");
   const [displayName, setDisplayName] = useState(user?.displayName || "");
   const [saving, setSaving] = useState(false);
 
@@ -381,7 +393,8 @@ function EditUserModal({ user, onClose, onSuccess }: { user: User | null; onClos
       <Select
         label="Role"
         data={[
-          { value: "read", label: "Read — View queries, cannot modify settings" },
+          { value: "read", label: "Read — View queries, cannot unmask PHI" },
+          { value: "phi_viewer", label: "PHI Viewer — Can unmask PHI on permitted environments" },
           { value: "admin", label: "Admin — Full access to all features" },
         ]}
         value={role}
@@ -476,11 +489,18 @@ function ResetPasswordModal({ user, onClose }: { user: User | null; onClose: () 
 // ── PHI Management Tab ──
 // ═══════════════════════════════════════
 
+const ENV_OPTIONS = ["PROD", "STG", "QA", "DEV"] as const;
+const ENV_COLORS: Record<string, string> = { PROD: "red", STG: "orange", QA: "violet", DEV: "green" };
+
 function PhiManagementTab() {
   const [rules, setRules] = useState<PhiFieldRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [deleteRule, setDeleteRule] = useState<PhiFieldRule | null>(null);
+  const [maskedEnvs, setMaskedEnvs] = useState<string[]>([]);
+  const [envSaving, setEnvSaving] = useState(false);
+  const setConfig = useStore((s) => s.setConfig);
+  const config = useStore((s) => s.config);
 
   const loadRules = async () => {
     setLoading(true);
@@ -494,7 +514,34 @@ function PhiManagementTab() {
     }
   };
 
-  useEffect(() => { loadRules(); }, []);
+  const loadMaskedEnvs = async () => {
+    try {
+      const data = await api.getMaskedEnvironments();
+      setMaskedEnvs(data.environments);
+    } catch (err: any) {
+      notifications.show({ message: err.message, color: "red" });
+    }
+  };
+
+  useEffect(() => { loadRules(); loadMaskedEnvs(); }, []);
+
+  const toggleEnv = async (env: string) => {
+    const next = maskedEnvs.includes(env)
+      ? maskedEnvs.filter((e) => e !== env)
+      : [...maskedEnvs, env];
+    setMaskedEnvs(next);
+    setEnvSaving(true);
+    try {
+      await api.updateMaskedEnvironments(next);
+      setConfig({ ...config, phiMaskedEnvironments: next });
+      notifications.show({ message: "Masked environments updated", color: "green" });
+    } catch (err: any) {
+      notifications.show({ message: err.message, color: "red" });
+      setMaskedEnvs(maskedEnvs); // revert
+    } finally {
+      setEnvSaving(false);
+    }
+  };
 
   const handleDelete = async () => {
     if (!deleteRule) return;
@@ -534,6 +581,35 @@ function PhiManagementTab() {
           </Text>
         </div>
       </div>
+
+      {/* Masked Environments */}
+      <Text fw={700} size="sm" c="secondary.9" mb="xs">
+        Masked Environments
+      </Text>
+      <Text size="xs" c="dimmed" mb="sm">
+        PHI fields are tokenized for connections in these environments. Users with{" "}
+        <Badge size="xs" color="orange" variant="light">PHI VIEWER</Badge> or{" "}
+        <Badge size="xs" color="red" variant="light">ADMIN</Badge> role can request de-tokenization with a logged reason.
+      </Text>
+      <Group gap={8} mb="lg">
+        {ENV_OPTIONS.map((env) => {
+          const active = maskedEnvs.includes(env);
+          return (
+            <Button
+              key={env}
+              size="xs"
+              variant={active ? "filled" : "outline"}
+              color={ENV_COLORS[env]}
+              onClick={() => toggleEnv(env)}
+              loading={envSaving}
+              leftSection={active ? <IconCheck size={12} /> : null}
+              style={{ minWidth: 80 }}
+            >
+              {env}
+            </Button>
+          );
+        })}
+      </Group>
 
       <Group justify="space-between" mb="md">
         <Text fw={600} size="sm" c="secondary.9">
@@ -732,6 +808,314 @@ function AddPhiRuleModal({ opened, onClose, onSuccess }: { opened: boolean; onCl
         <Button onClick={handleSave} loading={saving} disabled={!pattern.trim()}>
           Create Rule
         </Button>
+      </Group>
+    </Modal>
+  );
+}
+
+// ═══════════════════════════════════════
+// ── Audit Log Tab ──
+// ═══════════════════════════════════════
+
+const ACTION_COLORS: Record<string, string> = {
+  QUERY_EXECUTE: "blue",
+  QUERY_ERROR: "red",
+  EXPORT_CSV: "teal",
+  EXPORT_JSON: "teal",
+  PHI_UNMASK_DENIED: "red",
+};
+
+const ACTION_LABELS: Record<string, string> = {
+  QUERY_EXECUTE: "Query",
+  QUERY_ERROR: "Error",
+  EXPORT_CSV: "CSV Export",
+  EXPORT_JSON: "JSON Export",
+  PHI_UNMASK_DENIED: "Unmask Denied",
+};
+
+interface AuditEntry {
+  id: string;
+  userId: string;
+  userEmail: string;
+  action: string;
+  sql?: string;
+  connectionId?: string;
+  rowsReturned?: number;
+  executionMs?: number;
+  phiAccessed: boolean;
+  phiFieldsUnmasked?: string[];
+  phiUnmaskReason?: string;
+  phiUnmaskNotes?: string;
+  timestamp: string;
+}
+
+function AuditLogTab() {
+  const [entries, setEntries] = useState<AuditEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<string>("all");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const loadAudit = async () => {
+    setLoading(true);
+    try {
+      const data = await api.getAuditLog(500, 0);
+      setEntries(data);
+    } catch (err: any) {
+      notifications.show({ message: err.message, color: "red" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadAudit(); }, []);
+
+  const filtered = filter === "all"
+    ? entries
+    : filter === "phi"
+    ? entries.filter((e) => e.phiAccessed || e.action === "PHI_UNMASK_DENIED")
+    : entries.filter((e) => e.action === filter);
+
+  return (
+    <>
+      <Group justify="space-between" mb="md">
+        <Group gap="xs">
+          <Select
+            size="xs"
+            value={filter}
+            onChange={(v) => setFilter(v || "all")}
+            data={[
+              { value: "all", label: "All events" },
+              { value: "phi", label: "PHI access only" },
+              { value: "QUERY_EXECUTE", label: "Queries only" },
+              { value: "QUERY_ERROR", label: "Errors only" },
+              { value: "PHI_UNMASK_DENIED", label: "Denied unmask" },
+            ]}
+            style={{ width: 180 }}
+          />
+          <Text size="xs" c="dimmed">
+            {filtered.length} event{filtered.length !== 1 ? "s" : ""}
+          </Text>
+        </Group>
+        <Button
+          size="xs"
+          variant="subtle"
+          leftSection={<IconRefresh size={14} />}
+          onClick={loadAudit}
+          loading={loading}
+        >
+          Refresh
+        </Button>
+      </Group>
+
+      <div
+        style={{
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: 10,
+          overflow: "hidden",
+        }}
+      >
+        <ScrollArea style={{ maxHeight: "calc(100vh - 320px)" }}>
+          <Table highlightOnHover>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th style={{ width: 160 }}>Timestamp</Table.Th>
+                <Table.Th>User</Table.Th>
+                <Table.Th style={{ width: 120 }}>Action</Table.Th>
+                <Table.Th style={{ width: 80 }}>PHI</Table.Th>
+                <Table.Th style={{ width: 80 }}>Rows</Table.Th>
+                <Table.Th style={{ width: 70 }}>Time</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {filtered.map((entry) => (
+                <Table.Tr
+                  key={entry.id}
+                  onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
+                  style={{ cursor: "pointer" }}
+                >
+                  <Table.Td>
+                    <Text size="xs" ff="monospace" c="dimmed">
+                      {new Date(entry.timestamp + "Z").toLocaleString()}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="xs" fw={600} style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {entry.userEmail}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Badge
+                      size="sm"
+                      color={ACTION_COLORS[entry.action] || "gray"}
+                      variant="light"
+                    >
+                      {ACTION_LABELS[entry.action] || entry.action}
+                    </Badge>
+                  </Table.Td>
+                  <Table.Td>
+                    {entry.phiAccessed ? (
+                      <Badge size="sm" color="red" variant="light">
+                        EXPOSED
+                      </Badge>
+                    ) : entry.action === "PHI_UNMASK_DENIED" ? (
+                      <Badge size="sm" color="orange" variant="light">
+                        DENIED
+                      </Badge>
+                    ) : (
+                      <Text size="xs" c="dimmed">—</Text>
+                    )}
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="xs" ff="monospace">
+                      {entry.rowsReturned ?? "—"}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="xs" ff="monospace" c="dimmed">
+                      {entry.executionMs != null ? `${entry.executionMs}ms` : "—"}
+                    </Text>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+              {filtered.length === 0 && !loading && (
+                <Table.Tr>
+                  <Table.Td colSpan={6}>
+                    <Text ta="center" c="dimmed" py="lg">No audit entries found</Text>
+                  </Table.Td>
+                </Table.Tr>
+              )}
+            </Table.Tbody>
+          </Table>
+        </ScrollArea>
+      </div>
+
+      {/* Expanded detail modal */}
+      <AuditDetailModal
+        entry={filtered.find((e) => e.id === expandedId) || null}
+        onClose={() => setExpandedId(null)}
+      />
+    </>
+  );
+}
+
+function AuditDetailModal({ entry, onClose }: { entry: AuditEntry | null; onClose: () => void }) {
+  if (!entry) return null;
+
+  return (
+    <Modal opened={!!entry} onClose={onClose} title="Audit Entry Detail" size="lg">
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <Group gap="lg">
+          <div>
+            <Text size="xs" c="dimmed" fw={700} tt="uppercase" mb={2}>Timestamp</Text>
+            <Text size="sm" ff="monospace">{new Date(entry.timestamp + "Z").toLocaleString()}</Text>
+          </div>
+          <div>
+            <Text size="xs" c="dimmed" fw={700} tt="uppercase" mb={2}>User</Text>
+            <Text size="sm">{entry.userEmail}</Text>
+          </div>
+          <div>
+            <Text size="xs" c="dimmed" fw={700} tt="uppercase" mb={2}>Action</Text>
+            <Badge color={ACTION_COLORS[entry.action] || "gray"} variant="light">
+              {ACTION_LABELS[entry.action] || entry.action}
+            </Badge>
+          </div>
+        </Group>
+
+        {entry.connectionId && (
+          <div>
+            <Text size="xs" c="dimmed" fw={700} tt="uppercase" mb={2}>Connection</Text>
+            <Text size="sm" ff="monospace">{entry.connectionId}</Text>
+          </div>
+        )}
+
+        {entry.sql && (
+          <div>
+            <Text size="xs" c="dimmed" fw={700} tt="uppercase" mb={2}>SQL</Text>
+            <div
+              style={{
+                background: "var(--surface2)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                padding: "10px 14px",
+                fontFamily: "IBM Plex Mono, monospace",
+                fontSize: 12,
+                lineHeight: 1.6,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-all",
+                maxHeight: 200,
+                overflow: "auto",
+              }}
+            >
+              {entry.sql}
+            </div>
+          </div>
+        )}
+
+        <Group gap="lg">
+          {entry.rowsReturned != null && (
+            <div>
+              <Text size="xs" c="dimmed" fw={700} tt="uppercase" mb={2}>Rows Returned</Text>
+              <Text size="sm" ff="monospace">{entry.rowsReturned}</Text>
+            </div>
+          )}
+          {entry.executionMs != null && (
+            <div>
+              <Text size="xs" c="dimmed" fw={700} tt="uppercase" mb={2}>Execution Time</Text>
+              <Text size="sm" ff="monospace">{entry.executionMs}ms</Text>
+            </div>
+          )}
+        </Group>
+
+        {/* PHI Section */}
+        {(entry.phiAccessed || entry.action === "PHI_UNMASK_DENIED") && (
+          <div
+            style={{
+              background: entry.phiAccessed ? "rgba(215,54,54,0.06)" : "rgba(240,136,62,0.06)",
+              border: `1px solid ${entry.phiAccessed ? "rgba(215,54,54,0.2)" : "rgba(240,136,62,0.2)"}`,
+              borderRadius: 8,
+              padding: 14,
+            }}
+          >
+            <Group gap={6} mb={8}>
+              <IconAlertTriangle size={14} color={entry.phiAccessed ? "var(--error)" : "var(--warning)"} />
+              <Text size="xs" fw={700} c={entry.phiAccessed ? "red" : "orange"} tt="uppercase">
+                {entry.phiAccessed ? "PHI Data Exposed" : "PHI Unmask Denied"}
+              </Text>
+            </Group>
+
+            {entry.phiFieldsUnmasked && entry.phiFieldsUnmasked.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <Text size="xs" c="dimmed" fw={700} mb={2}>Fields Unmasked</Text>
+                <Group gap={4}>
+                  {entry.phiFieldsUnmasked.map((f) => (
+                    <Badge key={f} size="xs" variant="light" color="red" ff="monospace">
+                      {f}
+                    </Badge>
+                  ))}
+                </Group>
+              </div>
+            )}
+
+            {entry.phiUnmaskReason && (
+              <div style={{ marginBottom: 4 }}>
+                <Text size="xs" c="dimmed" fw={700} mb={2}>Reason</Text>
+                <Text size="sm">{entry.phiUnmaskReason}</Text>
+              </div>
+            )}
+
+            {entry.phiUnmaskNotes && (
+              <div>
+                <Text size="xs" c="dimmed" fw={700} mb={2}>Notes</Text>
+                <Text size="sm" c="dimmed">{entry.phiUnmaskNotes}</Text>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <Group justify="flex-end" mt="lg">
+        <Button variant="subtle" color="gray" onClick={onClose}>Close</Button>
       </Group>
     </Modal>
   );

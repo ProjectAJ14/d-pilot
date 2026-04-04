@@ -19,6 +19,10 @@ async function request<T>(
   const phiEnabled = localStorage.getItem("phi_shield") !== "off";
   if (!phiEnabled) {
     headers["X-PHI-Shield"] = "off";
+    const reason = localStorage.getItem("phi_unmask_reason");
+    const notes = localStorage.getItem("phi_unmask_notes");
+    if (reason) headers["X-PHI-Unmask-Reason"] = reason;
+    if (notes) headers["X-PHI-Unmask-Notes"] = notes;
   }
 
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -50,7 +54,7 @@ async function request<T>(
 export const api = {
   // Config (public, no auth)
   getConfig: () =>
-    fetch("/api/config").then((r) => r.json()) as Promise<{ appName: string; logoUrl: string | null; lightLogoUrl: string | null; emailDomain: string | null }>,
+    fetch("/api/config").then((r) => r.json()) as Promise<{ appName: string; logoUrl: string | null; lightLogoUrl: string | null; emailDomain: string | null; phiMaskedEnvironments: string[] }>,
 
   // Auth
   login: (username: string, password: string) =>
@@ -101,6 +105,15 @@ export const api = {
     request<any>(`/phi-config/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deletePhiRule: (id: string) =>
     request<any>(`/phi-config/${id}`, { method: "DELETE" }),
+
+  // PHI Masked Environments
+  getMaskedEnvironments: () =>
+    request<{ environments: string[] }>("/phi-config/masked-envs"),
+  updateMaskedEnvironments: (environments: string[]) =>
+    request<{ environments: string[] }>("/phi-config/masked-envs", {
+      method: "PUT",
+      body: JSON.stringify({ environments }),
+    }),
 
   // Audit
   getAuditLog: (limit = 100, offset = 0) =>

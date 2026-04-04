@@ -1,8 +1,25 @@
 import { Router, Request, Response } from "express";
-import { getPhiRules, upsertPhiRule, deletePhiRule } from "../services/sqlite-store.js";
+import { getPhiRules, upsertPhiRule, deletePhiRule, getPhiMaskedEnvs, setSetting } from "../services/sqlite-store.js";
 import { requireAdmin } from "../middleware/auth.js";
+import type { Environment } from "../types/index.js";
 
 const router = Router();
+
+// Masked environments
+router.get("/masked-envs", (_req: Request, res: Response) => {
+  res.json({ environments: getPhiMaskedEnvs() });
+});
+
+router.put("/masked-envs", requireAdmin, (req: Request, res: Response) => {
+  const { environments } = req.body;
+  const valid: Environment[] = ["DEV", "QA", "STG", "PROD"];
+  if (!Array.isArray(environments) || !environments.every((e: string) => valid.includes(e as Environment))) {
+    res.status(400).json({ error: "Invalid environments list. Allowed: DEV, QA, STG, PROD" });
+    return;
+  }
+  setSetting("phi_masked_envs", JSON.stringify(environments));
+  res.json({ environments });
+});
 
 // Anyone can view PHI rules
 router.get("/", (_req: Request, res: Response) => {

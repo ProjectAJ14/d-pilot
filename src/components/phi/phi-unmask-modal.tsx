@@ -35,6 +35,13 @@ export function PhiUnmaskModal() {
 
   const handleConfirm = () => {
     if (!reason) return;
+    // Persist reason/notes so api-client sends them as headers on subsequent queries
+    localStorage.setItem("phi_unmask_reason", reason);
+    if (notes) {
+      localStorage.setItem("phi_unmask_notes", notes);
+    } else {
+      localStorage.removeItem("phi_unmask_notes");
+    }
     setPhi(false);
     PhiUnmaskModal.close();
   };

@@ -7,6 +7,7 @@ import type {
   SavedQuery,
   PhiFieldRule,
   AuditEntry,
+  Environment,
 } from "../types/index.js";
 
 let db: Database.Database;
@@ -60,10 +61,32 @@ export function initDatabase(): void {
       timestamp TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
     CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id);
     CREATE INDEX IF NOT EXISTS idx_saved_queries_shared ON saved_queries(is_shared);
   `);
+
+  // Migrate audit_log: add reason/notes columns if missing
+  const auditCols = db.pragma("table_info(audit_log)") as { name: string }[];
+  const auditColNames = new Set(auditCols.map((c) => c.name));
+  if (!auditColNames.has("phi_unmask_reason")) {
+    db.exec("ALTER TABLE audit_log ADD COLUMN phi_unmask_reason TEXT");
+  }
+  if (!auditColNames.has("phi_unmask_notes")) {
+    db.exec("ALTER TABLE audit_log ADD COLUMN phi_unmask_notes TEXT");
+  }
+
+  // Seed default masked environments setting
+  const existing = db.prepare("SELECT key FROM app_settings WHERE key = 'phi_masked_envs'").get();
+  if (!existing) {
+    db.prepare("INSERT INTO app_settings (key, value) VALUES (?, ?)").run("phi_masked_envs", '["PROD"]');
+  }
 
   seedPhiRules();
 }
@@ -211,12 +234,36 @@ export function deletePhiRule(id: string): boolean {
   return result.changes > 0;
 }
 
+// --- App Settings ---
+
+export function getSetting(key: string): string | null {
+  const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setSetting(key: string, value: string): void {
+  db.prepare(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+  ).run(key, value);
+}
+
+export function getPhiMaskedEnvs(): Environment[] {
+  const val = getSetting("phi_masked_envs");
+  if (!val) return ["PROD"];
+  try {
+    return JSON.parse(val);
+  } catch {
+    return ["PROD"];
+  }
+}
+
 // --- Audit Log ---
 
 export function logAudit(entry: Omit<AuditEntry, "id" | "timestamp">): void {
   db.prepare(
-    `INSERT INTO audit_log (id, user_id, user_email, action, sql, connection_id, rows_returned, execution_ms, phi_accessed, phi_fields_unmasked)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO audit_log (id, user_id, user_email, action, sql, connection_id, rows_returned, execution_ms, phi_accessed, phi_fields_unmasked, phi_unmask_reason, phi_unmask_notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     randomUUID(),
     entry.userId,
@@ -227,7 +274,9 @@ export function logAudit(entry: Omit<AuditEntry, "id" | "timestamp">): void {
     entry.rowsReturned ?? null,
     entry.executionMs ?? null,
     entry.phiAccessed ? 1 : 0,
-    entry.phiFieldsUnmasked ? JSON.stringify(entry.phiFieldsUnmasked) : null
+    entry.phiFieldsUnmasked ? JSON.stringify(entry.phiFieldsUnmasked) : null,
+    entry.phiUnmaskReason ?? null,
+    entry.phiUnmaskNotes ?? null
   );
 }
 
@@ -235,19 +284,7 @@ export function getAuditLog(limit = 100, offset = 0): AuditEntry[] {
   const rows = db
     .prepare("SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ? OFFSET ?")
     .all(limit, offset) as any[];
-  return rows.map((r) => ({
-    id: r.id,
-    userId: r.user_id,
-    userEmail: r.user_email,
-    action: r.action,
-    sql: r.sql,
-    connectionId: r.connection_id,
-    rowsReturned: r.rows_returned,
-    executionMs: r.execution_ms,
-    phiAccessed: r.phi_accessed === 1,
-    phiFieldsUnmasked: r.phi_fields_unmasked ? JSON.parse(r.phi_fields_unmasked) : [],
-    timestamp: r.timestamp,
-  }));
+  return rows.map(mapAuditRow);
 }
 
 // --- Query History ---
@@ -260,7 +297,11 @@ export function getQueryHistory(userId: string, limit = 50): AuditEntry[] {
        ORDER BY timestamp DESC LIMIT ?`
     )
     .all(userId, limit) as any[];
-  return rows.map((r) => ({
+  return rows.map(mapAuditRow);
+}
+
+function mapAuditRow(r: any): AuditEntry {
+  return {
     id: r.id,
     userId: r.user_id,
     userEmail: r.user_email,
@@ -271,8 +312,10 @@ export function getQueryHistory(userId: string, limit = 50): AuditEntry[] {
     executionMs: r.execution_ms,
     phiAccessed: r.phi_accessed === 1,
     phiFieldsUnmasked: r.phi_fields_unmasked ? JSON.parse(r.phi_fields_unmasked) : [],
+    phiUnmaskReason: r.phi_unmask_reason ?? undefined,
+    phiUnmaskNotes: r.phi_unmask_notes ?? undefined,
     timestamp: r.timestamp,
-  }));
+  };
 }
 
 export function getDb(): Database.Database {

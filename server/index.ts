@@ -5,7 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 import { authMiddleware, handleLogin, handleMe, handleChangePassword, handleUpdateProfile, initAuthTables } from "./middleware/auth.js";
-import { initDatabase } from "./services/sqlite-store.js";
+import { initDatabase, getPhiMaskedEnvs } from "./services/sqlite-store.js";
 import queryRoutes from "./routes/query.js";
 import connectionRoutes from "./routes/connections.js";
 import savedQueryRoutes from "./routes/saved-queries.js";
@@ -36,6 +36,7 @@ app.get("/api/config", (_req, res) => {
     logoUrl: process.env.LOGO_URL || null,
     lightLogoUrl: process.env.LIGHT_LOGO_URL || null,
     emailDomain: process.env.EMAIL_DOMAIN || null,
+    phiMaskedEnvironments: getPhiMaskedEnvs(),
   });
 });
 
