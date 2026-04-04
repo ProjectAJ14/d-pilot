@@ -69,6 +69,7 @@ export function initDatabase(): void {
 
     CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
     CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_user_action ON audit_log(user_id, action);
     CREATE INDEX IF NOT EXISTS idx_saved_queries_shared ON saved_queries(is_shared);
   `);
 
@@ -280,10 +281,42 @@ export function logAudit(entry: Omit<AuditEntry, "id" | "timestamp">): void {
   );
 }
 
-export function getAuditLog(limit = 100, offset = 0): AuditEntry[] {
-  const rows = db
-    .prepare("SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ? OFFSET ?")
-    .all(limit, offset) as any[];
+export function getAuditLog(options: {
+  limit?: number;
+  offset?: number;
+  from?: string;
+  to?: string;
+  action?: string;
+  userId?: string;
+} = {}): AuditEntry[] {
+  const limit = Math.min(options.limit ?? 100, 1000);
+  const offset = options.offset ?? 0;
+
+  const conditions: string[] = [];
+  const params: any[] = [];
+
+  if (options.from) {
+    conditions.push("timestamp >= ?");
+    params.push(options.from);
+  }
+  if (options.to) {
+    conditions.push("timestamp <= ?");
+    params.push(options.to);
+  }
+  if (options.action) {
+    conditions.push("action = ?");
+    params.push(options.action);
+  }
+  if (options.userId) {
+    conditions.push("user_id = ?");
+    params.push(options.userId);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const sql = `SELECT * FROM audit_log ${where} ORDER BY timestamp DESC LIMIT ? OFFSET ?`;
+  params.push(limit, offset);
+
+  const rows = db.prepare(sql).all(...params) as any[];
   return rows.map(mapAuditRow);
 }
 
@@ -300,7 +333,7 @@ export function getQueryHistory(userId: string, limit = 50): AuditEntry[] {
   return rows.map(mapAuditRow);
 }
 
-function mapAuditRow(r: any): AuditEntry {
+export function mapAuditRow(r: any): AuditEntry {
   return {
     id: r.id,
     userId: r.user_id,
@@ -316,6 +349,140 @@ function mapAuditRow(r: any): AuditEntry {
     phiUnmaskNotes: r.phi_unmask_notes ?? undefined,
     timestamp: r.timestamp,
   };
+}
+
+// --- Audit Archival ---
+
+const AUDIT_LOG_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    user_email TEXT NOT NULL,
+    action TEXT NOT NULL,
+    sql TEXT,
+    connection_id TEXT,
+    rows_returned INTEGER,
+    execution_ms INTEGER,
+    phi_accessed INTEGER NOT NULL DEFAULT 0,
+    phi_fields_unmasked TEXT,
+    phi_unmask_reason TEXT,
+    phi_unmask_notes TEXT,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_archive_timestamp ON audit_log(timestamp);
+  CREATE INDEX IF NOT EXISTS idx_archive_user ON audit_log(user_id);
+`;
+
+let archiveLock = false;
+
+export function archiveOldAuditEntries(daysToKeep = 30): { archived: number } {
+  if (archiveLock) {
+    // Another call is already running — skip silently
+    return { archived: 0 };
+  }
+
+  archiveLock = true;
+  try {
+    const dataDir = path.resolve(process.cwd(), "data");
+    const archivePath = path.join(dataDir, "audit_archive.sqlite");
+
+    // Ensure archive DB exists with correct schema
+    const archiveDb = new Database(archivePath);
+    archiveDb.pragma("journal_mode = WAL");
+    archiveDb.exec(AUDIT_LOG_SCHEMA);
+    archiveDb.close();
+
+    // Use ATTACH to move rows atomically
+    const absArchivePath = path.resolve(archivePath);
+    db.exec(`ATTACH DATABASE '${absArchivePath}' AS archive`);
+
+    try {
+      const cutoff = db.prepare(`SELECT datetime('now', ?) as cutoff`).get(`-${daysToKeep} days`) as { cutoff: string };
+
+      const move = db.transaction(() => {
+        const insertResult = db.prepare(
+          `INSERT OR IGNORE INTO archive.audit_log SELECT * FROM main.audit_log WHERE timestamp < ?`
+        ).run(cutoff.cutoff);
+
+        db.prepare(`DELETE FROM main.audit_log WHERE timestamp < ?`).run(cutoff.cutoff);
+
+        return insertResult.changes;
+      });
+
+      const archived = move();
+
+      if (archived > 0) {
+        console.log(`Archived ${archived} audit entries older than ${daysToKeep} days`);
+      }
+
+      setSetting("last_audit_archive", new Date().toISOString());
+      return { archived };
+    } finally {
+      db.exec("DETACH DATABASE archive");
+    }
+  } finally {
+    archiveLock = false;
+  }
+}
+
+/**
+ * Checks if archival is due (30+ days since last run) and triggers it if so.
+ * Called on user login — lightweight check, heavy work only when needed.
+ * Safe to call concurrently: the lock in archiveOldAuditEntries prevents double execution.
+ */
+export function archiveIfDue(): void {
+  if (archiveLock) return;
+
+  const lastRun = getSetting("last_audit_archive");
+  if (!lastRun) {
+    archiveOldAuditEntries();
+    return;
+  }
+
+  const daysSince = (Date.now() - new Date(lastRun).getTime()) / (1000 * 60 * 60 * 24);
+  if (daysSince >= 30) {
+    archiveOldAuditEntries();
+  }
+}
+
+export function queryArchive(options: {
+  limit?: number;
+  offset?: number;
+  from?: string;
+  to?: string;
+} = {}): AuditEntry[] {
+  const dataDir = path.resolve(process.cwd(), "data");
+  const archivePath = path.join(dataDir, "audit_archive.sqlite");
+
+  if (!fs.existsSync(archivePath)) return [];
+
+  const archiveDb = new Database(archivePath, { readonly: true });
+
+  try {
+    const limit = Math.min(options.limit ?? 100, 1000);
+    const offset = options.offset ?? 0;
+
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (options.from) {
+      conditions.push("timestamp >= ?");
+      params.push(options.from);
+    }
+    if (options.to) {
+      conditions.push("timestamp <= ?");
+      params.push(options.to);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const sql = `SELECT * FROM audit_log ${where} ORDER BY timestamp DESC LIMIT ? OFFSET ?`;
+    params.push(limit, offset);
+
+    const rows = archiveDb.prepare(sql).all(...params) as any[];
+    return rows.map(mapAuditRow);
+  } finally {
+    archiveDb.close();
+  }
 }
 
 export function getDb(): Database.Database {

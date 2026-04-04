@@ -822,6 +822,7 @@ const ACTION_COLORS: Record<string, string> = {
   QUERY_ERROR: "red",
   EXPORT_CSV: "teal",
   EXPORT_JSON: "teal",
+  PHI_UNMASK: "orange",
   PHI_UNMASK_DENIED: "red",
 };
 
@@ -830,6 +831,7 @@ const ACTION_LABELS: Record<string, string> = {
   QUERY_ERROR: "Error",
   EXPORT_CSV: "CSV Export",
   EXPORT_JSON: "JSON Export",
+  PHI_UNMASK: "PHI Unmasked",
   PHI_UNMASK_DENIED: "Unmask Denied",
 };
 
@@ -854,11 +856,23 @@ function AuditLogTab() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [source, setSource] = useState<string>("live");
+  const [archiving, setArchiving] = useState(false);
 
   const loadAudit = async () => {
     setLoading(true);
     try {
-      const data = await api.getAuditLog(500, 0);
+      const params: any = { limit: 500 };
+      if (fromDate) params.from = fromDate;
+      if (toDate) params.to = toDate + "T23:59:59";
+      // Server-side action filter (except "phi" which is client-side composite)
+      if (filter !== "all" && filter !== "phi") params.action = filter;
+
+      const data = source === "archive"
+        ? await api.getArchiveLog(params)
+        : await api.getAuditLog(params);
       setEntries(data);
     } catch (err: any) {
       notifications.show({ message: err.message, color: "red" });
@@ -867,17 +881,29 @@ function AuditLogTab() {
     }
   };
 
-  useEffect(() => { loadAudit(); }, []);
+  useEffect(() => { loadAudit(); }, [source]);
 
-  const filtered = filter === "all"
-    ? entries
-    : filter === "phi"
-    ? entries.filter((e) => e.phiAccessed || e.action === "PHI_UNMASK_DENIED")
-    : entries.filter((e) => e.action === filter);
+  const filtered = filter === "phi"
+    ? entries.filter((e) => e.phiAccessed || e.action === "PHI_UNMASK" || e.action === "PHI_UNMASK_DENIED")
+    : entries;
+
+  const handleArchive = async () => {
+    setArchiving(true);
+    try {
+      const result = await api.triggerArchive();
+      notifications.show({ message: result.message, color: "green" });
+      if (result.archived > 0) loadAudit();
+    } catch (err: any) {
+      notifications.show({ message: err.message, color: "red" });
+    } finally {
+      setArchiving(false);
+    }
+  };
 
   return (
     <>
-      <Group justify="space-between" mb="md">
+      {/* Filters row */}
+      <Group justify="space-between" mb="sm" wrap="wrap">
         <Group gap="xs">
           <Select
             size="xs"
@@ -888,24 +914,78 @@ function AuditLogTab() {
               { value: "phi", label: "PHI access only" },
               { value: "QUERY_EXECUTE", label: "Queries only" },
               { value: "QUERY_ERROR", label: "Errors only" },
+              { value: "PHI_UNMASK", label: "PHI unmasked" },
               { value: "PHI_UNMASK_DENIED", label: "Denied unmask" },
             ]}
-            style={{ width: 180 }}
+            style={{ width: 170 }}
           />
-          <Text size="xs" c="dimmed">
-            {filtered.length} event{filtered.length !== 1 ? "s" : ""}
-          </Text>
+          <TextInput
+            size="xs"
+            type="date"
+            placeholder="From"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.currentTarget.value)}
+            style={{ width: 140 }}
+          />
+          <TextInput
+            size="xs"
+            type="date"
+            placeholder="To"
+            value={toDate}
+            onChange={(e) => setToDate(e.currentTarget.value)}
+            style={{ width: 140 }}
+          />
+          <Button size="xs" variant="light" onClick={loadAudit} loading={loading}>
+            Search
+          </Button>
+          {(fromDate || toDate) && (
+            <Button
+              size="xs"
+              variant="subtle"
+              color="gray"
+              onClick={() => { setFromDate(""); setToDate(""); }}
+            >
+              Clear
+            </Button>
+          )}
         </Group>
-        <Button
-          size="xs"
-          variant="subtle"
-          leftSection={<IconRefresh size={14} />}
-          onClick={loadAudit}
-          loading={loading}
-        >
-          Refresh
-        </Button>
+        <Group gap="xs">
+          <Select
+            size="xs"
+            value={source}
+            onChange={(v) => setSource(v || "live")}
+            data={[
+              { value: "live", label: "Live log" },
+              { value: "archive", label: "Archive (30d+)" },
+            ]}
+            style={{ width: 150 }}
+          />
+          <Tooltip label="Move entries older than 30 days to archive">
+            <Button
+              size="xs"
+              variant="subtle"
+              onClick={handleArchive}
+              loading={archiving}
+            >
+              Archive Now
+            </Button>
+          </Tooltip>
+          <Button
+            size="xs"
+            variant="subtle"
+            leftSection={<IconRefresh size={14} />}
+            onClick={loadAudit}
+            loading={loading}
+          >
+            Refresh
+          </Button>
+        </Group>
       </Group>
+
+      <Text size="xs" c="dimmed" mb="sm">
+        {filtered.length} event{filtered.length !== 1 ? "s" : ""}
+        {source === "archive" && " (from archive)"}
+      </Text>
 
       <div
         style={{

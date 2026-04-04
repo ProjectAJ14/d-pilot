@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Modal, Select, Textarea, Button, Group, Text } from "@mantine/core";
 import { IconAlertTriangle } from "@tabler/icons-react";
 import { useStore } from "../../store";
+import { api } from "../../utils/api-client";
 
 const UNMASK_REASONS = [
   "Debugging production issue",
@@ -42,6 +43,12 @@ export function PhiUnmaskModal() {
     } else {
       localStorage.removeItem("phi_unmask_notes");
     }
+    // Log the unmask event to audit
+    api.logPhiUnmask({
+      reason,
+      notes: notes || undefined,
+      connectionId: activeConnectionId ?? undefined,
+    }).catch(() => {}); // fire-and-forget, don't block unmask on audit failure
     setPhi(false);
     PhiUnmaskModal.close();
   };

@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import type { AuthUser } from "../types/index.js";
-import { getDb } from "../services/sqlite-store.js";
+import { getDb, archiveIfDue } from "../services/sqlite-store.js";
 
 // Extend Express Request to include user
 declare global {
@@ -109,6 +109,9 @@ export function handleLogin(req: Request, res: Response): void {
 
   // Update last_login
   db.prepare("UPDATE users SET last_login = datetime('now') WHERE id = ?").run(user.id);
+
+  // Archive old audit entries if 30+ days since last run
+  archiveIfDue();
 
   // Issue JWT
   const payload = {

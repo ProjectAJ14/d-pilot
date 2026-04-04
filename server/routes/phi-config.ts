@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { getPhiRules, upsertPhiRule, deletePhiRule, getPhiMaskedEnvs, setSetting } from "../services/sqlite-store.js";
+import { getPhiRules, upsertPhiRule, deletePhiRule, getPhiMaskedEnvs, setSetting, logAudit } from "../services/sqlite-store.js";
 import { requireAdmin } from "../middleware/auth.js";
 import type { Environment } from "../types/index.js";
 
@@ -19,6 +19,35 @@ router.put("/masked-envs", requireAdmin, (req: Request, res: Response) => {
   }
   setSetting("phi_masked_envs", JSON.stringify(environments));
   res.json({ environments });
+});
+
+// Log PHI unmask event
+router.post("/unmask", (req: Request, res: Response) => {
+  const user = req.user!;
+
+  if (!user.canUnmaskPhi) {
+    res.status(403).json({ error: "PHI unmask permission required" });
+    return;
+  }
+
+  const { reason, notes, connectionId } = req.body;
+
+  if (!reason) {
+    res.status(400).json({ error: "Reason is required" });
+    return;
+  }
+
+  logAudit({
+    userId: user.sub,
+    userEmail: user.email,
+    action: "PHI_UNMASK",
+    connectionId: connectionId ?? null,
+    phiAccessed: true,
+    phiUnmaskReason: reason,
+    phiUnmaskNotes: notes || undefined,
+  });
+
+  res.json({ logged: true });
 });
 
 // Anyone can view PHI rules

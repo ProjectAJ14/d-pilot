@@ -98,6 +98,11 @@ export const api = {
     request<any[]>(`/schema/${connectionId}/tables/${table}/columns`),
 
   // PHI Config
+  logPhiUnmask: (data: { reason: string; notes?: string; connectionId?: string }) =>
+    request<{ logged: boolean }>("/phi-config/unmask", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   getPhiRules: () => request<any[]>("/phi-config"),
   createPhiRule: (data: any) =>
     request<any>("/phi-config", { method: "POST", body: JSON.stringify(data) }),
@@ -116,8 +121,26 @@ export const api = {
     }),
 
   // Audit
-  getAuditLog: (limit = 100, offset = 0) =>
-    request<any[]>(`/audit?limit=${limit}&offset=${offset}`),
+  getAuditLog: (params: { limit?: number; offset?: number; from?: string; to?: string; action?: string; userId?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.limit) q.set("limit", String(params.limit));
+    if (params.offset) q.set("offset", String(params.offset));
+    if (params.from) q.set("from", params.from);
+    if (params.to) q.set("to", params.to);
+    if (params.action) q.set("action", params.action);
+    if (params.userId) q.set("userId", params.userId);
+    return request<any[]>(`/audit?${q.toString()}`);
+  },
+  getArchiveLog: (params: { limit?: number; offset?: number; from?: string; to?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.limit) q.set("limit", String(params.limit));
+    if (params.offset) q.set("offset", String(params.offset));
+    if (params.from) q.set("from", params.from);
+    if (params.to) q.set("to", params.to);
+    return request<any[]>(`/audit/archive?${q.toString()}`);
+  },
+  triggerArchive: () =>
+    request<{ archived: number; message: string }>("/audit/archive", { method: "POST" }),
 
   // Export
   exportCsv: (connectionId: string, sql: string) =>
