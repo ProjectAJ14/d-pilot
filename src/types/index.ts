@@ -1,5 +1,5 @@
 export type DatabaseType = "postgres" | "mssql" | "mongodb" | "elasticsearch";
-export type Environment = "DEV" | "QA" | "STG" | "PROD";
+export type Environment = "DEV" | "QA" | "UAT" | "STG" | "PROD";
 export type MaskingType = "FULL" | "PARTIAL" | "HASH" | "REDACT";
 
 export interface ConnectionInfo {
@@ -87,6 +87,7 @@ export interface User {
   email: string;
   displayName: string;
   role: "admin" | "phi_viewer" | "read";
+  allowedEnvironments?: string[];
   createdAt: string;
   lastLogin?: string;
 }

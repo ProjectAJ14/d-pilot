@@ -14,6 +14,7 @@ import {
   Tooltip,
   Switch,
   ScrollArea,
+  MultiSelect,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
@@ -161,6 +162,7 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
               <Table.Th>Name</Table.Th>
               <Table.Th>Email</Table.Th>
               <Table.Th>Role</Table.Th>
+              <Table.Th>Environments</Table.Th>
               <Table.Th>Last Login</Table.Th>
               <Table.Th style={{ width: 120 }}>Actions</Table.Th>
             </Table.Tr>
@@ -182,6 +184,15 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
                   >
                     {u.role === "phi_viewer" ? "PHI VIEWER" : u.role.toUpperCase()}
                   </Badge>
+                </Table.Td>
+                <Table.Td>
+                  <Group gap={3}>
+                    {(u.allowedEnvironments || []).map((env) => (
+                      <Badge key={env} size="xs" variant="light" color={ENV_COLORS[env] || "gray"}>
+                        {env}
+                      </Badge>
+                    ))}
+                  </Group>
                 </Table.Td>
                 <Table.Td>
                   <Text size="xs" c="dimmed">
@@ -227,7 +238,7 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
             ))}
             {users.length === 0 && !loading && (
               <Table.Tr>
-                <Table.Td colSpan={5}>
+                <Table.Td colSpan={6}>
                   <Text ta="center" c="dimmed" py="lg">No users found</Text>
                 </Table.Td>
               </Table.Tr>
@@ -267,11 +278,20 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
   );
 }
 
+const ALL_ENVS_DATA = [
+  { value: "DEV", label: "DEV" },
+  { value: "QA", label: "QA" },
+  { value: "UAT", label: "UAT" },
+  { value: "STG", label: "STG" },
+  { value: "PROD", label: "PROD" },
+];
+
 function AddUserModal({ opened, onClose, onSuccess, emailDomain }: { opened: boolean; onClose: () => void; onSuccess: () => void; emailDomain: string | null }) {
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState<string>("read");
   const [password, setPassword] = useState("");
+  const [allowedEnvs, setAllowedEnvs] = useState<string[]>(["DEV", "QA"]);
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
@@ -291,11 +311,11 @@ function AddUserModal({ opened, onClose, onSuccess, emailDomain }: { opened: boo
 
     setSaving(true);
     try {
-      await api.createUser({ email, displayName: displayName || email.split("@")[0], role, password });
+      await api.createUser({ email, displayName: displayName || email.split("@")[0], role, password, allowedEnvironments: role === "admin" ? ["DEV","QA","UAT","STG","PROD"] : allowedEnvs });
       notifications.show({ message: "User created successfully", color: "green" });
       onClose();
       onSuccess();
-      setEmail(""); setDisplayName(""); setRole("read"); setPassword("");
+      setEmail(""); setDisplayName(""); setRole("read"); setPassword(""); setAllowedEnvs(["DEV", "QA"]);
     } catch (err: any) {
       notifications.show({ message: err.message, color: "red" });
     } finally {
@@ -331,6 +351,16 @@ function AddUserModal({ opened, onClose, onSuccess, emailDomain }: { opened: boo
         onChange={(v) => setRole(v || "read")}
         mb="sm"
       />
+      {role !== "admin" && (
+        <MultiSelect
+          label="Allowed Environments"
+          description="Which environments this user can access"
+          data={ALL_ENVS_DATA}
+          value={allowedEnvs}
+          onChange={setAllowedEnvs}
+          mb="sm"
+        />
+      )}
       <PasswordInput
         label="Temporary Password"
         placeholder="At least 8 characters"
@@ -351,12 +381,14 @@ function AddUserModal({ opened, onClose, onSuccess, emailDomain }: { opened: boo
 function EditUserModal({ user, onClose, onSuccess }: { user: User | null; onClose: () => void; onSuccess: () => void }) {
   const [role, setRole] = useState<string>(user?.role || "read");
   const [displayName, setDisplayName] = useState(user?.displayName || "");
+  const [allowedEnvs, setAllowedEnvs] = useState<string[]>(user?.allowedEnvironments || ["DEV", "QA"]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (user) {
       setRole(user.role);
       setDisplayName(user.displayName);
+      setAllowedEnvs(user.allowedEnvironments || ["DEV", "QA"]);
     }
   }, [user]);
 
@@ -364,7 +396,7 @@ function EditUserModal({ user, onClose, onSuccess }: { user: User | null; onClos
     if (!user) return;
     setSaving(true);
     try {
-      await api.updateUser(user.id, { displayName, role });
+      await api.updateUser(user.id, { displayName, role, allowedEnvironments: role === "admin" ? ["DEV","QA","UAT","STG","PROD"] : allowedEnvs });
       notifications.show({ message: "User updated", color: "green" });
       onClose();
       onSuccess();
@@ -399,8 +431,18 @@ function EditUserModal({ user, onClose, onSuccess }: { user: User | null; onClos
         ]}
         value={role}
         onChange={(v) => setRole(v || "read")}
-        mb="lg"
+        mb="sm"
       />
+      {role !== "admin" && (
+        <MultiSelect
+          label="Allowed Environments"
+          description="Which environments this user can access"
+          data={ALL_ENVS_DATA}
+          value={allowedEnvs}
+          onChange={setAllowedEnvs}
+          mb="lg"
+        />
+      )}
       <Group justify="flex-end">
         <Button variant="subtle" color="gray" onClick={onClose}>Cancel</Button>
         <Button onClick={handleSave} loading={saving}>Save</Button>
@@ -489,8 +531,8 @@ function ResetPasswordModal({ user, onClose }: { user: User | null; onClose: () 
 // ── PHI Management Tab ──
 // ═══════════════════════════════════════
 
-const ENV_OPTIONS = ["PROD", "STG", "QA", "DEV"] as const;
-const ENV_COLORS: Record<string, string> = { PROD: "red", STG: "orange", QA: "violet", DEV: "green" };
+const ENV_OPTIONS = ["PROD", "STG", "UAT", "QA", "DEV"] as const;
+const ENV_COLORS: Record<string, string> = { PROD: "red", STG: "orange", UAT: "teal", QA: "violet", DEV: "green" };
 
 function PhiManagementTab() {
   const [rules, setRules] = useState<PhiFieldRule[]>([]);

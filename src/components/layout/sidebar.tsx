@@ -28,7 +28,7 @@ import { api } from "../../utils/api-client";
 import type { ConnectionInfo, TableInfo, ColumnInfo, Environment, DatabaseType } from "../../types";
 
 const ENV_COLORS: Record<Environment, string> = {
-  PROD: "red", STG: "orange", QA: "violet", DEV: "green",
+  PROD: "red", STG: "orange", UAT: "teal", QA: "violet", DEV: "green",
 };
 const DB_ICONS: Record<DatabaseType, string> = {
   postgres: "🐘", mssql: "🗄️", mongodb: "🍃", elasticsearch: "🔍",
@@ -284,7 +284,7 @@ export function Sidebar() {
                     {env}
                   </Badge>
                   <Text size="xs" fw={600} style={{ flex: 1 }} c="secondary.9">
-                    {env === "PROD" ? "Production" : env === "STG" ? "Staging" : env === "QA" ? "QA / Testing" : "Development"}
+                    {env === "PROD" ? "Production" : env === "STG" ? "Staging" : env === "UAT" ? "UAT" : env === "QA" ? "QA / Testing" : "Development"}
                   </Text>
                   <Text size="xs" c="dimmed" ff="monospace" style={{ fontSize: 10 }}>{conns.length}</Text>
                   <IconChevronDown
@@ -621,7 +621,7 @@ export function Sidebar() {
 }
 
 function groupByEnv(connections: ConnectionInfo[]): Record<string, ConnectionInfo[]> {
-  const order: string[] = ["PROD", "STG", "QA", "DEV"];
+  const order: string[] = ["PROD", "STG", "UAT", "QA", "DEV"];
   const grouped: Record<string, ConnectionInfo[]> = {};
   for (const c of connections) {
     if (!grouped[c.env]) grouped[c.env] = [];

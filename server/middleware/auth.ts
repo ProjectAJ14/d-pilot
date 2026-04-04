@@ -73,6 +73,13 @@ export function initAuthTables(): void {
   // Migrate legacy 'viewer' role to 'read'
   db.prepare("UPDATE users SET role = 'read' WHERE role = 'viewer'").run();
 
+  // Add allowed_environments column if missing
+  const cols = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "allowed_environments")) {
+    db.exec(`ALTER TABLE users ADD COLUMN allowed_environments TEXT NOT NULL DEFAULT '["DEV","QA","UAT","STG","PROD"]'`);
+    console.log("Added allowed_environments column to users table");
+  }
+
   // Seed default admin user if no users exist
   const count = db.prepare("SELECT COUNT(*) as cnt FROM users").get() as { cnt: number };
   if (count.cnt === 0) {
@@ -113,6 +120,15 @@ export function handleLogin(req: Request, res: Response): void {
   // Archive old audit entries if 30+ days since last run
   archiveIfDue();
 
+  // Parse allowed environments
+  const ALL_ENVS = ["DEV", "QA", "UAT", "STG", "PROD"];
+  let allowedEnvironments: string[] = ALL_ENVS;
+  try {
+    allowedEnvironments = JSON.parse(user.allowed_environments || '[]');
+  } catch { /* default to all */ }
+  // Admins always get all environments
+  if (user.role === "admin") allowedEnvironments = ALL_ENVS;
+
   // Issue JWT
   const payload = {
     sub: user.id,
@@ -120,6 +136,7 @@ export function handleLogin(req: Request, res: Response): void {
     email: user.email,
     name: user.display_name,
     role: user.role,
+    allowedEnvironments,
   };
 
   const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN } as jwt.SignOptions);
@@ -134,6 +151,7 @@ export function handleLogin(req: Request, res: Response): void {
       role: user.role,
       isAdmin: user.role === "admin",
       canUnmaskPhi: user.role === "admin" || user.role === "phi_viewer",
+      allowedEnvironments,
     },
   });
 }
@@ -147,6 +165,13 @@ export function handleMe(req: Request, res: Response): void {
     res.json(req.user);
     return;
   }
+  const ALL_ENVS = ["DEV", "QA", "UAT", "STG", "PROD"];
+  let allowedEnvironments: string[] = ALL_ENVS;
+  try {
+    allowedEnvironments = JSON.parse(user.allowed_environments || '[]');
+  } catch { /* default to all */ }
+  if (user.role === "admin") allowedEnvironments = ALL_ENVS;
+
   res.json({
     id: user.id,
     username: user.username,
@@ -155,6 +180,7 @@ export function handleMe(req: Request, res: Response): void {
     role: user.role,
     isAdmin: user.role === "admin",
     canUnmaskPhi: user.role === "admin" || user.role === "phi_viewer",
+    allowedEnvironments,
   });
 }
 
@@ -235,6 +261,7 @@ export function authMiddleware() {
         roles: [payload.role],
         isAdmin: payload.role === "admin",
         canUnmaskPhi: payload.role === "admin" || payload.role === "phi_viewer",
+        allowedEnvironments: payload.allowedEnvironments || ["DEV", "QA", "UAT", "STG", "PROD"],
       };
 
       next();

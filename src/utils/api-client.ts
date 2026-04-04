@@ -168,12 +168,12 @@ export const api = {
 
   // User Management (admin)
   getUsers: () => request<any[]>("/users"),
-  createUser: (data: { email: string; displayName: string; role: string; password: string }) =>
+  createUser: (data: { email: string; displayName: string; role: string; password: string; allowedEnvironments?: string[] }) =>
     request<any>("/users", {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  updateUser: (id: string, data: { displayName?: string; role?: string }) =>
+  updateUser: (id: string, data: { displayName?: string; role?: string; allowedEnvironments?: string[] }) =>
     request<any>(`/users/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),

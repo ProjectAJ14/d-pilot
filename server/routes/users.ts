@@ -13,25 +13,31 @@ router.use(requireAdmin);
 router.get("/", (_req: Request, res: Response) => {
   const db = getDb();
   const users = db.prepare(
-    "SELECT id, username, email, display_name, role, created_at, last_login FROM users ORDER BY created_at DESC"
+    "SELECT id, username, email, display_name, role, created_at, last_login, allowed_environments FROM users ORDER BY created_at DESC"
   ).all() as any[];
 
   res.json(
-    users.map((u) => ({
-      id: u.id,
-      username: u.username,
-      email: u.email,
-      displayName: u.display_name,
-      role: u.role,
-      createdAt: u.created_at,
-      lastLogin: u.last_login,
-    }))
+    users.map((u) => {
+      let allowedEnvironments: string[] = ["DEV", "QA", "UAT", "STG", "PROD"];
+      try { allowedEnvironments = JSON.parse(u.allowed_environments || '[]'); } catch {}
+      if (u.role === "admin") allowedEnvironments = ["DEV", "QA", "UAT", "STG", "PROD"];
+      return {
+        id: u.id,
+        username: u.username,
+        email: u.email,
+        displayName: u.display_name,
+        role: u.role,
+        allowedEnvironments,
+        createdAt: u.created_at,
+        lastLogin: u.last_login,
+      };
+    })
   );
 });
 
 // Create user
 router.post("/", (req: Request, res: Response) => {
-  const { email, displayName, role, password } = req.body;
+  const { email, displayName, role, password, allowedEnvironments } = req.body;
 
   if (!email || !password) {
     res.status(400).json({ error: "Email and password are required" });
@@ -68,13 +74,16 @@ router.post("/", (req: Request, res: Response) => {
 
   const id = `usr-${randomUUID().slice(0, 8)}`;
   const passwordHash = bcrypt.hashSync(password, 10);
+  const ALL_ENVS = ["DEV", "QA", "UAT", "STG", "PROD"];
+  const envs = userRole === "admin" ? ALL_ENVS : (Array.isArray(allowedEnvironments) ? allowedEnvironments : ["DEV", "QA"]);
+  const envsJson = JSON.stringify(envs);
 
   db.prepare(
-    "INSERT INTO users (id, username, password_hash, email, display_name, role) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run(id, email, passwordHash, email, displayName || email.split("@")[0], userRole);
+    "INSERT INTO users (id, username, password_hash, email, display_name, role, allowed_environments) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).run(id, email, passwordHash, email, displayName || email.split("@")[0], userRole, envsJson);
 
   const created = db.prepare(
-    "SELECT id, username, email, display_name, role, created_at, last_login FROM users WHERE id = ?"
+    "SELECT id, username, email, display_name, role, created_at, last_login, allowed_environments FROM users WHERE id = ?"
   ).get(id) as any;
 
   res.status(201).json({
@@ -83,6 +92,7 @@ router.post("/", (req: Request, res: Response) => {
     email: created.email,
     displayName: created.display_name,
     role: created.role,
+    allowedEnvironments: envs,
     createdAt: created.created_at,
     lastLogin: created.last_login,
   });
@@ -91,7 +101,7 @@ router.post("/", (req: Request, res: Response) => {
 // Update user
 router.put("/:id", (req: Request, res: Response) => {
   const { id } = req.params;
-  const { displayName, role } = req.body;
+  const { displayName, role, allowedEnvironments } = req.body;
 
   const db = getDb();
   const existing = db.prepare("SELECT id FROM users WHERE id = ?").get(id);
@@ -117,6 +127,11 @@ router.put("/:id", (req: Request, res: Response) => {
     values.push(role);
   }
 
+  if (allowedEnvironments !== undefined && Array.isArray(allowedEnvironments)) {
+    updates.push("allowed_environments = ?");
+    values.push(JSON.stringify(allowedEnvironments));
+  }
+
   if (updates.length === 0) {
     res.status(400).json({ error: "No fields to update" });
     return;
@@ -126,8 +141,12 @@ router.put("/:id", (req: Request, res: Response) => {
   db.prepare(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`).run(...values);
 
   const updated = db.prepare(
-    "SELECT id, username, email, display_name, role, created_at, last_login FROM users WHERE id = ?"
+    "SELECT id, username, email, display_name, role, created_at, last_login, allowed_environments FROM users WHERE id = ?"
   ).get(id) as any;
+
+  let envs: string[] = ["DEV", "QA", "UAT", "STG", "PROD"];
+  try { envs = JSON.parse(updated.allowed_environments || '[]'); } catch {}
+  if (updated.role === "admin") envs = ["DEV", "QA", "UAT", "STG", "PROD"];
 
   res.json({
     id: updated.id,
@@ -135,6 +154,7 @@ router.put("/:id", (req: Request, res: Response) => {
     email: updated.email,
     displayName: updated.display_name,
     role: updated.role,
+    allowedEnvironments: envs,
     createdAt: updated.created_at,
     lastLogin: updated.last_login,
   });

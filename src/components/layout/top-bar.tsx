@@ -18,6 +18,7 @@ import type { ConnectionInfo, DatabaseType, Environment } from "../../types";
 const ENV_COLORS: Record<Environment, string> = {
   PROD: "red",
   STG: "orange",
+  UAT: "teal",
   QA: "violet",
   DEV: "green",
 };
@@ -146,7 +147,7 @@ export function TopBar() {
             <Text size="xs" c="dimmed">▾</Text>
           </div>
         </Menu.Target>
-        <Menu.Dropdown>
+        <Menu.Dropdown style={{ maxHeight: "70vh", overflowY: "auto" }}>
           <Menu.Label>Environments & Connections</Menu.Label>
           {Object.entries(groupByEnv(connections)).map(([env, conns]) => (
             <div key={env}>

@@ -22,6 +22,13 @@ router.post("/execute", async (req: Request, res: Response) => {
     return;
   }
 
+  // Check environment access
+  const allowed = user.allowedEnvironments || [];
+  if (!user.isAdmin && !allowed.includes(conn.env)) {
+    res.status(403).json({ error: `You do not have access to ${conn.env} environment` });
+    return;
+  }
+
   // Validate query (block DML/DDL)
   const validation = validateQuery(sql);
   if (!validation.valid) {

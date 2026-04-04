@@ -4,25 +4,32 @@ import { testConnection } from "../services/query-executor.js";
 
 const router = Router();
 
-router.get("/", (_req: Request, res: Response) => {
-  const connections = loadConnections().map((c) => ({
-    id: c.id,
-    name: c.name,
-    env: c.env,
-    type: c.type,
-    host: c.host,
-    port: c.port,
-    database: c.database,
-    schema: c.schema,
-    // Never expose credentials
-  }));
+router.get("/", (req: Request, res: Response) => {
+  const allowed = req.user?.allowedEnvironments || [];
+  const isAdmin = req.user?.isAdmin;
+  const connections = loadConnections()
+    .filter((c) => isAdmin || allowed.includes(c.env))
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      env: c.env,
+      type: c.type,
+      host: c.host,
+      port: c.port,
+      database: c.database,
+      schema: c.schema,
+      // Never expose credentials
+    }));
   res.json(connections);
 });
 
-router.get("/grouped", (_req: Request, res: Response) => {
+router.get("/grouped", (req: Request, res: Response) => {
+  const allowed = req.user?.allowedEnvironments || [];
+  const isAdmin = req.user?.isAdmin;
   const grouped = getConnectionsByEnv();
   const safe: Record<string, any[]> = {};
   for (const [env, conns] of Object.entries(grouped)) {
+    if (!isAdmin && !allowed.includes(env)) continue;
     safe[env] = conns.map((c) => ({
       id: c.id,
       name: c.name,
