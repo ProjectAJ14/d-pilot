@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type { editor as MonacoEditor, languages, IDisposable } from "monaco-editor";
+import { format as formatSql } from "sql-formatter";
 import {
   Button,
   Group,
@@ -554,6 +555,41 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
     }
   };
 
+  const handleFormat = useCallback(() => {
+    const dbType = activeConn?.type ?? null;
+
+    if (dbType === "mongodb") {
+      // Use Monaco's built-in JS formatter
+      editorRef.current?.getAction("editor.action.formatDocument")?.run();
+      return;
+    }
+
+    if (dbType === "elasticsearch") {
+      // Format JSON body (lines after the first GET/POST line)
+      const lines = tab.sql.split("\n");
+      const firstLine = lines[0];
+      const jsonBody = lines.slice(1).join("\n").trim();
+      if (jsonBody) {
+        try {
+          const formatted = JSON.stringify(JSON.parse(jsonBody), null, 2);
+          updateTab(tab.id, { sql: firstLine + "\n" + formatted });
+        } catch {
+          notifications.show({ message: "Invalid JSON body", color: "orange" });
+        }
+      }
+      return;
+    }
+
+    // SQL (postgres, mssql, default)
+    try {
+      const language = dbType === "mssql" ? "tsql" : "postgresql";
+      const formatted = formatSql(tab.sql, { language, tabWidth: 2, keywordCase: "upper" });
+      updateTab(tab.id, { sql: formatted });
+    } catch {
+      notifications.show({ message: "Could not format query", color: "orange" });
+    }
+  }, [tab.sql, tab.id, activeConn?.type]);
+
   // Store handleRun in a ref so editor commands always call the latest version
   const handleRunRef = useRef(handleRun);
   handleRunRef.current = handleRun;
@@ -642,8 +678,8 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
             </ActionIcon>
           </Tooltip>
 
-          <Tooltip label="Format SQL (Ctrl+Shift+F)">
-            <ActionIcon variant="subtle" color="gray">
+          <Tooltip label="Format">
+            <ActionIcon variant="subtle" color="gray" onClick={handleFormat}>
               <IconAlignJustified size={16} />
             </ActionIcon>
           </Tooltip>
