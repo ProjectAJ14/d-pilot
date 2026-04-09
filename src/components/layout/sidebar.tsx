@@ -124,8 +124,9 @@ export function Sidebar() {
     setTimeout(() => {
       const tabId = useStore.getState().activeTabId;
       updateTab(tabId, { sql, title: tableName, connectionId: connId, loading: true });
+      const viewMode = (conn?.type === "mongodb" || conn?.type === "elasticsearch") ? "json" as const : "table" as const;
       api.executeQuery(connId, sql)
-        .then((result) => updateTab(tabId, { result, loading: false }))
+        .then((result) => updateTab(tabId, { result, loading: false, viewMode }))
         .catch((err) => updateTab(tabId, { error: err.message, loading: false }));
     }, 0);
   };

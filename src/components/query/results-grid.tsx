@@ -1,11 +1,13 @@
-import { useMemo, useCallback } from "react";
-import { Text, Badge } from "@mantine/core";
-import { IconShieldLock, IconAlertTriangle } from "@tabler/icons-react";
+import { useMemo, useCallback, useRef, useEffect } from "react";
+import { Text, Badge, SegmentedControl } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
+import { IconShieldLock, IconAlertTriangle, IconTable, IconBraces, IconCopy } from "@tabler/icons-react";
 import { AgGridReact } from "ag-grid-react";
-import type { ColDef, CellClassParams, GetRowIdParams } from "ag-grid-community";
+import type { ColDef, CellClassParams, GetRowIdParams, CellDoubleClickedEvent } from "ag-grid-community";
 import { AllCommunityModule, ModuleRegistry, themeQuartz } from "ag-grid-community";
 import { useStore } from "../../store";
-import type { QueryTab } from "../../types";
+import type { QueryTab, ResultViewMode } from "../../types";
+import { ResultsJsonView } from "./results-json-view";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -50,8 +52,23 @@ function PhiCellRenderer(props: any) {
   );
 }
 
+function copyToClipboard(text: string, label: string) {
+  navigator.clipboard.writeText(text).then(() => {
+    const display = text.length > 60 ? text.slice(0, 60) + "…" : text;
+    notifications.show({
+      message: `Copied ${label}: ${display}`,
+      color: "teal",
+      icon: <IconCopy size={16} />,
+      autoClose: 2000,
+    });
+  });
+}
+
 export function ResultsGrid({ tab }: Props) {
   const phiEnabled = useStore((s) => s.phiEnabled);
+  const updateTab = useStore((s) => s.updateTab);
+  const viewMode = tab.viewMode ?? "table";
+  const gridWrapperRef = useRef<HTMLDivElement>(null);
 
   const { result, error } = tab;
 
@@ -123,6 +140,35 @@ export function ResultsGrid({ tab }: Props) {
     (params: GetRowIdParams) => String(params.data._agRowId ?? 0),
     []
   );
+
+  const onCellDoubleClicked = useCallback((event: CellDoubleClickedEvent) => {
+    const colName = event.colDef.headerName ?? "";
+    // Skip row number column
+    if (colName === "#") return;
+    const v = event.value;
+    let text: string;
+    if (v === null || v === undefined) text = "NULL";
+    else if (typeof v === "object") text = JSON.stringify(v);
+    else text = String(v);
+    copyToClipboard(text, `"${colName}"`);
+  }, []);
+
+  // Attach dblclick listener on header cells for copying column names
+  useEffect(() => {
+    const wrapper = gridWrapperRef.current;
+    if (!wrapper || viewMode !== "table") return;
+    const handler = (e: MouseEvent) => {
+      const target = (e.target as HTMLElement).closest(".ag-header-cell");
+      if (!target) return;
+      const textEl = target.querySelector(".ag-header-cell-text");
+      const colName = textEl?.textContent?.trim();
+      if (colName && colName !== "#") {
+        copyToClipboard(colName, "column");
+      }
+    };
+    wrapper.addEventListener("dblclick", handler);
+    return () => wrapper.removeEventListener("dblclick", handler);
+  }, [viewMode, result]);
 
   // Add row IDs for ag-grid
   const rowData = useMemo(() => {
@@ -214,6 +260,16 @@ export function ResultsGrid({ tab }: Props) {
         >
           Results
         </Text>
+        <SegmentedControl
+          size="xs"
+          value={viewMode}
+          onChange={(value) => updateTab(tab.id, { viewMode: value as ResultViewMode })}
+          data={[
+            { label: <IconTable size={14} />, value: "table" },
+            { label: <IconBraces size={14} />, value: "json" },
+          ]}
+          styles={{ root: { background: "var(--surface)" } }}
+        />
         <Badge size="sm" variant="light" color="blue" ff="monospace">
           {totalRows} rows
         </Badge>
@@ -238,24 +294,29 @@ export function ResultsGrid({ tab }: Props) {
         )}
       </div>
 
-      {/* ag-Grid */}
-      <div style={{ flex: 1 }}>
-        <AgGridReact
-          theme={gridTheme}
-          rowData={rowData}
-          columnDefs={columnDefs}
-          defaultColDef={defaultColDef}
-          getRowId={getRowId}
-          animateRows={false}
-          enableCellTextSelection={true}
-          ensureDomOrder={true}
-          suppressCellFocus={false}
-          rowBuffer={20}
-          headerHeight={36}
-          rowHeight={32}
-          tooltipShowDelay={300}
-        />
-      </div>
+      {/* Results view */}
+      {viewMode === "json" ? (
+        <ResultsJsonView rows={result.rows} />
+      ) : (
+        <div ref={gridWrapperRef} style={{ flex: 1 }}>
+          <AgGridReact
+            theme={gridTheme}
+            rowData={rowData}
+            columnDefs={columnDefs}
+            defaultColDef={defaultColDef}
+            getRowId={getRowId}
+            onCellDoubleClicked={onCellDoubleClicked}
+            animateRows={false}
+            enableCellTextSelection={true}
+            ensureDomOrder={true}
+            suppressCellFocus={false}
+            rowBuffer={20}
+            headerHeight={36}
+            rowHeight={32}
+            tooltipShowDelay={300}
+          />
+        </div>
+      )}
 
       {/* Audit bar */}
       {masked && (

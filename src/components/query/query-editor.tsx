@@ -490,7 +490,9 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
         sqlToRun,
         defaultLimitEnabled ? defaultLimitValue : null
       );
-      updateTab(tab.id, { result, loading: false });
+      const conn = useStore.getState().connections.find((c) => c.id === tab.connectionId);
+      const dbDefault = (conn?.type === "mongodb" || conn?.type === "elasticsearch") ? "json" as const : "table" as const;
+      updateTab(tab.id, { result, loading: false, viewMode: tab.viewMode ?? dbDefault });
     } catch (err: any) {
       updateTab(tab.id, {
         error: err.message,
