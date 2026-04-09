@@ -5,7 +5,7 @@ import { Client as EsClient } from "@elastic/elasticsearch";
 import type { ConnectionConfig } from "../types/index.js";
 
 const MAX_ROWS = parseInt(process.env.MAX_ROWS || "10000", 10);
-const QUERY_TIMEOUT = parseInt(process.env.QUERY_TIMEOUT_MS || "30000", 10);
+const QUERY_TIMEOUT = parseInt(process.env.QUERY_TIMEOUT_MS || "90000", 10);
 
 // Connection pools
 const pgPools = new Map<string, pg.Pool>();
@@ -41,9 +41,10 @@ export function validateQuery(sql: string): { valid: boolean; error?: string } {
 }
 
 /**
- * Auto-injects LIMIT 500 for SELECT * queries that don't already have a LIMIT clause.
+ * Auto-injects LIMIT for SELECT queries that don't already have a LIMIT clause.
+ * @param defaultLimit null = skip injection, undefined = use DEFAULT_SELECT_STAR_LIMIT, number = use that value
  */
-export function applyDefaultLimit(sql: string): string {
+export function applyDefaultLimit(sql: string, defaultLimit?: number | null): string {
   const trimmed = sql.trim().replace(/;\s*$/, "");
 
   // Only apply to SELECT statements
@@ -54,7 +55,11 @@ export function applyDefaultLimit(sql: string): string {
   if (/\bTOP\s+\d/i.test(trimmed)) return trimmed;
   if (/\bFETCH\s+(FIRST|NEXT)\b/i.test(trimmed)) return trimmed;
 
-  return `${trimmed} LIMIT ${DEFAULT_SELECT_STAR_LIMIT}`;
+  // null = user explicitly disabled auto-limit
+  if (defaultLimit === null) return trimmed;
+
+  const limit = Math.min(defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT, MAX_ROWS);
+  return `${trimmed} LIMIT ${limit}`;
 }
 
 async function getPgPool(conn: ConnectionConfig): Promise<pg.Pool> {
@@ -126,13 +131,14 @@ export interface RawQueryResult {
 
 export async function executeQuery(
   conn: ConnectionConfig,
-  sql: string
+  sql: string,
+  defaultLimit?: number | null
 ): Promise<RawQueryResult> {
   const start = performance.now();
 
   // Auto-inject LIMIT for SELECT queries without one, and translate LIMIT→TOP for MSSQL
   let safeSql = conn.type === "mssql" ? convertLimitToTop(sql) : sql;
-  safeSql = conn.type === "mssql" ? applyDefaultLimitMssql(safeSql) : applyDefaultLimit(safeSql);
+  safeSql = conn.type === "mssql" ? applyDefaultLimitMssql(safeSql, defaultLimit) : applyDefaultLimit(safeSql, defaultLimit);
 
   // Block MongoDB write operations before connecting
   if (conn.type === "mongodb") {
@@ -151,9 +157,9 @@ export async function executeQuery(
     case "mssql":
       return executeMssql(conn, safeSql, start);
     case "mongodb":
-      return executeMongo(conn, sql, start);
+      return executeMongo(conn, sql, start, defaultLimit);
     case "elasticsearch":
-      return executeElasticsearch(conn, sql, start);
+      return executeElasticsearch(conn, sql, start, defaultLimit);
     default:
       throw new Error(`Unsupported database type: ${conn.type}`);
   }
@@ -180,9 +186,10 @@ function convertLimitToTop(sql: string): string {
 }
 
 /**
- * MSSQL variant: injects TOP 500 instead of LIMIT.
+ * MSSQL variant: injects TOP N instead of LIMIT.
+ * @param defaultLimit null = skip injection, undefined = use DEFAULT_SELECT_STAR_LIMIT, number = use that value
  */
-function applyDefaultLimitMssql(sql: string): string {
+function applyDefaultLimitMssql(sql: string, defaultLimit?: number | null): string {
   const trimmed = sql.trim().replace(/;\s*$/, "");
 
   if (!/^\s*SELECT\b/i.test(trimmed)) return trimmed;
@@ -190,8 +197,12 @@ function applyDefaultLimitMssql(sql: string): string {
   if (/\bLIMIT\s+\d/i.test(trimmed)) return trimmed;
   if (/\bFETCH\s+(FIRST|NEXT)\b/i.test(trimmed)) return trimmed;
 
+  // null = user explicitly disabled auto-limit
+  if (defaultLimit === null) return trimmed;
+
+  const limit = Math.min(defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT, MAX_ROWS);
   // Insert TOP after SELECT
-  return trimmed.replace(/^(\s*SELECT)\b/i, `$1 TOP ${DEFAULT_SELECT_STAR_LIMIT}`);
+  return trimmed.replace(/^(\s*SELECT)\b/i, `$1 TOP ${limit}`);
 }
 
 async function executePostgres(
@@ -250,7 +261,8 @@ async function executeMssql(
 async function executeMongo(
   conn: ConnectionConfig,
   sql: string,
-  start: number
+  start: number,
+  defaultLimit?: number | null
 ): Promise<RawQueryResult> {
   const client = await getMongoClient(conn);
   const dbName = conn.database || conn.uri?.split("/").pop()?.split("?")[0] || "test";
@@ -320,7 +332,8 @@ async function executeMongo(
   const skipMatch = chainStr?.match(/\.skip\((\d+)\)/);
 
   const userLimit = limitMatch ? parseInt(limitMatch[1], 10) : null;
-  const limit = Math.min(userLimit ?? DEFAULT_SELECT_STAR_LIMIT, MAX_ROWS);
+  const effectiveDefault = defaultLimit === null ? MAX_ROWS : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
+  const limit = Math.min(userLimit ?? effectiveDefault, MAX_ROWS);
   const sort = sortMatch ? JSON.parse(sortMatch[1]) : undefined;
   const skip = skipMatch ? parseInt(skipMatch[1], 10) : undefined;
 
@@ -398,7 +411,8 @@ function getEsClient(conn: ConnectionConfig): EsClient {
 async function executeElasticsearch(
   conn: ConnectionConfig,
   sql: string,
-  start: number
+  start: number,
+  defaultLimit?: number | null
 ): Promise<RawQueryResult> {
   const client = getEsClient(conn);
   const trimmed = sql.trim();
@@ -430,7 +444,10 @@ async function executeElasticsearch(
     }
 
     // _search
-    if (!body.size && body.size !== 0) body.size = 500;
+    if (!body.size && body.size !== 0) {
+      const esLimit = defaultLimit === null ? MAX_ROWS : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
+      body.size = Math.min(esLimit, MAX_ROWS);
+    }
     const result = await client.search({ index, ...body });
     const elapsed = performance.now() - start;
     const hits = result.hits.hits || [];
@@ -455,11 +472,12 @@ async function executeElasticsearch(
     };
   }
 
-  // Format: just an index name — list first 500 docs
+  // Format: just an index name — list first N docs
   if (/^[\w\-.*]+$/.test(trimmed)) {
+    const esLimit = defaultLimit === null ? MAX_ROWS : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
     const result = await client.search({
       index: trimmed,
-      size: 500,
+      size: Math.min(esLimit, MAX_ROWS),
       query: { match_all: {} },
     });
     const elapsed = performance.now() - start;

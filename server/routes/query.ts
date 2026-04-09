@@ -9,7 +9,7 @@ const router = Router();
 
 router.post("/execute", async (req: Request, res: Response) => {
   const user = req.user!;
-  const { connectionId, sql } = req.body as QueryRequest;
+  const { connectionId, sql, defaultLimit } = req.body as QueryRequest;
 
   if (!connectionId || !sql) {
     res.status(400).json({ error: "connectionId and sql are required" });
@@ -37,7 +37,7 @@ router.post("/execute", async (req: Request, res: Response) => {
   }
 
   try {
-    const rawResult = await executeQuery(conn, sql);
+    const rawResult = await executeQuery(conn, sql, defaultLimit);
 
     // Server-side PHI enforcement
     const maskedEnvs = getPhiMaskedEnvs();

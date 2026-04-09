@@ -70,10 +70,10 @@ export const api = {
   testConnection: (id: string) => request<{ connected: boolean }>(`/connections/${id}/test`),
 
   // Query
-  executeQuery: (connectionId: string, sql: string) =>
+  executeQuery: (connectionId: string, sql: string, defaultLimit?: number | null) =>
     request<any>("/query/execute", {
       method: "POST",
-      body: JSON.stringify({ connectionId, sql }),
+      body: JSON.stringify({ connectionId, sql, defaultLimit }),
     }),
   getQueryHistory: (limit = 50) => request<any[]>(`/query/history?limit=${limit}`),
 

@@ -21,6 +21,7 @@ export interface QueryRequest {
   sql: string;
   page?: number;
   pageSize?: number;
+  defaultLimit?: number | null;
 }
 
 export interface QueryColumn {

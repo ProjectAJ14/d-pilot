@@ -50,6 +50,12 @@ interface AppState {
   togglePhi: () => void;
   setPhi: (enabled: boolean) => void;
 
+  // Query Limit
+  defaultLimitEnabled: boolean;
+  defaultLimitValue: number;
+  setDefaultLimitEnabled: (enabled: boolean) => void;
+  setDefaultLimitValue: (value: number) => void;
+
   // Saved Queries
   savedQueries: SavedQuery[];
   setSavedQueries: (queries: SavedQuery[]) => void;
@@ -83,6 +89,8 @@ function createTab(connectionId?: string | null): QueryTab {
 
 const savedToken = localStorage.getItem("dbpilot_token");
 const savedUser = localStorage.getItem("dbpilot_user");
+const savedLimitEnabled = localStorage.getItem("dbpilot_limit_enabled") !== "false";
+const savedLimitValue = parseInt(localStorage.getItem("dbpilot_limit_value") || "500", 10);
 const initialTab = createTab();
 
 export const useStore = create<AppState>((set, get) => ({
@@ -164,6 +172,19 @@ export const useStore = create<AppState>((set, get) => ({
       localStorage.removeItem("phi_unmask_notes");
     }
     set({ phiEnabled: enabled });
+  },
+
+  // Query Limit
+  defaultLimitEnabled: savedLimitEnabled,
+  defaultLimitValue: isNaN(savedLimitValue) ? 500 : savedLimitValue,
+  setDefaultLimitEnabled: (enabled) => {
+    localStorage.setItem("dbpilot_limit_enabled", String(enabled));
+    set({ defaultLimitEnabled: enabled });
+  },
+  setDefaultLimitValue: (value) => {
+    const clamped = Math.max(1, Math.min(value, 10000));
+    localStorage.setItem("dbpilot_limit_value", String(clamped));
+    set({ defaultLimitValue: clamped });
   },
 
   // Saved Queries

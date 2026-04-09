@@ -11,6 +11,8 @@ import {
   Tooltip,
   TextInput,
   Modal,
+  Checkbox,
+  NumberInput,
 } from "@mantine/core";
 import {
   IconPlayerPlay,
@@ -423,6 +425,10 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
   const addSavedQuery = useStore((s) => s.addSavedQuery);
   const savedQueries = useStore((s) => s.savedQueries);
   const updateSavedQueryInStore = useStore((s) => s.updateSavedQuery);
+  const defaultLimitEnabled = useStore((s) => s.defaultLimitEnabled);
+  const defaultLimitValue = useStore((s) => s.defaultLimitValue);
+  const setDefaultLimitEnabled = useStore((s) => s.setDefaultLimitEnabled);
+  const setDefaultLimitValue = useStore((s) => s.setDefaultLimitValue);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [editingSavedId, setEditingSavedId] = useState<string | null>(null);
@@ -479,7 +485,11 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
     updateTab(tab.id, { loading: true, error: null });
 
     try {
-      const result = await api.executeQuery(tab.connectionId, sqlToRun);
+      const result = await api.executeQuery(
+        tab.connectionId,
+        sqlToRun,
+        defaultLimitEnabled ? defaultLimitValue : null
+      );
       updateTab(tab.id, { result, loading: false });
     } catch (err: any) {
       updateTab(tab.id, {
@@ -489,7 +499,7 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
       });
       notifications.show({ message: err.message, color: "red" });
     }
-  }, [tab.sql, tab.connectionId, tab.id]);
+  }, [tab.sql, tab.connectionId, tab.id, defaultLimitEnabled, defaultLimitValue]);
 
   const handleSave = async () => {
     if (!saveName.trim()) return;
@@ -703,6 +713,32 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
               <IconFileExport size={16} />
             </ActionIcon>
           </Tooltip>
+
+          {/* Default Limit controls */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
+            <Checkbox
+              size="xs"
+              label="Limit"
+              checked={defaultLimitEnabled}
+              onChange={(e) => setDefaultLimitEnabled(e.currentTarget.checked)}
+              styles={{
+                label: { fontSize: 11, fontWeight: 600, color: "var(--mantine-color-dimmed)", paddingLeft: 4 },
+              }}
+            />
+            <NumberInput
+              size="xs"
+              value={defaultLimitValue}
+              onChange={(val) => setDefaultLimitValue(typeof val === "number" ? val : 500)}
+              min={1}
+              max={10000}
+              step={100}
+              disabled={!defaultLimitEnabled}
+              w={80}
+              styles={{
+                input: { fontFamily: "IBM Plex Mono, monospace", fontSize: 12 },
+              }}
+            />
+          </div>
 
           <div style={{ flex: 1 }} />
 
