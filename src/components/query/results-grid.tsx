@@ -53,7 +53,7 @@ function PhiCellRenderer(props: any) {
 }
 
 function copyToClipboard(text: string, label: string) {
-  navigator.clipboard.writeText(text).then(() => {
+  const showSuccess = () => {
     const display = text.length > 60 ? text.slice(0, 60) + "…" : text;
     notifications.show({
       message: `Copied ${label}: ${display}`,
@@ -61,7 +61,25 @@ function copyToClipboard(text: string, label: string) {
       icon: <IconCopy size={16} />,
       autoClose: 2000,
     });
-  });
+  };
+
+  const fallback = () => {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+    showSuccess();
+  };
+
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(showSuccess).catch(fallback);
+  } else {
+    fallback();
+  }
 }
 
 export function ResultsGrid({ tab }: Props) {
