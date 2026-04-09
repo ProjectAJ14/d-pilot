@@ -20,6 +20,7 @@ import {
   IconFileExport,
   IconAlignJustified,
   IconArrowsVertical,
+  IconCircleCheck,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useStore } from "../../store";
@@ -493,6 +494,15 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
       const conn = useStore.getState().connections.find((c) => c.id === tab.connectionId);
       const dbDefault = (conn?.type === "mongodb" || conn?.type === "elasticsearch") ? "json" as const : "table" as const;
       updateTab(tab.id, { result, loading: false, viewMode: tab.viewMode ?? dbDefault });
+      const connLabel = conn ? `${conn.name} · ${conn.env} · ${conn.type}` : "Unknown connection";
+      const dbLabel = conn?.database ? ` · ${conn.database}` : "";
+      notifications.show({
+        title: "Query executed successfully",
+        message: `${connLabel}${dbLabel} · ${result.totalRows} rows in ${result.executionTimeMs}ms${result.truncated ? " · Truncated" : ""}`,
+        color: "green",
+        icon: <IconCircleCheck size={16} />,
+        autoClose: 4000,
+      });
     } catch (err: any) {
       updateTab(tab.id, {
         error: err.message,
