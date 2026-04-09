@@ -66,7 +66,18 @@ export default function App() {
   const setConfig = useStore((s) => s.setConfig);
 
   useEffect(() => {
-    api.getConfig().then(setConfig).catch(() => {});
+    api.getConfig().then((cfg) => {
+      setConfig(cfg);
+      if (cfg.faviconUrl) {
+        let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+        if (!link) {
+          link = document.createElement("link");
+          link.rel = "icon";
+          document.head.appendChild(link);
+        }
+        link.href = cfg.faviconUrl;
+      }
+    }).catch(() => {});
   }, []);
 
   if (!isAuthenticated) {

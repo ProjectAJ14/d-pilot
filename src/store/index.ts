@@ -16,6 +16,7 @@ interface AppConfig {
   appName: string;
   logoUrl: string | null;
   lightLogoUrl: string | null;
+  faviconUrl: string | null;
   emailDomain: string | null;
   phiMaskedEnvironments: string[];
 }
@@ -137,7 +138,7 @@ window.addEventListener("beforeunload", () => debouncedSave.flush());
 
 export const useStore = create<AppState>((set, get) => ({
   // Config
-  config: { appName: "D-Pilot", logoUrl: null, lightLogoUrl: null, emailDomain: null, phiMaskedEnvironments: ["PROD"] },
+  config: { appName: "D-Pilot", logoUrl: null, lightLogoUrl: null, faviconUrl: null, emailDomain: null, phiMaskedEnvironments: ["PROD"] },
   setConfig: (config) => set({ config }),
 
   // Auth

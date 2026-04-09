@@ -54,7 +54,7 @@ async function request<T>(
 export const api = {
   // Config (public, no auth)
   getConfig: () =>
-    fetch("/api/config").then((r) => r.json()) as Promise<{ appName: string; logoUrl: string | null; lightLogoUrl: string | null; emailDomain: string | null; phiMaskedEnvironments: string[] }>,
+    fetch("/api/config").then((r) => r.json()) as Promise<{ appName: string; logoUrl: string | null; lightLogoUrl: string | null; faviconUrl: string | null; emailDomain: string | null; phiMaskedEnvironments: string[] }>,
 
   // Auth
   login: (username: string, password: string) =>

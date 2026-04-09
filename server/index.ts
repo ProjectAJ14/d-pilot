@@ -35,6 +35,7 @@ app.get("/api/config", (_req, res) => {
     appName: process.env.APP_NAME || "D-Pilot",
     logoUrl: process.env.LOGO_URL || null,
     lightLogoUrl: process.env.LIGHT_LOGO_URL || null,
+    faviconUrl: process.env.FAVICON_URL || null,
     emailDomain: process.env.EMAIL_DOMAIN || null,
     phiMaskedEnvironments: getPhiMaskedEnvs(),
   });
