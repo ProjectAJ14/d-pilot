@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { ConnectionInfo, QueryTab, SavedQuery } from "../types";
+import { loadTabs, clearPersistedTabs, createDebouncedSave } from "../utils/tab-persistence";
 
 interface AuthUser {
   id: string;
@@ -91,7 +92,48 @@ const savedToken = localStorage.getItem("dbpilot_token");
 const savedUser = localStorage.getItem("dbpilot_user");
 const savedLimitEnabled = localStorage.getItem("dbpilot_limit_enabled") !== "false";
 const savedLimitValue = parseInt(localStorage.getItem("dbpilot_limit_value") || "500", 10);
-const initialTab = createTab();
+
+const persistedTabs = loadTabs();
+const debouncedSave = createDebouncedSave(500);
+
+if (persistedTabs) {
+  tabCounter = Math.max(
+    ...persistedTabs.tabs.map((t) => {
+      const match = t.id.match(/^tab-(\d+)$/);
+      return match ? parseInt(match[1], 10) : 0;
+    }),
+    0
+  ) + 1;
+}
+
+const initialTabs: QueryTab[] = persistedTabs
+  ? persistedTabs.tabs.map((t) => ({
+      id: t.id,
+      title: t.title,
+      sql: t.sql,
+      connectionId: t.connectionId,
+      viewMode: t.viewMode,
+      result: null,
+      loading: false,
+      error: null,
+    }))
+  : [createTab()];
+
+const initialActiveTabId = persistedTabs?.activeTabId ?? initialTabs[0].id;
+const initialActiveConnectionId = persistedTabs?.activeConnectionId ?? null;
+const initialSidebarOpen = persistedTabs?.sidebarOpen ?? true;
+
+function persistAfterSet() {
+  const s = useStore.getState();
+  debouncedSave({
+    tabs: s.tabs,
+    activeTabId: s.activeTabId,
+    activeConnectionId: s.activeConnectionId,
+    sidebarOpen: s.sidebarOpen,
+  });
+}
+
+window.addEventListener("beforeunload", () => debouncedSave.flush());
 
 export const useStore = create<AppState>((set, get) => ({
   // Config
@@ -110,12 +152,13 @@ export const useStore = create<AppState>((set, get) => ({
   logout: () => {
     localStorage.removeItem("dbpilot_token");
     localStorage.removeItem("dbpilot_user");
+    clearPersistedTabs();
     set({ token: null, user: null, isAuthenticated: false });
   },
 
   // Connections
   connections: [],
-  activeConnectionId: null,
+  activeConnectionId: initialActiveConnectionId,
   setConnections: (connections) => set({ connections }),
   setActiveConnection: (id) => {
     set({ activeConnectionId: id });
@@ -125,17 +168,19 @@ export const useStore = create<AppState>((set, get) => ({
         t.id === activeTabId ? { ...t, connectionId: id } : t
       ),
     });
+    persistAfterSet();
   },
 
   // Tabs
-  tabs: [initialTab],
-  activeTabId: initialTab.id,
+  tabs: initialTabs,
+  activeTabId: initialActiveTabId,
   addTab: (connectionId) => {
     const tab = createTab(connectionId ?? get().activeConnectionId);
     set((s) => ({
       tabs: [...s.tabs, tab],
       activeTabId: tab.id,
     }));
+    persistAfterSet();
   },
   closeTab: (id) => {
     set((s) => {
@@ -150,12 +195,18 @@ export const useStore = create<AppState>((set, get) => ({
           : s.activeTabId;
       return { tabs: remaining, activeTabId: newActive };
     });
+    persistAfterSet();
   },
-  setActiveTab: (id) => set({ activeTabId: id }),
-  updateTab: (id, updates) =>
+  setActiveTab: (id) => {
+    set({ activeTabId: id });
+    persistAfterSet();
+  },
+  updateTab: (id, updates) => {
     set((s) => ({
       tabs: s.tabs.map((t) => (t.id === id ? { ...t, ...updates } : t)),
-    })),
+    }));
+    persistAfterSet();
+  },
 
   // PHI Shield
   phiEnabled: localStorage.getItem("phi_shield") !== "off",
@@ -198,8 +249,11 @@ export const useStore = create<AppState>((set, get) => ({
     set((s) => ({ savedQueries: s.savedQueries.filter((q) => q.id !== id) })),
 
   // Sidebar
-  sidebarOpen: true,
-  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+  sidebarOpen: initialSidebarOpen,
+  toggleSidebar: () => {
+    set((s) => ({ sidebarOpen: !s.sidebarOpen }));
+    persistAfterSet();
+  },
 
   // PHI Config Panel
   phiPanelOpen: false,

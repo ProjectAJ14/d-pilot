@@ -1,6 +1,7 @@
 export type DatabaseType = "postgres" | "mssql" | "mongodb" | "elasticsearch";
 export type Environment = "DEV" | "QA" | "UAT" | "STG" | "PROD";
 export type MaskingType = "FULL" | "PARTIAL" | "HASH" | "REDACT";
+export type ResultViewMode = "table" | "json";
 
 export interface ConnectionInfo {
   id: string;
@@ -79,6 +80,7 @@ export interface QueryTab {
   result: QueryResult | null;
   loading: boolean;
   error: string | null;
+  viewMode?: ResultViewMode;
 }
 
 export interface User {
