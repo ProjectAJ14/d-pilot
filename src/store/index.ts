@@ -72,6 +72,11 @@ interface AppState {
   // PHI Config Panel
   phiPanelOpen: boolean;
   togglePhiPanel: () => void;
+
+  // AI Query Assistant Panel
+  aiAssistantOpen: boolean;
+  toggleAiAssistant: () => void;
+  setAiAssistant: (open: boolean) => void;
 }
 
 let tabCounter = 1;
@@ -259,4 +264,9 @@ export const useStore = create<AppState>((set, get) => ({
   // PHI Config Panel
   phiPanelOpen: false,
   togglePhiPanel: () => set((s) => ({ phiPanelOpen: !s.phiPanelOpen })),
+
+  // AI Query Assistant Panel
+  aiAssistantOpen: false,
+  toggleAiAssistant: () => set((s) => ({ aiAssistantOpen: !s.aiAssistantOpen })),
+  setAiAssistant: (open) => set({ aiAssistantOpen: open }),
 }));

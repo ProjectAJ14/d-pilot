@@ -1,3 +1,5 @@
+import type { AiChatLogEntry } from "../types";
+
 const BASE_URL = "/api";
 
 async function request<T>(
@@ -185,4 +187,47 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ newPassword }),
     }),
+
+  // Azure OpenAI (admin)
+  testAzureConnection: () =>
+    request<{ success: boolean; message: string; endpoint?: string; deployment?: string; model?: string }>(
+      "/azure-ai/test",
+      { method: "POST" }
+    ),
+
+  // AI Query Generation (any authenticated user)
+  generateQuery: (data: { connectionId: string; prompt: string; currentQuery?: string; refreshSchema?: boolean }) =>
+    request<{
+      query: string;
+      explanation: string;
+      model?: string;
+      schemaTruncated: boolean;
+      tablesProvided: number;
+      totalTables: number;
+      schemaCached?: boolean;
+      schemaCachedAt?: string;
+      examplesUsed?: number;
+      relevantSelection?: boolean;
+    }>("/azure-ai/generate-query", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  // Clear cached schema summaries (admin)
+  clearSchemaCache: (connectionId?: string) =>
+    request<{ cleared: number; scope: string }>("/azure-ai/schema-cache/clear", {
+      method: "POST",
+      body: JSON.stringify(connectionId ? { connectionId } : {}),
+    }),
+
+  // AI Chat Log (admin)
+  getAiChatLog: (params: { limit?: number; offset?: number; from?: string; to?: string; status?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.limit) q.set("limit", String(params.limit));
+    if (params.offset) q.set("offset", String(params.offset));
+    if (params.from) q.set("from", params.from);
+    if (params.to) q.set("to", params.to);
+    if (params.status) q.set("status", params.status);
+    return request<AiChatLogEntry[]>(`/azure-ai/chat-log?${q.toString()}`);
+  },
 };

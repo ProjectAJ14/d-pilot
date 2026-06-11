@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { QueryTabs } from "./query-tabs";
 import { QueryEditor } from "./query-editor";
 import { ResultsGrid } from "./results-grid";
+import { AiAssistantPanel } from "./ai-assistant-panel";
 import { useStore } from "../../store";
 
 const DEFAULT_HEIGHT = 150;
@@ -106,6 +107,7 @@ export function QueryWorkspace() {
           <ResultsGrid tab={activeTab} />
         </>
       )}
+      <AiAssistantPanel />
     </div>
   );
 }

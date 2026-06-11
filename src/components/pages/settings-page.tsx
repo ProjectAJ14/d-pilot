@@ -15,6 +15,7 @@ import {
   Switch,
   ScrollArea,
   MultiSelect,
+  Collapse,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
@@ -29,11 +30,16 @@ import {
   IconFileText,
   IconAlertTriangle,
   IconRefresh,
+  IconSparkles,
+  IconX,
+  IconRobot,
+  IconCopy,
+  IconChevronRight,
 } from "@tabler/icons-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
-import type { User, PhiFieldRule, MaskingType } from "../../types";
+import type { User, PhiFieldRule, MaskingType, AiChatLogEntry } from "../../types";
 
 // ── PHI Field Icons ──
 const FIELD_ICONS: Record<string, string> = {
@@ -88,6 +94,12 @@ export function SettingsPage() {
           <Tabs.Tab value="audit" leftSection={<IconFileText size={14} />}>
             Audit Log
           </Tabs.Tab>
+          <Tabs.Tab value="azure" leftSection={<IconSparkles size={14} />}>
+            Azure OpenAI
+          </Tabs.Tab>
+          <Tabs.Tab value="ai-log" leftSection={<IconRobot size={14} />}>
+            AI Chat Log
+          </Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="users">
@@ -100,6 +112,14 @@ export function SettingsPage() {
 
         <Tabs.Panel value="audit">
           <AuditLogTab />
+        </Tabs.Panel>
+
+        <Tabs.Panel value="azure">
+          <AzureOpenAiTab />
+        </Tabs.Panel>
+
+        <Tabs.Panel value="ai-log">
+          <AiChatLogTab />
         </Tabs.Panel>
       </Tabs>
     </div>
@@ -1234,6 +1254,473 @@ function AuditDetailModal({ entry, onClose }: { entry: AuditEntry | null; onClos
             )}
           </div>
         )}
+      </div>
+
+      <Group justify="flex-end" mt="lg">
+        <Button variant="subtle" color="gray" onClick={onClose}>Close</Button>
+      </Group>
+    </Modal>
+  );
+}
+
+// ═══════════════════════════════════════
+// ── Azure OpenAI Tab ──
+// ═══════════════════════════════════════
+
+interface AzureTestResult {
+  success: boolean;
+  message: string;
+  endpoint?: string;
+  deployment?: string;
+  model?: string;
+}
+
+function AzureOpenAiTab() {
+  const [testing, setTesting] = useState(false);
+  const [result, setResult] = useState<AzureTestResult | null>(null);
+
+  const handleTest = async () => {
+    setTesting(true);
+    setResult(null);
+    try {
+      const data = await api.testAzureConnection();
+      setResult(data);
+    } catch (err: any) {
+      setResult({ success: false, message: err.message });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <>
+      {/* Info banner */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 12,
+          background: "rgba(31,145,150,0.06)",
+          border: "1px solid rgba(31,145,150,0.2)",
+          borderRadius: 10,
+          padding: 16,
+          marginBottom: 20,
+        }}
+      >
+        <div style={{ fontSize: 24, flexShrink: 0 }}>✨</div>
+        <div>
+          <Text fw={700} size="sm" c="primary.8" mb={4}>
+            Azure OpenAI Connection
+          </Text>
+          <Text size="xs" c="dimmed" style={{ lineHeight: 1.6 }}>
+            Credentials are read from server environment variables
+            (<Text span ff="monospace" size="xs">AZURE_OPENAI_ENDPOINT</Text>,{" "}
+            <Text span ff="monospace" size="xs">AZURE_OPENAI_KEY</Text>,{" "}
+            <Text span ff="monospace" size="xs">AZURE_OPENAI_DEPLOYMENT</Text>). Click below to send a
+            test request and verify the keys are valid.
+          </Text>
+        </div>
+      </div>
+
+      <Group mb="lg">
+        <Button
+          leftSection={<IconSparkles size={16} />}
+          onClick={handleTest}
+          loading={testing}
+        >
+          Test Connect to Azure OpenAI
+        </Button>
+      </Group>
+
+      {/* Result panel */}
+      {result && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 12,
+            background: result.success ? "rgba(46,160,67,0.06)" : "rgba(215,54,54,0.06)",
+            border: `1px solid ${result.success ? "rgba(46,160,67,0.25)" : "rgba(215,54,54,0.25)"}`,
+            borderRadius: 10,
+            padding: 16,
+          }}
+        >
+          <div style={{ flexShrink: 0, marginTop: 2 }}>
+            {result.success ? (
+              <IconCheck size={20} color="var(--success, #2ea043)" />
+            ) : (
+              <IconX size={20} color="var(--error, #d73636)" />
+            )}
+          </div>
+          <div style={{ flex: 1 }}>
+            <Group gap={8} mb={6}>
+              <Badge color={result.success ? "green" : "red"} variant="light">
+                {result.success ? "SUCCESS" : "FAILED"}
+              </Badge>
+            </Group>
+            <Text size="sm" mb={result.endpoint ? "sm" : 0}>
+              {result.message}
+            </Text>
+            {result.endpoint && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <Text size="xs" c="dimmed" ff="monospace">
+                  endpoint: {result.endpoint}
+                </Text>
+                {result.deployment && (
+                  <Text size="xs" c="dimmed" ff="monospace">
+                    deployment: {result.deployment}
+                  </Text>
+                )}
+                {result.model && (
+                  <Text size="xs" c="dimmed" ff="monospace">
+                    model: {result.model}
+                  </Text>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ═══════════════════════════════════════
+// ── AI Chat Log Tab ──
+// ═══════════════════════════════════════
+
+function AiChatLogTab() {
+  const [entries, setEntries] = useState<AiChatLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<string>("all");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [selected, setSelected] = useState<AiChatLogEntry | null>(null);
+
+  const loadLog = async () => {
+    setLoading(true);
+    try {
+      const params: any = { limit: 500 };
+      if (fromDate) params.from = fromDate;
+      if (toDate) params.to = toDate + "T23:59:59";
+      if (status !== "all") params.status = status;
+      const data = await api.getAiChatLog(params);
+      setEntries(data);
+    } catch (err: any) {
+      notifications.show({ message: err.message, color: "red" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadLog(); }, []);
+
+  return (
+    <>
+      <Text fw={700} size="sm" c="secondary.9" mb={4}>
+        AI Query Generation Log
+      </Text>
+      <Text size="xs" c="dimmed" mb="md">
+        Every AI query generation is recorded — the full prompt sent (schema context + request) and the
+        model's response — for prompt tuning and optimization. Schema metadata only; no row data is sent or stored.
+      </Text>
+
+      {/* Filters */}
+      <Group justify="space-between" mb="sm" wrap="wrap">
+        <Group gap="xs">
+          <Select
+            size="xs"
+            value={status}
+            onChange={(v) => setStatus(v || "all")}
+            data={[
+              { value: "all", label: "All outcomes" },
+              { value: "success", label: "Success only" },
+              { value: "error", label: "Errors only" },
+            ]}
+            style={{ width: 150 }}
+          />
+          <TextInput
+            size="xs"
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.currentTarget.value)}
+            style={{ width: 140 }}
+          />
+          <TextInput
+            size="xs"
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.currentTarget.value)}
+            style={{ width: 140 }}
+          />
+          <Button size="xs" variant="light" onClick={loadLog} loading={loading}>
+            Search
+          </Button>
+          {(fromDate || toDate) && (
+            <Button size="xs" variant="subtle" color="gray" onClick={() => { setFromDate(""); setToDate(""); }}>
+              Clear
+            </Button>
+          )}
+        </Group>
+        <Button size="xs" variant="subtle" leftSection={<IconRefresh size={14} />} onClick={loadLog} loading={loading}>
+          Refresh
+        </Button>
+      </Group>
+
+      <Text size="xs" c="dimmed" mb="sm">
+        {entries.length} generation{entries.length !== 1 ? "s" : ""}
+      </Text>
+
+      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
+        <ScrollArea style={{ maxHeight: "calc(100vh - 360px)" }}>
+          <Table highlightOnHover>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th style={{ width: 160 }}>Timestamp</Table.Th>
+                <Table.Th>User</Table.Th>
+                <Table.Th>Prompt</Table.Th>
+                <Table.Th style={{ width: 90 }}>Status</Table.Th>
+                <Table.Th style={{ width: 90 }}>Tokens</Table.Th>
+                <Table.Th style={{ width: 80 }}>Latency</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {entries.map((e) => (
+                <Table.Tr key={e.id} onClick={() => setSelected(e)} style={{ cursor: "pointer" }}>
+                  <Table.Td>
+                    <Text size="xs" ff="monospace" c="dimmed">
+                      {new Date(e.timestamp + "Z").toLocaleString()}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="xs" fw={600} style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {e.userEmail}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="xs" style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {e.prompt}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Badge size="sm" color={e.status === "success" ? "green" : "red"} variant="light">
+                      {e.status}
+                    </Badge>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="xs" ff="monospace" c="dimmed">
+                      {e.totalTokens ?? "—"}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="xs" ff="monospace" c="dimmed">
+                      {e.latencyMs != null ? `${e.latencyMs}ms` : "—"}
+                    </Text>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+              {entries.length === 0 && !loading && (
+                <Table.Tr>
+                  <Table.Td colSpan={6}>
+                    <Text ta="center" c="dimmed" py="lg">No AI generations logged yet</Text>
+                  </Table.Td>
+                </Table.Tr>
+              )}
+            </Table.Tbody>
+          </Table>
+        </ScrollArea>
+      </div>
+
+      <AiChatDetailModal entry={selected} onClose={() => setSelected(null)} />
+    </>
+  );
+}
+
+function SectionLabel({ children }: { children: string }) {
+  return (
+    <Text
+      size="xs"
+      fw={800}
+      tt="uppercase"
+      c="secondary.9"
+      style={{ letterSpacing: 0.5, borderBottom: "1px solid var(--border)", paddingBottom: 4, marginTop: 4 }}
+    >
+      {children}
+    </Text>
+  );
+}
+
+function copyChatText(text: string) {
+  const done = () => notifications.show({ message: "Copied to clipboard", color: "teal", autoClose: 1500 });
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => done());
+  } else {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select(); document.execCommand("copy");
+    document.body.removeChild(ta); done();
+  }
+}
+
+function CodeBlock({
+  label,
+  value,
+  collapsible = false,
+  defaultOpen = true,
+  accent,
+}: {
+  label: string;
+  value?: string;
+  collapsible?: boolean;
+  defaultOpen?: boolean;
+  accent?: string;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  if (!value) return null;
+  const lines = value.split("\n").length;
+
+  return (
+    <div>
+      <Group justify="space-between" gap={6} mb={3} wrap="nowrap">
+        <Group
+          gap={6}
+          wrap="nowrap"
+          style={{ cursor: collapsible ? "pointer" : "default", minWidth: 0 }}
+          onClick={collapsible ? () => setOpen((o) => !o) : undefined}
+        >
+          {collapsible && (
+            <IconChevronRight
+              size={13}
+              color="var(--mantine-color-dimmed)"
+              style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .15s", flexShrink: 0 }}
+            />
+          )}
+          <Text size="xs" fw={700} tt="uppercase" c={accent || "dimmed"} style={{ whiteSpace: "nowrap" }}>
+            {label}
+          </Text>
+          <Text size="xs" c="dimmed" style={{ fontSize: 10, whiteSpace: "nowrap" }}>
+            {value.length.toLocaleString()} chars · {lines} {lines === 1 ? "line" : "lines"}
+          </Text>
+        </Group>
+        <Tooltip label="Copy">
+          <ActionIcon size="sm" variant="subtle" color="gray" onClick={() => copyChatText(value)} style={{ flexShrink: 0 }}>
+            <IconCopy size={13} />
+          </ActionIcon>
+        </Tooltip>
+      </Group>
+      <Collapse in={open}>
+        <div
+          style={{
+            background: "var(--surface2)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            padding: "10px 14px",
+            fontFamily: "IBM Plex Mono, monospace",
+            fontSize: 12,
+            lineHeight: 1.6,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            maxHeight: 320,
+            overflow: "auto",
+          }}
+        >
+          {value}
+        </div>
+      </Collapse>
+    </div>
+  );
+}
+
+function AiChatDetailModal({ entry, onClose }: { entry: AiChatLogEntry | null; onClose: () => void }) {
+  if (!entry) return null;
+
+  return (
+    <Modal opened={!!entry} onClose={onClose} title="AI Generation Detail" size="xl">
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <Group gap="lg" wrap="wrap">
+          <div>
+            <Text size="xs" c="dimmed" fw={700} tt="uppercase" mb={2}>Timestamp</Text>
+            <Text size="sm" ff="monospace">{new Date(entry.timestamp + "Z").toLocaleString()}</Text>
+          </div>
+          <div>
+            <Text size="xs" c="dimmed" fw={700} tt="uppercase" mb={2}>User</Text>
+            <Text size="sm">{entry.userEmail}</Text>
+          </div>
+          <div>
+            <Text size="xs" c="dimmed" fw={700} tt="uppercase" mb={2}>Status</Text>
+            <Badge color={entry.status === "success" ? "green" : "red"} variant="light">{entry.status}</Badge>
+          </div>
+          {entry.model && (
+            <div>
+              <Text size="xs" c="dimmed" fw={700} tt="uppercase" mb={2}>Model</Text>
+              <Text size="sm" ff="monospace">{entry.model}</Text>
+            </div>
+          )}
+        </Group>
+
+        <Group gap="lg" wrap="wrap">
+          {entry.connectionId && (
+            <div>
+              <Text size="xs" c="dimmed" fw={700} tt="uppercase" mb={2}>Connection</Text>
+              <Text size="sm" ff="monospace">{entry.connectionId} {entry.dbType ? `· ${entry.dbType}` : ""}</Text>
+            </div>
+          )}
+          {entry.latencyMs != null && (
+            <div>
+              <Text size="xs" c="dimmed" fw={700} tt="uppercase" mb={2}>Latency</Text>
+              <Text size="sm" ff="monospace">{entry.latencyMs}ms</Text>
+            </div>
+          )}
+          {entry.totalTokens != null && (
+            <div>
+              <Text size="xs" c="dimmed" fw={700} tt="uppercase" mb={2}>Tokens</Text>
+              <Text size="sm" ff="monospace">
+                {entry.totalTokens} total{entry.promptTokens != null ? ` (${entry.promptTokens} in / ${entry.completionTokens} out)` : ""}
+              </Text>
+            </div>
+          )}
+          {(entry.tablesProvided != null) && (
+            <div>
+              <Text size="xs" c="dimmed" fw={700} tt="uppercase" mb={2}>Schema</Text>
+              <Text size="sm" ff="monospace">
+                {entry.tablesProvided}{entry.totalTables != null ? `/${entry.totalTables}` : ""} tables{entry.schemaTruncated ? " (truncated)" : ""}
+              </Text>
+            </div>
+          )}
+        </Group>
+
+        <SectionLabel>1 · The request</SectionLabel>
+        <CodeBlock label="User Prompt (plain English)" value={entry.prompt} accent="primary.7" />
+
+        <SectionLabel>2 · What we sent to the model</SectionLabel>
+        <Text size="xs" c="dimmed" mt={-6}>
+          This is the exact prompt and context the model received. Schema metadata only — no row data.
+        </Text>
+        <CodeBlock label="System Prompt (instructions)" value={entry.systemPrompt} collapsible defaultOpen={false} />
+        <CodeBlock
+          label="User Message — schema context + request"
+          value={entry.userMessage}
+          collapsible
+          defaultOpen={false}
+        />
+
+        <SectionLabel>3 · What came back</SectionLabel>
+        {entry.errorMessage && (
+          <div
+            style={{
+              background: "rgba(215,54,54,0.06)",
+              border: "1px solid rgba(215,54,54,0.2)",
+              borderRadius: 8,
+              padding: 12,
+            }}
+          >
+            <Text size="xs" fw={700} c="red" tt="uppercase" mb={2}>Error</Text>
+            <Text size="sm">{entry.errorMessage}</Text>
+          </div>
+        )}
+        <CodeBlock label="Generated Query" value={entry.generatedQuery} accent="primary.7" />
+        {entry.explanation && <CodeBlock label="Explanation" value={entry.explanation} />}
+        <CodeBlock label="Raw Model Response (JSON)" value={entry.responseRaw} collapsible defaultOpen={false} />
       </div>
 
       <Group justify="flex-end" mt="lg">

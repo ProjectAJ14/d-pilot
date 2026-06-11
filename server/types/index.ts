@@ -81,6 +81,31 @@ export interface AuditEntry {
   timestamp: string;
 }
 
+export interface AiChatLogEntry {
+  id: string;
+  userId: string;
+  userEmail: string;
+  connectionId?: string;
+  dbType?: string;
+  prompt: string; // the user's natural-language request
+  systemPrompt?: string; // full system message sent to the model
+  userMessage?: string; // full user message (schema context + request)
+  responseRaw?: string; // raw model output
+  generatedQuery?: string; // parsed query from the response
+  explanation?: string;
+  model?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  latencyMs?: number;
+  status: "success" | "error";
+  errorMessage?: string;
+  schemaTruncated?: boolean;
+  tablesProvided?: number;
+  totalTables?: number;
+  timestamp: string;
+}
+
 export interface TableInfo {
   schema: string;
   name: string;

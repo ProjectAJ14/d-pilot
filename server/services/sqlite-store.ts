@@ -7,6 +7,7 @@ import type {
   SavedQuery,
   PhiFieldRule,
   AuditEntry,
+  AiChatLogEntry,
   Environment,
 } from "../types/index.js";
 
@@ -66,6 +67,34 @@ export function initDatabase(): void {
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS ai_chat_log (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      user_email TEXT NOT NULL,
+      connection_id TEXT,
+      db_type TEXT,
+      prompt TEXT NOT NULL,
+      system_prompt TEXT,
+      user_message TEXT,
+      response_raw TEXT,
+      generated_query TEXT,
+      explanation TEXT,
+      model TEXT,
+      prompt_tokens INTEGER,
+      completion_tokens INTEGER,
+      total_tokens INTEGER,
+      latency_ms INTEGER,
+      status TEXT NOT NULL,
+      error_message TEXT,
+      schema_truncated INTEGER,
+      tables_provided INTEGER,
+      total_tables INTEGER,
+      timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_chat_timestamp ON ai_chat_log(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_ai_chat_user ON ai_chat_log(user_id);
 
     CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
     CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id);
@@ -347,6 +376,107 @@ export function mapAuditRow(r: any): AuditEntry {
     phiFieldsUnmasked: r.phi_fields_unmasked ? JSON.parse(r.phi_fields_unmasked) : [],
     phiUnmaskReason: r.phi_unmask_reason ?? undefined,
     phiUnmaskNotes: r.phi_unmask_notes ?? undefined,
+    timestamp: r.timestamp,
+  };
+}
+
+// --- AI Chat Log ---
+
+export function logAiChat(entry: Omit<AiChatLogEntry, "id" | "timestamp">): void {
+  db.prepare(
+    `INSERT INTO ai_chat_log (
+       id, user_id, user_email, connection_id, db_type, prompt, system_prompt,
+       user_message, response_raw, generated_query, explanation, model,
+       prompt_tokens, completion_tokens, total_tokens, latency_ms, status,
+       error_message, schema_truncated, tables_provided, total_tables
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    randomUUID(),
+    entry.userId,
+    entry.userEmail,
+    entry.connectionId ?? null,
+    entry.dbType ?? null,
+    entry.prompt,
+    entry.systemPrompt ?? null,
+    entry.userMessage ?? null,
+    entry.responseRaw ?? null,
+    entry.generatedQuery ?? null,
+    entry.explanation ?? null,
+    entry.model ?? null,
+    entry.promptTokens ?? null,
+    entry.completionTokens ?? null,
+    entry.totalTokens ?? null,
+    entry.latencyMs ?? null,
+    entry.status,
+    entry.errorMessage ?? null,
+    entry.schemaTruncated == null ? null : entry.schemaTruncated ? 1 : 0,
+    entry.tablesProvided ?? null,
+    entry.totalTables ?? null
+  );
+}
+
+export function getAiChatLog(options: {
+  limit?: number;
+  offset?: number;
+  from?: string;
+  to?: string;
+  status?: string;
+  userId?: string;
+} = {}): AiChatLogEntry[] {
+  const limit = Math.min(options.limit ?? 100, 1000);
+  const offset = options.offset ?? 0;
+
+  const conditions: string[] = [];
+  const params: any[] = [];
+
+  if (options.from) {
+    conditions.push("timestamp >= ?");
+    params.push(options.from);
+  }
+  if (options.to) {
+    conditions.push("timestamp <= ?");
+    params.push(options.to);
+  }
+  if (options.status) {
+    conditions.push("status = ?");
+    params.push(options.status);
+  }
+  if (options.userId) {
+    conditions.push("user_id = ?");
+    params.push(options.userId);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const sql = `SELECT * FROM ai_chat_log ${where} ORDER BY timestamp DESC LIMIT ? OFFSET ?`;
+  params.push(limit, offset);
+
+  const rows = db.prepare(sql).all(...params) as any[];
+  return rows.map(mapAiChatRow);
+}
+
+function mapAiChatRow(r: any): AiChatLogEntry {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    userEmail: r.user_email,
+    connectionId: r.connection_id ?? undefined,
+    dbType: r.db_type ?? undefined,
+    prompt: r.prompt,
+    systemPrompt: r.system_prompt ?? undefined,
+    userMessage: r.user_message ?? undefined,
+    responseRaw: r.response_raw ?? undefined,
+    generatedQuery: r.generated_query ?? undefined,
+    explanation: r.explanation ?? undefined,
+    model: r.model ?? undefined,
+    promptTokens: r.prompt_tokens ?? undefined,
+    completionTokens: r.completion_tokens ?? undefined,
+    totalTokens: r.total_tokens ?? undefined,
+    latencyMs: r.latency_ms ?? undefined,
+    status: r.status,
+    errorMessage: r.error_message ?? undefined,
+    schemaTruncated: r.schema_truncated == null ? undefined : r.schema_truncated === 1,
+    tablesProvided: r.tables_provided ?? undefined,
+    totalTables: r.total_tables ?? undefined,
     timestamp: r.timestamp,
   };
 }

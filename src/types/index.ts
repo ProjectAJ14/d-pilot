@@ -93,3 +93,28 @@ export interface User {
   createdAt: string;
   lastLogin?: string;
 }
+
+export interface AiChatLogEntry {
+  id: string;
+  userId: string;
+  userEmail: string;
+  connectionId?: string;
+  dbType?: string;
+  prompt: string;
+  systemPrompt?: string;
+  userMessage?: string;
+  responseRaw?: string;
+  generatedQuery?: string;
+  explanation?: string;
+  model?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  latencyMs?: number;
+  status: "success" | "error";
+  errorMessage?: string;
+  schemaTruncated?: boolean;
+  tablesProvided?: number;
+  totalTables?: number;
+  timestamp: string;
+}

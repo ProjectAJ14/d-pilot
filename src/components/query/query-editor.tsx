@@ -21,6 +21,7 @@ import {
   IconAlignJustified,
   IconArrowsVertical,
   IconCircleCheck,
+  IconSparkles,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useStore } from "../../store";
@@ -423,6 +424,8 @@ const TOOLBAR_HEIGHT = 56;
 export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
   const updateTab = useStore((s) => s.updateTab);
   const connections = useStore((s) => s.connections);
+  const toggleAiAssistant = useStore((s) => s.toggleAiAssistant);
+  const aiAssistantOpen = useStore((s) => s.aiAssistantOpen);
   const addSavedQuery = useStore((s) => s.addSavedQuery);
   const savedQueries = useStore((s) => s.savedQueries);
   const updateSavedQueryInStore = useStore((s) => s.updateSavedQuery);
@@ -673,6 +676,18 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
           >
             Run
           </Button>
+
+          <Tooltip label="Generate query from plain English">
+            <Button
+              size="xs"
+              variant={aiAssistantOpen ? "filled" : "light"}
+              color="primary"
+              leftSection={<IconSparkles size={14} />}
+              onClick={toggleAiAssistant}
+            >
+              Generate
+            </Button>
+          </Tooltip>
 
           <Text
             size="xs"

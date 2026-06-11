@@ -14,6 +14,7 @@ import phiConfigRoutes from "./routes/phi-config.js";
 import auditRoutes from "./routes/audit.js";
 import exportRoutes from "./routes/export.js";
 import userRoutes from "./routes/users.js";
+import azureAiRoutes from "./routes/azure-ai.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "3101", 10);
@@ -63,6 +64,7 @@ app.use("/api/phi-config", phiConfigRoutes);
 app.use("/api/audit", auditRoutes);
 app.use("/api/export", exportRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/azure-ai", azureAiRoutes);
 
 // Serve static frontend in production
 if (process.env.NODE_ENV === "production") {

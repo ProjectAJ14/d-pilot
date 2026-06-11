@@ -103,18 +103,26 @@ export function TopBar() {
         zIndex: 50,
       }}
     >
-      {/* Logo */}
-      <Group gap={10}>
-        {logoUrl && (
-          <>
-            <img src={logoUrl} alt={appName} style={{ height: 32 }} />
-            <div style={{ width: 1, height: 28, background: "var(--border)" }} />
-          </>
-        )}
-        <Text fw={700} size="sm" c="var(--accent)">
-          {appName}
-        </Text>
-      </Group>
+      {/* Logo — click to go to the dashboard */}
+      <Tooltip label="Go to dashboard">
+        <Group
+          gap={10}
+          onClick={() => navigate("/")}
+          style={{ cursor: "pointer" }}
+          role="link"
+          aria-label="Go to dashboard"
+        >
+          {logoUrl && (
+            <>
+              <img src={logoUrl} alt={appName} style={{ height: 32 }} />
+              <div style={{ width: 1, height: 28, background: "var(--border)" }} />
+            </>
+          )}
+          <Text fw={700} size="sm" c="var(--accent)">
+            {appName}
+          </Text>
+        </Group>
+      </Tooltip>
 
       <div style={{ width: 1, height: 28, background: "var(--border)" }} />
 

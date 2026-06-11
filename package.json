@@ -5,7 +5,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node scripts/free-ports.mjs",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "restart": "npm run dev",
     "dev:server": "tsx watch server/index.ts",
     "dev:client": "vite",
     "build": "vite build && tsc -p tsconfig.server.json",
