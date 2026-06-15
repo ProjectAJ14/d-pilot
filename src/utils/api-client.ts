@@ -144,6 +144,9 @@ export const api = {
   triggerArchive: () =>
     request<{ archived: number; message: string }>("/audit/archive", { method: "POST" }),
 
+  // Analytics
+  getAnalytics: () => request<any>("/analytics"),
+
   // Export
   exportCsv: (connectionId: string, sql: string) =>
     request<string>("/export/csv", {

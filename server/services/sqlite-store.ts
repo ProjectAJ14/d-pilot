@@ -349,6 +349,109 @@ export function getAuditLog(options: {
   return rows.map(mapAuditRow);
 }
 
+// --- Analytics ---
+
+function lastNDates(n: number): string[] {
+  const out: string[] = [];
+  const now = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - i));
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+function mapByDay(rows: any[]): Record<string, number> {
+  const m: Record<string, number> = {};
+  for (const r of rows) m[r.d] = r.c;
+  return m;
+}
+
+export function getAnalytics(): any {
+  const scalar = (sql: string, ...params: any[]): number => {
+    const row = db.prepare(sql).get(...params) as { v: number } | undefined;
+    return row?.v ?? 0;
+  };
+
+  // ── Users ──
+  const totalUsers = scalar("SELECT COUNT(*) v FROM users");
+  const activeUsers = scalar("SELECT COUNT(*) v FROM users WHERE last_login >= datetime('now','-30 days')");
+  const neverLoggedIn = scalar("SELECT COUNT(*) v FROM users WHERE last_login IS NULL");
+  const roleRows = db.prepare("SELECT role, COUNT(*) c FROM users GROUP BY role").all() as { role: string; c: number }[];
+
+  // ── Query activity ──
+  const queriesToday = scalar("SELECT COUNT(*) v FROM audit_log WHERE action='QUERY_EXECUTE' AND date(timestamp)=date('now')");
+  const queries30d = scalar("SELECT COUNT(*) v FROM audit_log WHERE action='QUERY_EXECUTE' AND timestamp>=datetime('now','-30 days')");
+  const queriesTotal = scalar("SELECT COUNT(*) v FROM audit_log WHERE action='QUERY_EXECUTE'");
+
+  // ── Engagement (distinct active users) ──
+  const dauToday = scalar("SELECT COUNT(DISTINCT user_id) v FROM audit_log WHERE date(timestamp)=date('now')");
+  const wau = scalar("SELECT COUNT(DISTINCT user_id) v FROM audit_log WHERE timestamp>=datetime('now','-7 days')");
+  const mau = scalar("SELECT COUNT(DISTINCT user_id) v FROM audit_log WHERE timestamp>=datetime('now','-30 days')");
+
+  // ── Quality / PHI / perf (30d) ──
+  const phiUnmask30d = scalar("SELECT COUNT(*) v FROM audit_log WHERE action='PHI_UNMASK' AND timestamp>=datetime('now','-30 days')");
+  const phiDenied30d = scalar("SELECT COUNT(*) v FROM audit_log WHERE action='PHI_UNMASK_DENIED' AND timestamp>=datetime('now','-30 days')");
+  const errors30d = scalar("SELECT COUNT(*) v FROM audit_log WHERE action='QUERY_ERROR' AND timestamp>=datetime('now','-30 days')");
+  const exports30d = scalar("SELECT COUNT(*) v FROM audit_log WHERE action IN ('EXPORT_CSV','EXPORT_JSON') AND timestamp>=datetime('now','-30 days')");
+  const avgLatencyMs = Math.round(
+    scalar("SELECT COALESCE(AVG(execution_ms),0) v FROM audit_log WHERE action='QUERY_EXECUTE' AND execution_ms IS NOT NULL AND timestamp>=datetime('now','-30 days')")
+  );
+  const totalRows30d = scalar("SELECT COALESCE(SUM(rows_returned),0) v FROM audit_log WHERE action='QUERY_EXECUTE' AND timestamp>=datetime('now','-30 days')");
+
+  // ── AI usage (30d) ──
+  const aiGenerations30d = scalar("SELECT COUNT(*) v FROM ai_chat_log WHERE timestamp>=datetime('now','-30 days')");
+  const aiSuccess30d = scalar("SELECT COUNT(*) v FROM ai_chat_log WHERE status='success' AND timestamp>=datetime('now','-30 days')");
+  const aiTokens30d = scalar("SELECT COALESCE(SUM(total_tokens),0) v FROM ai_chat_log WHERE timestamp>=datetime('now','-30 days')");
+
+  const savedQueries = scalar("SELECT COUNT(*) v FROM saved_queries");
+
+  // ── Daily series (last 30 days, zero-filled) ──
+  const qByDay = mapByDay(db.prepare("SELECT date(timestamp) d, COUNT(*) c FROM audit_log WHERE action='QUERY_EXECUTE' AND timestamp>=datetime('now','-29 days') GROUP BY d").all());
+  const auByDay = mapByDay(db.prepare("SELECT date(timestamp) d, COUNT(DISTINCT user_id) c FROM audit_log WHERE timestamp>=datetime('now','-29 days') GROUP BY d").all());
+  const aiByDay = mapByDay(db.prepare("SELECT date(timestamp) d, COUNT(*) c FROM ai_chat_log WHERE timestamp>=datetime('now','-29 days') GROUP BY d").all());
+  const daily = lastNDates(30).map((date) => ({
+    date,
+    queries: qByDay[date] ?? 0,
+    activeUsers: auByDay[date] ?? 0,
+    aiQueries: aiByDay[date] ?? 0,
+  }));
+
+  // ── Breakdowns (30d) ──
+  const actionBreakdown = (db.prepare("SELECT action, COUNT(*) c FROM audit_log WHERE timestamp>=datetime('now','-30 days') GROUP BY action ORDER BY c DESC").all() as any[])
+    .map((a) => ({ action: a.action, count: a.c }));
+
+  const topUsers = (db.prepare(
+    `SELECT user_email email, COUNT(*) queries, MAX(timestamp) lastActive
+     FROM audit_log WHERE action='QUERY_EXECUTE' AND timestamp>=datetime('now','-30 days')
+     GROUP BY user_id ORDER BY queries DESC LIMIT 8`
+  ).all() as any[]).map((u) => ({ email: u.email, queries: u.queries, lastActive: u.lastActive }));
+
+  const byConnection = (db.prepare(
+    `SELECT COALESCE(connection_id,'(none)') connectionId, COUNT(*) c
+     FROM audit_log WHERE action='QUERY_EXECUTE' AND timestamp>=datetime('now','-30 days')
+     GROUP BY connection_id ORDER BY c DESC LIMIT 8`
+  ).all() as any[]).map((c) => ({ connectionId: c.connectionId, count: c.c }));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    totals: {
+      totalUsers, activeUsers, neverLoggedIn,
+      queriesToday, queries30d, queriesTotal,
+      dauToday, wau, mau,
+      phiUnmask30d, phiDenied30d, errors30d, exports30d,
+      avgLatencyMs, totalRows30d,
+      aiGenerations30d, aiSuccess30d, aiTokens30d,
+      savedQueries,
+    },
+    roleDistribution: roleRows.map((r) => ({ role: r.role, count: r.c })),
+    daily,
+    actionBreakdown,
+    topUsers,
+    byConnection,
+  };
+}
+
 // --- Query History ---
 
 export function getQueryHistory(userId: string, limit = 50): AuditEntry[] {

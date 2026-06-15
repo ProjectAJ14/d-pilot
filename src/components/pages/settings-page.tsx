@@ -1,7 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import {
   Text,
-  Tabs,
   Table,
   Badge,
   Button,
@@ -16,6 +15,10 @@ import {
   ScrollArea,
   MultiSelect,
   Collapse,
+  Avatar,
+  NavLink,
+  SimpleGrid,
+  Loader,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
@@ -35,6 +38,12 @@ import {
   IconRobot,
   IconCopy,
   IconChevronRight,
+  IconSettings,
+  IconChartBar,
+  IconActivity,
+  IconClock,
+  IconDatabase,
+  IconUserCheck,
 } from "@tabler/icons-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useStore } from "../../store";
@@ -54,74 +63,367 @@ function getIcon(pattern: string): string {
   return FIELD_ICONS[pattern] || "🔐";
 }
 
+const SETTINGS_SECTIONS = [
+  { value: "analytics", label: "Analytics", icon: IconChartBar, desc: "Usage, adoption & activity trends" },
+  { value: "users", label: "User Management", icon: IconUsers, desc: "People, roles & environment access" },
+  { value: "phi", label: "PHI Tokenization", icon: IconShieldLock, desc: "Field masking & de-tokenization rules" },
+  { value: "audit", label: "Audit Log", icon: IconFileText, desc: "Access & query history" },
+  { value: "azure", label: "Azure OpenAI", icon: IconSparkles, desc: "AI provider connection" },
+  { value: "ai-log", label: "AI Chat Log", icon: IconRobot, desc: "AI query generation history" },
+] as const;
+
 export function SettingsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") || "users";
   const user = useStore((s) => s.user);
+  const active = SETTINGS_SECTIONS.find((s) => s.value === activeTab) || SETTINGS_SECTIONS[0];
 
   return (
-    <div style={{ padding: "28px 32px", maxWidth: 900, margin: "0 auto", overflow: "auto", flex: 1 }}>
-      <Button
-        variant="subtle"
-        color="gray"
-        size="xs"
-        leftSection={<IconArrowLeft size={14} />}
-        onClick={() => navigate("/")}
-        mb="lg"
+    <div style={{ display: "flex", flex: 1, height: "100%", minWidth: 0, overflow: "hidden" }}>
+      {/* ── Sidebar ── */}
+      <aside
+        style={{
+          width: 264,
+          flexShrink: 0,
+          borderRight: "1px solid var(--border)",
+          background: "var(--surface)",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "auto",
+        }}
       >
-        Back to queries
-      </Button>
+        <div style={{ padding: "18px 16px 10px" }}>
+          <Button
+            variant="subtle"
+            color="gray"
+            size="xs"
+            leftSection={<IconArrowLeft size={14} />}
+            onClick={() => navigate("/")}
+            mb="md"
+            px={8}
+          >
+            Back to queries
+          </Button>
+          <Group gap={8} px={8} mb={2} wrap="nowrap">
+            <IconSettings size={20} color="var(--mantine-color-primary-6, #1f9196)" />
+            <Text fw={700} size="lg" c="secondary.9">Settings</Text>
+          </Group>
+          <Text size="xs" c="dimmed" px={8}>Admin &amp; configuration</Text>
+        </div>
 
-      <Text fw={700} size="xl" mb="xs" c="secondary.9">
-        Settings
+        <div style={{ padding: "6px 10px 16px" }}>
+          {SETTINGS_SECTIONS.map((s) => {
+            const Icon = s.icon;
+            return (
+              <NavLink
+                key={s.value}
+                active={s.value === activeTab}
+                label={s.label}
+                description={s.desc}
+                leftSection={<Icon size={18} />}
+                onClick={() => setSearchParams({ tab: s.value })}
+                variant="light"
+                style={{ borderRadius: 8, marginBottom: 2 }}
+              />
+            );
+          })}
+        </div>
+      </aside>
+
+      {/* ── Content ── */}
+      <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+          <div style={{ maxWidth: 1180, margin: "0 auto", padding: "28px 32px" }}>
+            <Text fw={700} size="xl" mb={2} c="secondary.9">{active.label}</Text>
+            <Text size="sm" c="dimmed" mb="lg">{active.desc}</Text>
+
+            {activeTab === "analytics" && <AnalyticsTab />}
+            {activeTab === "users" && <UserManagementTab currentUserId={user?.id || ""} />}
+            {activeTab === "phi" && <PhiManagementTab />}
+            {activeTab === "audit" && <AuditLogTab />}
+            {activeTab === "azure" && <AzureOpenAiTab />}
+            {activeTab === "ai-log" && <AiChatLogTab />}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════
+// ── Analytics Tab ──
+// ═══════════════════════════════════════
+
+interface Analytics {
+  generatedAt: string;
+  totals: {
+    totalUsers: number; activeUsers: number; neverLoggedIn: number;
+    queriesToday: number; queries30d: number; queriesTotal: number;
+    dauToday: number; wau: number; mau: number;
+    phiUnmask30d: number; phiDenied30d: number; errors30d: number; exports30d: number;
+    avgLatencyMs: number; totalRows30d: number;
+    aiGenerations30d: number; aiSuccess30d: number; aiTokens30d: number;
+    savedQueries: number;
+  };
+  roleDistribution: { role: string; count: number }[];
+  daily: { date: string; queries: number; activeUsers: number; aiQueries: number }[];
+  actionBreakdown: { action: string; count: number }[];
+  topUsers: { email: string; queries: number; lastActive: string }[];
+  byConnection: { connectionId: string; count: number }[];
+}
+
+function fmtNum(n: number): string {
+  return (n ?? 0).toLocaleString();
+}
+
+function fmtDay(iso: string): string {
+  // iso = YYYY-MM-DD (UTC). Render as "Jun 5"
+  const [y, m, d] = iso.split("-").map(Number);
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[(m || 1) - 1]} ${d}`;
+}
+
+function StatCard({
+  label, value, sub, icon, accent = "primary",
+}: {
+  label: string; value: string; sub?: string; icon: ReactNode; accent?: string;
+}) {
+  return (
+    <div
+      style={{
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderRadius: 12,
+        padding: "16px 18px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      }}
+    >
+      <Group justify="space-between" wrap="nowrap" align="flex-start">
+        <Text size="xs" c="dimmed" fw={600} tt="uppercase" style={{ letterSpacing: 0.3 }}>
+          {label}
+        </Text>
+        <div
+          style={{
+            color: `var(--mantine-color-${accent}-6)`,
+            display: "flex",
+            opacity: 0.85,
+          }}
+        >
+          {icon}
+        </div>
+      </Group>
+      <Text fw={700} style={{ fontSize: 28, lineHeight: 1.1 }} c="secondary.9">
+        {value}
       </Text>
-      <Text size="sm" c="dimmed" mb="lg">
-        Manage users, roles, PHI tokenization rules, and audit logs
-      </Text>
+      {sub && <Text size="xs" c="dimmed">{sub}</Text>}
+    </div>
+  );
+}
 
-      <Tabs
-        value={activeTab}
-        onChange={(v) => setSearchParams({ tab: v || "users" })}
-      >
-        <Tabs.List mb="lg">
-          <Tabs.Tab value="users" leftSection={<IconUsers size={14} />}>
-            User Management
-          </Tabs.Tab>
-          <Tabs.Tab value="phi" leftSection={<IconShieldLock size={14} />}>
-            PHI Tokenization
-          </Tabs.Tab>
-          <Tabs.Tab value="audit" leftSection={<IconFileText size={14} />}>
-            Audit Log
-          </Tabs.Tab>
-          <Tabs.Tab value="azure" leftSection={<IconSparkles size={14} />}>
-            Azure OpenAI
-          </Tabs.Tab>
-          <Tabs.Tab value="ai-log" leftSection={<IconRobot size={14} />}>
-            AI Chat Log
-          </Tabs.Tab>
-        </Tabs.List>
+function BarChart({
+  data, color, label,
+}: {
+  data: { date: string; value: number }[]; color: string; label: string;
+}) {
+  const max = Math.max(1, ...data.map((d) => d.value));
+  const peak = data.reduce((a, b) => (b.value > a.value ? b : a), data[0] || { date: "", value: 0 });
+  return (
+    <div>
+      <Group justify="space-between" mb={10}>
+        <Text size="sm" fw={600} c="secondary.9">{label}</Text>
+        <Text size="xs" c="dimmed">peak {fmtNum(peak.value)} · {fmtDay(peak.date)}</Text>
+      </Group>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 120 }}>
+        {data.map((d) => (
+          <Tooltip key={d.date} label={`${fmtDay(d.date)}: ${fmtNum(d.value)}`} withArrow openDelay={0}>
+            <div
+              style={{
+                flex: 1,
+                height: "100%",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "flex-end",
+                cursor: "default",
+              }}
+            >
+              <div
+                style={{
+                  height: `${(d.value / max) * 100}%`,
+                  minHeight: d.value > 0 ? 3 : 0,
+                  background: color,
+                  borderRadius: "3px 3px 0 0",
+                  transition: "height .2s",
+                }}
+              />
+            </div>
+          </Tooltip>
+        ))}
+      </div>
+      <Group justify="space-between" mt={6}>
+        <Text size="10px" c="dimmed">{data.length ? fmtDay(data[0].date) : ""}</Text>
+        <Text size="10px" c="dimmed">{data.length ? fmtDay(data[Math.floor(data.length / 2)].date) : ""}</Text>
+        <Text size="10px" c="dimmed">{data.length ? fmtDay(data[data.length - 1].date) : ""}</Text>
+      </Group>
+    </div>
+  );
+}
 
-        <Tabs.Panel value="users">
-          <UserManagementTab currentUserId={user?.id || ""} />
-        </Tabs.Panel>
+function Panel({ children }: { children: ReactNode }) {
+  return (
+    <div
+      style={{
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderRadius: 12,
+        padding: 18,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
-        <Tabs.Panel value="phi">
-          <PhiManagementTab />
-        </Tabs.Panel>
+function AnalyticsTab() {
+  const [data, setData] = useState<Analytics | null>(null);
+  const [loading, setLoading] = useState(true);
 
-        <Tabs.Panel value="audit">
-          <AuditLogTab />
-        </Tabs.Panel>
+  const load = async () => {
+    setLoading(true);
+    try {
+      const d = await api.getAnalytics();
+      setData(d);
+    } catch (err: any) {
+      notifications.show({ message: err.message, color: "red" });
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        <Tabs.Panel value="azure">
-          <AzureOpenAiTab />
-        </Tabs.Panel>
+  useEffect(() => { load(); }, []);
 
-        <Tabs.Panel value="ai-log">
-          <AiChatLogTab />
-        </Tabs.Panel>
-      </Tabs>
+  if (loading || !data) {
+    return (
+      <Group justify="center" py={80}>
+        <Loader size="sm" />
+        <Text size="sm" c="dimmed">Crunching usage data…</Text>
+      </Group>
+    );
+  }
+
+  const t = data.totals;
+  const aiSuccessRate = t.aiGenerations30d > 0 ? Math.round((t.aiSuccess30d / t.aiGenerations30d) * 100) : 0;
+  const errorRate = (t.queries30d + t.errors30d) > 0 ? Math.round((t.errors30d / (t.queries30d + t.errors30d)) * 100) : 0;
+  const maxAction = Math.max(1, ...data.actionBreakdown.map((a) => a.count));
+  const maxTopUser = Math.max(1, ...data.topUsers.map((u) => u.queries));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <Group justify="space-between">
+        <Text size="xs" c="dimmed">
+          Derived from users, audit log & AI logs · windows noted per metric
+        </Text>
+        <Button size="xs" variant="subtle" leftSection={<IconRefresh size={14} />} onClick={load}>
+          Refresh
+        </Button>
+      </Group>
+
+      {/* KPI cards */}
+      <SimpleGrid cols={{ base: 1, xs: 2, sm: 3, md: 4 }} spacing="md">
+        <StatCard label="Total users" value={fmtNum(t.totalUsers)} sub={`${fmtNum(t.activeUsers)} active in 30d`} icon={<IconUsers size={20} />} accent="primary" />
+        <StatCard label="Active today" value={fmtNum(t.dauToday)} sub={`${fmtNum(t.wau)} this week · ${fmtNum(t.mau)} this month`} icon={<IconUserCheck size={20} />} accent="teal" />
+        <StatCard label="Queries today" value={fmtNum(t.queriesToday)} sub={`${fmtNum(t.queries30d)} in 30d · ${fmtNum(t.queriesTotal)} all-time`} icon={<IconDatabase size={20} />} accent="blue" />
+        <StatCard label="Avg query time" value={`${fmtNum(t.avgLatencyMs)} ms`} sub={`${fmtNum(t.totalRows30d)} rows returned (30d)`} icon={<IconClock size={20} />} accent="grape" />
+        <StatCard label="AI generations" value={fmtNum(t.aiGenerations30d)} sub={`${aiSuccessRate}% success · ${fmtNum(t.aiTokens30d)} tokens (30d)`} icon={<IconSparkles size={20} />} accent="violet" />
+        <StatCard label="PHI unmasks" value={fmtNum(t.phiUnmask30d)} sub={`${fmtNum(t.phiDenied30d)} denied (30d)`} icon={<IconShieldLock size={20} />} accent="orange" />
+        <StatCard label="Query errors" value={fmtNum(t.errors30d)} sub={`${errorRate}% error rate (30d)`} icon={<IconActivity size={20} />} accent="red" />
+        <StatCard label="Saved queries" value={fmtNum(t.savedQueries)} sub={`${fmtNum(t.neverLoggedIn)} users never logged in`} icon={<IconFileText size={20} />} accent="cyan" />
+      </SimpleGrid>
+
+      {/* Daily trend charts */}
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+        <Panel>
+          <BarChart label="Queries per day (30d)" color="var(--mantine-color-blue-5)" data={data.daily.map((d) => ({ date: d.date, value: d.queries }))} />
+        </Panel>
+        <Panel>
+          <BarChart label="Daily active users (30d)" color="var(--mantine-color-teal-5)" data={data.daily.map((d) => ({ date: d.date, value: d.activeUsers }))} />
+        </Panel>
+        <Panel>
+          <BarChart label="AI generations per day (30d)" color="var(--mantine-color-violet-5)" data={data.daily.map((d) => ({ date: d.date, value: d.aiQueries }))} />
+        </Panel>
+
+        {/* Activity breakdown */}
+        <Panel>
+          <Text size="sm" fw={600} c="secondary.9" mb={12}>Activity breakdown (30d)</Text>
+          {data.actionBreakdown.length === 0 && <Text size="xs" c="dimmed">No activity yet</Text>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {data.actionBreakdown.map((a) => (
+              <div key={a.action}>
+                <Group justify="space-between" mb={3}>
+                  <Badge size="sm" radius="sm" variant="light" color={ACTION_COLORS[a.action] || "gray"} style={{ overflow: "visible" }}>
+                    {ACTION_LABELS[a.action] || a.action}
+                  </Badge>
+                  <Text size="xs" fw={600} c="secondary.9">{fmtNum(a.count)}</Text>
+                </Group>
+                <div style={{ height: 6, background: "var(--mantine-color-gray-2)", borderRadius: 4, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${(a.count / maxAction) * 100}%`, background: `var(--mantine-color-${ACTION_COLORS[a.action] || "gray"}-5)`, borderRadius: 4 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </SimpleGrid>
+
+      {/* Top users + role distribution */}
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+        <Panel>
+          <Text size="sm" fw={600} c="secondary.9" mb={12}>Top users by queries (30d)</Text>
+          {data.topUsers.length === 0 && <Text size="xs" c="dimmed">No query activity yet</Text>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {data.topUsers.map((u) => (
+              <Group key={u.email} gap="sm" wrap="nowrap">
+                <Avatar size={30} radius="xl" color="primary" variant="light">{getInitials(u.email)}</Avatar>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Group justify="space-between" mb={3} wrap="nowrap">
+                    <Text size="xs" fw={600} truncate>{u.email}</Text>
+                    <Text size="xs" fw={700} c="secondary.9">{fmtNum(u.queries)}</Text>
+                  </Group>
+                  <div style={{ height: 5, background: "var(--mantine-color-gray-2)", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${(u.queries / maxTopUser) * 100}%`, background: "var(--mantine-color-primary-5)", borderRadius: 4 }} />
+                  </div>
+                </div>
+              </Group>
+            ))}
+          </div>
+        </Panel>
+
+        <Panel>
+          <Text size="sm" fw={600} c="secondary.9" mb={12}>Users by role</Text>
+          <Group gap="lg" mb="lg">
+            {data.roleDistribution.map((r) => (
+              <div key={r.role}>
+                <Text fw={700} style={{ fontSize: 24 }} c="secondary.9">{fmtNum(r.count)}</Text>
+                <Badge size="sm" radius="sm" variant="light" color={ROLE_META[r.role]?.color || "gray"} style={{ overflow: "visible" }}>
+                  {ROLE_META[r.role]?.label || r.role}
+                </Badge>
+              </div>
+            ))}
+          </Group>
+
+          <Text size="sm" fw={600} c="secondary.9" mb={12}>Queries by connection (30d)</Text>
+          {data.byConnection.length === 0 && <Text size="xs" c="dimmed">No queries yet</Text>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {data.byConnection.map((c) => (
+              <Group key={c.connectionId} justify="space-between" wrap="nowrap">
+                <Text size="xs" ff="monospace" c="dimmed" truncate>{c.connectionId}</Text>
+                <Text size="xs" fw={600} c="secondary.9">{fmtNum(c.count)}</Text>
+              </Group>
+            ))}
+          </div>
+        </Panel>
+      </SimpleGrid>
     </div>
   );
 }
@@ -176,39 +478,67 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
           overflow: "hidden",
         }}
       >
-        <Table highlightOnHover>
-          <Table.Thead>
+        <Table highlightOnHover verticalSpacing="sm" horizontalSpacing="lg" layout="fixed">
+          <Table.Thead style={{ background: "var(--surface-2, rgba(0,0,0,0.02))" }}>
             <Table.Tr>
-              <Table.Th>Name</Table.Th>
-              <Table.Th>Email</Table.Th>
-              <Table.Th>Role</Table.Th>
+              <Table.Th style={{ width: "26%" }}>User</Table.Th>
+              <Table.Th style={{ width: 130 }}>Role</Table.Th>
               <Table.Th>Environments</Table.Th>
-              <Table.Th>Last Login</Table.Th>
-              <Table.Th style={{ width: 120 }}>Actions</Table.Th>
+              <Table.Th style={{ width: 110 }}>Last Login</Table.Th>
+              <Table.Th style={{ width: 120, textAlign: "right" }}>Actions</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
             {users.map((u) => (
               <Table.Tr key={u.id}>
                 <Table.Td>
-                  <Text fw={600} size="sm">{u.displayName}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="xs" ff="monospace" c="dimmed">{u.email || u.username}</Text>
+                  <Group gap="sm" wrap="nowrap">
+                    <Avatar
+                      size={34}
+                      radius="xl"
+                      color={ROLE_META[u.role]?.color || "primary"}
+                      variant="light"
+                    >
+                      {getInitials(u.displayName)}
+                    </Avatar>
+                    <div style={{ minWidth: 0 }}>
+                      <Text fw={600} size="sm" truncate>
+                        {u.displayName}
+                        {u.id === currentUserId && (
+                          <Text component="span" size="xs" c="dimmed" fw={400}> (you)</Text>
+                        )}
+                      </Text>
+                      <Text size="xs" ff="monospace" c="dimmed" truncate>
+                        {u.email || u.username}
+                      </Text>
+                    </div>
+                  </Group>
                 </Table.Td>
                 <Table.Td>
                   <Badge
                     size="sm"
-                    color={u.role === "admin" ? "red" : u.role === "phi_viewer" ? "orange" : "primary"}
+                    radius="sm"
+                    color={ROLE_META[u.role]?.color || "primary"}
                     variant="light"
+                    style={{ overflow: "visible" }}
                   >
-                    {u.role === "phi_viewer" ? "PHI VIEWER" : u.role.toUpperCase()}
+                    {ROLE_META[u.role]?.label || u.role}
                   </Badge>
                 </Table.Td>
                 <Table.Td>
-                  <Group gap={3}>
+                  <Group gap={4}>
+                    {(u.allowedEnvironments || []).length === 0 && (
+                      <Text size="xs" c="dimmed">—</Text>
+                    )}
                     {(u.allowedEnvironments || []).map((env) => (
-                      <Badge key={env} size="xs" variant="light" color={ENV_COLORS[env] || "gray"}>
+                      <Badge
+                        key={env}
+                        size="xs"
+                        radius="sm"
+                        variant="light"
+                        color={ENV_COLORS[env] || "gray"}
+                        style={{ overflow: "visible" }}
+                      >
                         {env}
                       </Badge>
                     ))}
@@ -220,7 +550,7 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
                   </Text>
                 </Table.Td>
                 <Table.Td>
-                  <Group gap={4}>
+                  <Group gap={2} justify="flex-end" wrap="nowrap">
                     <Tooltip label="Edit role">
                       <ActionIcon
                         variant="subtle"
@@ -228,7 +558,7 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
                         size="sm"
                         onClick={() => setEditUser(u)}
                       >
-                        <IconEdit size={14} />
+                        <IconEdit size={15} />
                       </ActionIcon>
                     </Tooltip>
                     <Tooltip label="Reset password">
@@ -238,7 +568,7 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
                         size="sm"
                         onClick={() => setResetPwUser(u)}
                       >
-                        <IconKey size={14} />
+                        <IconKey size={15} />
                       </ActionIcon>
                     </Tooltip>
                     <Tooltip label={u.id === currentUserId ? "Cannot delete yourself" : "Delete user"}>
@@ -249,7 +579,7 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
                         disabled={u.id === currentUserId}
                         onClick={() => setDeleteUser(u)}
                       >
-                        <IconTrash size={14} />
+                        <IconTrash size={15} />
                       </ActionIcon>
                     </Tooltip>
                   </Group>
@@ -258,7 +588,7 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
             ))}
             {users.length === 0 && !loading && (
               <Table.Tr>
-                <Table.Td colSpan={6}>
+                <Table.Td colSpan={5}>
                   <Text ta="center" c="dimmed" py="lg">No users found</Text>
                 </Table.Td>
               </Table.Tr>
@@ -296,6 +626,19 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
       />
     </>
   );
+}
+
+const ROLE_META: Record<string, { label: string; color: string }> = {
+  admin: { label: "Admin", color: "red" },
+  phi_viewer: { label: "PHI Viewer", color: "orange" },
+  read: { label: "Read", color: "primary" },
+};
+
+function getInitials(name: string): string {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 const ALL_ENVS_DATA = [
@@ -1057,16 +1400,16 @@ function AuditLogTab() {
           overflow: "hidden",
         }}
       >
-        <ScrollArea style={{ maxHeight: "calc(100vh - 320px)" }}>
-          <Table highlightOnHover>
-            <Table.Thead>
+        <div>
+          <Table highlightOnHover verticalSpacing="xs" horizontalSpacing="lg" layout="fixed">
+            <Table.Thead style={{ background: "var(--surface-2, rgba(0,0,0,0.02))" }}>
               <Table.Tr>
-                <Table.Th style={{ width: 160 }}>Timestamp</Table.Th>
-                <Table.Th>User</Table.Th>
-                <Table.Th style={{ width: 120 }}>Action</Table.Th>
-                <Table.Th style={{ width: 80 }}>PHI</Table.Th>
-                <Table.Th style={{ width: 80 }}>Rows</Table.Th>
-                <Table.Th style={{ width: 70 }}>Time</Table.Th>
+                <Table.Th style={{ width: 190 }}>Timestamp</Table.Th>
+                <Table.Th style={{ width: 320 }}>User</Table.Th>
+                <Table.Th style={{ width: 150 }}>Action</Table.Th>
+                <Table.Th style={{ width: 100 }}>PHI</Table.Th>
+                <Table.Th style={{ width: 90, textAlign: "right" }}>Rows</Table.Th>
+                <Table.Th style={{ width: 90, textAlign: "right" }}>Time</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -1082,38 +1425,45 @@ function AuditLogTab() {
                     </Text>
                   </Table.Td>
                   <Table.Td>
-                    <Text size="xs" fw={600} style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {entry.userEmail}
-                    </Text>
+                    <Group gap="xs" wrap="nowrap">
+                      <Avatar size={24} radius="xl" color="primary" variant="light">
+                        {getInitials(entry.userEmail)}
+                      </Avatar>
+                      <Text size="xs" fw={600} truncate>
+                        {entry.userEmail}
+                      </Text>
+                    </Group>
                   </Table.Td>
                   <Table.Td>
                     <Badge
                       size="sm"
+                      radius="sm"
                       color={ACTION_COLORS[entry.action] || "gray"}
                       variant="light"
+                      style={{ overflow: "visible" }}
                     >
                       {ACTION_LABELS[entry.action] || entry.action}
                     </Badge>
                   </Table.Td>
                   <Table.Td>
                     {entry.phiAccessed ? (
-                      <Badge size="sm" color="red" variant="light">
+                      <Badge size="sm" radius="sm" color="red" variant="light" style={{ overflow: "visible" }}>
                         EXPOSED
                       </Badge>
                     ) : entry.action === "PHI_UNMASK_DENIED" ? (
-                      <Badge size="sm" color="orange" variant="light">
+                      <Badge size="sm" radius="sm" color="orange" variant="light" style={{ overflow: "visible" }}>
                         DENIED
                       </Badge>
                     ) : (
                       <Text size="xs" c="dimmed">—</Text>
                     )}
                   </Table.Td>
-                  <Table.Td>
+                  <Table.Td style={{ textAlign: "right" }}>
                     <Text size="xs" ff="monospace">
                       {entry.rowsReturned ?? "—"}
                     </Text>
                   </Table.Td>
-                  <Table.Td>
+                  <Table.Td style={{ textAlign: "right" }}>
                     <Text size="xs" ff="monospace" c="dimmed">
                       {entry.executionMs != null ? `${entry.executionMs}ms` : "—"}
                     </Text>
@@ -1129,7 +1479,7 @@ function AuditLogTab() {
               )}
             </Table.Tbody>
           </Table>
-        </ScrollArea>
+        </div>
       </div>
 
       {/* Expanded detail modal */}
@@ -1417,9 +1767,6 @@ function AiChatLogTab() {
 
   return (
     <>
-      <Text fw={700} size="sm" c="secondary.9" mb={4}>
-        AI Query Generation Log
-      </Text>
       <Text size="xs" c="dimmed" mb="md">
         Every AI query generation is recorded — the full prompt sent (schema context + request) and the
         model's response — for prompt tuning and optimization. Schema metadata only; no row data is sent or stored.
@@ -1472,47 +1819,63 @@ function AiChatLogTab() {
       </Text>
 
       <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
-        <ScrollArea style={{ maxHeight: "calc(100vh - 360px)" }}>
-          <Table highlightOnHover>
-            <Table.Thead>
+        <div>
+          <Table highlightOnHover verticalSpacing="sm" horizontalSpacing="lg" layout="fixed">
+            <Table.Thead style={{ background: "var(--surface-2, rgba(0,0,0,0.02))" }}>
               <Table.Tr>
-                <Table.Th style={{ width: 160 }}>Timestamp</Table.Th>
-                <Table.Th>User</Table.Th>
+                <Table.Th style={{ width: 180 }}>Timestamp</Table.Th>
+                <Table.Th style={{ width: 230 }}>User</Table.Th>
                 <Table.Th>Prompt</Table.Th>
-                <Table.Th style={{ width: 90 }}>Status</Table.Th>
-                <Table.Th style={{ width: 90 }}>Tokens</Table.Th>
-                <Table.Th style={{ width: 80 }}>Latency</Table.Th>
+                <Table.Th style={{ width: 100 }}>Status</Table.Th>
+                <Table.Th style={{ width: 90, textAlign: "right" }}>Tokens</Table.Th>
+                <Table.Th style={{ width: 90, textAlign: "right" }}>Latency</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               {entries.map((e) => (
                 <Table.Tr key={e.id} onClick={() => setSelected(e)} style={{ cursor: "pointer" }}>
-                  <Table.Td>
+                  <Table.Td style={{ verticalAlign: "top" }}>
                     <Text size="xs" ff="monospace" c="dimmed">
                       {new Date(e.timestamp + "Z").toLocaleString()}
                     </Text>
                   </Table.Td>
-                  <Table.Td>
-                    <Text size="xs" fw={600} style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {e.userEmail}
-                    </Text>
+                  <Table.Td style={{ verticalAlign: "top" }}>
+                    <Group gap="xs" wrap="nowrap">
+                      <Avatar size={28} radius="xl" color="primary" variant="light">
+                        {getInitials(e.userEmail)}
+                      </Avatar>
+                      <Text size="xs" fw={600} truncate>
+                        {e.userEmail}
+                      </Text>
+                    </Group>
                   </Table.Td>
-                  <Table.Td>
-                    <Text size="xs" style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <Table.Td style={{ verticalAlign: "top" }}>
+                    <Text
+                      size="xs"
+                      c="secondary.9"
+                      style={{
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical",
+                        overflow: "hidden",
+                        lineHeight: 1.45,
+                        wordBreak: "break-word",
+                      }}
+                    >
                       {e.prompt}
                     </Text>
                   </Table.Td>
-                  <Table.Td>
-                    <Badge size="sm" color={e.status === "success" ? "green" : "red"} variant="light">
+                  <Table.Td style={{ verticalAlign: "top" }}>
+                    <Badge size="sm" radius="sm" color={e.status === "success" ? "green" : "red"} variant="light" style={{ overflow: "visible" }}>
                       {e.status}
                     </Badge>
                   </Table.Td>
-                  <Table.Td>
+                  <Table.Td style={{ verticalAlign: "top", textAlign: "right" }}>
                     <Text size="xs" ff="monospace" c="dimmed">
                       {e.totalTokens ?? "—"}
                     </Text>
                   </Table.Td>
-                  <Table.Td>
+                  <Table.Td style={{ verticalAlign: "top", textAlign: "right" }}>
                     <Text size="xs" ff="monospace" c="dimmed">
                       {e.latencyMs != null ? `${e.latencyMs}ms` : "—"}
                     </Text>
@@ -1528,7 +1891,7 @@ function AiChatLogTab() {
               )}
             </Table.Tbody>
           </Table>
-        </ScrollArea>
+        </div>
       </div>
 
       <AiChatDetailModal entry={selected} onClose={() => setSelected(null)} />
