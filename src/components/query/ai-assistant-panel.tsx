@@ -10,6 +10,7 @@ import {
   ActionIcon,
   Tooltip,
   Loader,
+  SegmentedControl,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
@@ -22,9 +23,13 @@ import {
   IconDatabase,
   IconMessagePlus,
   IconRefresh,
+  IconPencilBolt,
 } from "@tabler/icons-react";
+import { useNavigate } from "react-router-dom";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
+
+type AssistantMode = "read" | "write";
 
 interface ChatMessage {
   id: number;
@@ -34,13 +39,22 @@ interface ChatMessage {
   explanation?: string;
   isError?: boolean;
   meta?: string; // e.g. model name / truncation note
+  mode?: AssistantMode; // which mode produced this result
+  prompt?: string; // originating request (for the write-request title)
 }
 
 function copyText(text: string) {
   const done = () =>
-    notifications.show({ message: "Copied to clipboard", color: "teal", autoClose: 1500 });
+    notifications.show({
+      message: "Copied to clipboard",
+      color: "teal",
+      autoClose: 1500,
+    });
   if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+    navigator.clipboard
+      .writeText(text)
+      .then(done)
+      .catch(() => fallbackCopy(text, done));
   } else {
     fallbackCopy(text, done);
   }
@@ -59,7 +73,10 @@ function fallbackCopy(text: string, done: () => void) {
 }
 
 /** Returns a copy of `map` keeping only entries whose key is in `keep`; same ref if unchanged. */
-function pruneMap<T>(map: Record<string, T>, keep: Set<string>): Record<string, T> {
+function pruneMap<T>(
+  map: Record<string, T>,
+  keep: Set<string>,
+): Record<string, T> {
   const next: Record<string, T> = {};
   let changed = false;
   for (const k of Object.keys(map)) {
@@ -76,13 +93,21 @@ export function AiAssistantPanel() {
   const activeTabId = useStore((s) => s.activeTabId);
   const updateTab = useStore((s) => s.updateTab);
   const connections = useStore((s) => s.connections);
+  const user = useStore((s) => s.user);
+  const setWriteHandoff = useStore((s) => s.setWriteHandoff);
+  const navigate = useNavigate();
+
+  const [mode, setMode] = useState<AssistantMode>("read");
+  const canWrite = !!user?.canWrite;
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const activeConn = connections.find((c) => c.id === activeTab?.connectionId);
 
   // Chat state is kept per tab so each query tab has its own conversation.
   const [inputByTab, setInputByTab] = useState<Record<string, string>>({});
-  const [messagesByTab, setMessagesByTab] = useState<Record<string, ChatMessage[]>>({});
+  const [messagesByTab, setMessagesByTab] = useState<
+    Record<string, ChatMessage[]>
+  >({});
   const [loadingByTab, setLoadingByTab] = useState<Record<string, boolean>>({});
   // One-shot flag: when armed, the next generation re-introspects the schema
   // (bypasses the server-side schema cache) for the active connection.
@@ -99,7 +124,10 @@ export function AiAssistantPanel() {
   const setInput = (val: string) =>
     setInputByTab((prev) => ({ ...prev, [tabId]: val }));
   const pushMessage = (tid: string, msg: ChatMessage) =>
-    setMessagesByTab((prev) => ({ ...prev, [tid]: [...(prev[tid] ?? []), msg] }));
+    setMessagesByTab((prev) => ({
+      ...prev,
+      [tid]: [...(prev[tid] ?? []), msg],
+    }));
 
   // Forget chats for tabs that no longer exist.
   useEffect(() => {
@@ -111,7 +139,10 @@ export function AiAssistantPanel() {
 
   useEffect(() => {
     // Auto-scroll to latest message (also on tab switch)
-    viewportRef.current?.scrollTo({ top: viewportRef.current.scrollHeight, behavior: "smooth" });
+    viewportRef.current?.scrollTo({
+      top: viewportRef.current.scrollHeight,
+      behavior: "smooth",
+    });
   }, [messages, loading, tabId]);
 
   const handleNewChat = () => {
@@ -140,29 +171,49 @@ export function AiAssistantPanel() {
     const doRefresh = refreshArmed;
     setRefreshArmed(false);
 
+    const genMode = mode;
     pushMessage(tid, { id: nextId(), role: "user", text: prompt });
     setInput("");
     setLoadingByTab((prev) => ({ ...prev, [tid]: true }));
 
     try {
-      const res = await api.generateQuery({ connectionId: connId, prompt, currentQuery: currentSql, refreshSchema: doRefresh });
+      const res = await api.generateQuery({
+        connectionId: connId,
+        prompt,
+        currentQuery: currentSql,
+        refreshSchema: doRefresh,
+        mode: genMode,
+      });
       const metaParts: string[] = [];
       if (res.model) metaParts.push(res.model);
       const schemaBits: string[] = [];
       if (res.schemaTruncated)
-        schemaBits.push(`${res.tablesProvided}/${res.totalTables} tables${res.relevantSelection ? " relevant" : ""}`);
-      if (res.schemaCached != null) schemaBits.push(res.schemaCached ? "cached" : "fresh");
+        schemaBits.push(
+          `${res.tablesProvided}/${res.totalTables} tables${res.relevantSelection ? " relevant" : ""}`,
+        );
+      if (res.schemaCached != null)
+        schemaBits.push(res.schemaCached ? "cached" : "fresh");
       if (schemaBits.length) metaParts.push(`schema: ${schemaBits.join(", ")}`);
-      if (res.examplesUsed) metaParts.push(`${res.examplesUsed} example${res.examplesUsed === 1 ? "" : "s"}`);
+      if (res.examplesUsed)
+        metaParts.push(
+          `${res.examplesUsed} example${res.examplesUsed === 1 ? "" : "s"}`,
+        );
       pushMessage(tid, {
         id: nextId(),
         role: "assistant",
         query: res.query,
         explanation: res.explanation,
         meta: metaParts.join(" · "),
+        mode: genMode,
+        prompt,
       });
     } catch (err: any) {
-      pushMessage(tid, { id: nextId(), role: "assistant", text: err.message, isError: true });
+      pushMessage(tid, {
+        id: nextId(),
+        role: "assistant",
+        text: err.message,
+        isError: true,
+      });
     } finally {
       setLoadingByTab((prev) => ({ ...prev, [tid]: false }));
     }
@@ -171,7 +222,11 @@ export function AiAssistantPanel() {
   const applyReplace = (query: string) => {
     if (!activeTab) return;
     updateTab(activeTab.id, { sql: query });
-    notifications.show({ message: "Replaced query in active tab", color: "green", autoClose: 1500 });
+    notifications.show({
+      message: "Replaced query in active tab",
+      color: "green",
+      autoClose: 1500,
+    });
   };
 
   const applyAppend = (query: string) => {
@@ -179,7 +234,23 @@ export function AiAssistantPanel() {
     const existing = activeTab.sql?.trim();
     const next = existing ? `${existing}\n\n${query}` : query;
     updateTab(activeTab.id, { sql: next });
-    notifications.show({ message: "Appended to active tab", color: "green", autoClose: 1500 });
+    notifications.show({
+      message: "Appended to active tab",
+      color: "green",
+      autoClose: 1500,
+    });
+  };
+
+  // Hand a generated (or selected) statement to the Write composer and go there.
+  const startWriteRequest = (query: string, promptText?: string) => {
+    const title = promptText ? promptText.slice(0, 80) : "AI-drafted change";
+    setWriteHandoff({
+      writeSql: query,
+      connectionId: activeTab?.connectionId ?? null,
+      title,
+    });
+    setOpen(false);
+    navigate("/write");
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -209,33 +280,67 @@ export function AiAssistantPanel() {
         </Group>
       }
       styles={{
-        body: { height: "calc(100% - 60px)", display: "flex", flexDirection: "column", padding: 0 },
+        body: {
+          height: "calc(100% - 60px)",
+          display: "flex",
+          flexDirection: "column",
+          padding: 0,
+        },
         content: { boxShadow: "-4px 0 24px rgba(0,0,0,0.12)" },
       }}
     >
       {/* Connection context + New chat */}
-      <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--border)" }}>
+      <div
+        style={{
+          padding: "10px 16px",
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
         <Group justify="space-between" wrap="nowrap" gap={8}>
           <div style={{ minWidth: 0, flex: 1 }}>
             {activeConn ? (
               <Group gap={6} wrap="nowrap" style={{ overflow: "hidden" }}>
-                <IconDatabase size={14} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                <IconDatabase
+                  size={14}
+                  color="var(--mantine-color-dimmed)"
+                  style={{ flexShrink: 0 }}
+                />
                 <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
                   Context:
                 </Text>
-                <Badge size="sm" variant="light" color="gray" ff="monospace" style={{ flexShrink: 1, overflow: "hidden" }}>
+                <Badge
+                  size="sm"
+                  variant="light"
+                  color="gray"
+                  ff="monospace"
+                  style={{ flexShrink: 1, overflow: "hidden" }}
+                >
                   {activeConn.name}
                 </Badge>
-                <Badge size="xs" variant="light" color="blue" style={{ flexShrink: 0 }}>
+                <Badge
+                  size="xs"
+                  variant="light"
+                  color="blue"
+                  style={{ flexShrink: 0 }}
+                >
                   {activeConn.type}
                 </Badge>
-                <Badge size="xs" variant="light" color="gray" style={{ flexShrink: 0 }}>
+                <Badge
+                  size="xs"
+                  variant="light"
+                  color="gray"
+                  style={{ flexShrink: 0 }}
+                >
                   {activeConn.env}
                 </Badge>
               </Group>
             ) : (
               <Group gap={6} wrap="nowrap">
-                <IconAlertTriangle size={14} color="var(--warning, #f0883e)" style={{ flexShrink: 0 }} />
+                <IconAlertTriangle
+                  size={14}
+                  color="var(--warning, #f0883e)"
+                  style={{ flexShrink: 0 }}
+                />
                 <Text size="xs" c="dimmed">
                   Select a connection for the active tab to enable generation.
                 </Text>
@@ -243,7 +348,13 @@ export function AiAssistantPanel() {
             )}
           </div>
           <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
-            <Tooltip label={refreshArmed ? "Schema will be re-fetched on next generate" : "Re-fetch schema on next generate (bypass cache)"}>
+            <Tooltip
+              label={
+                refreshArmed
+                  ? "Schema will be re-fetched on next generate"
+                  : "Re-fetch schema on next generate (bypass cache)"
+              }
+            >
               <ActionIcon
                 variant={refreshArmed ? "filled" : "subtle"}
                 color={refreshArmed ? "primary" : "gray"}
@@ -272,26 +383,48 @@ export function AiAssistantPanel() {
 
       {/* Messages */}
       <ScrollArea style={{ flex: 1 }} viewportRef={viewportRef}>
-        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+        <div
+          style={{
+            padding: 16,
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+          }}
+        >
           {messages.length === 0 && (
-            <div style={{ textAlign: "center", padding: "32px 12px", color: "var(--mantine-color-dimmed)" }}>
+            <div
+              style={{
+                textAlign: "center",
+                padding: "32px 12px",
+                color: "var(--mantine-color-dimmed)",
+              }}
+            >
               <IconSparkles size={28} style={{ opacity: 0.4 }} />
               <Text size="sm" mt="sm" fw={600}>
                 Describe the data you want
               </Text>
               <Text size="xs" c="dimmed" mt={4} style={{ lineHeight: 1.6 }}>
-                e.g. "all orders created in the last 30 days with their patient name and kit status,
-                newest first"
+                e.g. "all orders created in the last 30 days with their patient
+                name and kit status, newest first"
               </Text>
-              <Text size="xs" c="dimmed" mt="sm" style={{ fontStyle: "italic" }}>
-                Only schema (table & column names) is sent to Azure OpenAI — never row data.
+              <Text
+                size="xs"
+                c="dimmed"
+                mt="sm"
+                style={{ fontStyle: "italic" }}
+              >
+                Only schema (table & column names) is sent to Azure OpenAI —
+                never row data.
               </Text>
             </div>
           )}
 
           {messages.map((msg) =>
             msg.role === "user" ? (
-              <div key={msg.id} style={{ alignSelf: "flex-end", maxWidth: "90%" }}>
+              <div
+                key={msg.id}
+                style={{ alignSelf: "flex-end", maxWidth: "90%" }}
+              >
                 <div
                   style={{
                     background: "var(--accent, #1f9196)",
@@ -307,7 +440,14 @@ export function AiAssistantPanel() {
                 </div>
               </div>
             ) : (
-              <div key={msg.id} style={{ alignSelf: "flex-start", maxWidth: "100%", width: "100%" }}>
+              <div
+                key={msg.id}
+                style={{
+                  alignSelf: "flex-start",
+                  maxWidth: "100%",
+                  width: "100%",
+                }}
+              >
                 {msg.isError ? (
                   <div
                     style={{
@@ -318,7 +458,10 @@ export function AiAssistantPanel() {
                     }}
                   >
                     <Group gap={6} mb={2}>
-                      <IconAlertTriangle size={14} color="var(--error, #d73636)" />
+                      <IconAlertTriangle
+                        size={14}
+                        color="var(--error, #d73636)"
+                      />
                       <Text size="xs" fw={700} c="red">
                         Generation failed
                       </Text>
@@ -337,7 +480,11 @@ export function AiAssistantPanel() {
                     }}
                   >
                     {msg.explanation && (
-                      <Text size="xs" c="dimmed" style={{ padding: "10px 12px 0", lineHeight: 1.6 }}>
+                      <Text
+                        size="xs"
+                        c="dimmed"
+                        style={{ padding: "10px 12px 0", lineHeight: 1.6 }}
+                      >
                         {msg.explanation}
                       </Text>
                     )}
@@ -357,29 +504,54 @@ export function AiAssistantPanel() {
                     >
                       {msg.query}
                     </pre>
-                    <Group gap={4} justify="space-between" style={{ padding: "6px 8px", borderTop: "1px solid var(--border)" }}>
+                    <Group
+                      gap={4}
+                      justify="space-between"
+                      style={{
+                        padding: "6px 8px",
+                        borderTop: "1px solid var(--border)",
+                      }}
+                    >
                       <Group gap={4}>
-                        <Tooltip label="Replace active tab's query">
-                          <Button
-                            size="compact-xs"
-                            variant="light"
-                            leftSection={<IconReplace size={13} />}
-                            onClick={() => applyReplace(msg.query!)}
-                          >
-                            Replace
-                          </Button>
-                        </Tooltip>
-                        <Tooltip label="Append to active tab's query">
-                          <Button
-                            size="compact-xs"
-                            variant="subtle"
-                            color="gray"
-                            leftSection={<IconRowInsertBottom size={13} />}
-                            onClick={() => applyAppend(msg.query!)}
-                          >
-                            Append
-                          </Button>
-                        </Tooltip>
+                        {msg.mode === "write" ? (
+                          <Tooltip label="Open the write composer with this statement">
+                            <Button
+                              size="compact-xs"
+                              variant="light"
+                              color="grape"
+                              leftSection={<IconPencilBolt size={13} />}
+                              onClick={() =>
+                                startWriteRequest(msg.query!, msg.prompt)
+                              }
+                            >
+                              New write request
+                            </Button>
+                          </Tooltip>
+                        ) : (
+                          <>
+                            <Tooltip label="Replace active tab's query">
+                              <Button
+                                size="compact-xs"
+                                variant="light"
+                                leftSection={<IconReplace size={13} />}
+                                onClick={() => applyReplace(msg.query!)}
+                              >
+                                Replace
+                              </Button>
+                            </Tooltip>
+                            <Tooltip label="Append to active tab's query">
+                              <Button
+                                size="compact-xs"
+                                variant="subtle"
+                                color="gray"
+                                leftSection={<IconRowInsertBottom size={13} />}
+                                onClick={() => applyAppend(msg.query!)}
+                              >
+                                Append
+                              </Button>
+                            </Tooltip>
+                          </>
+                        )}
                         <Tooltip label="Copy">
                           <ActionIcon
                             size="sm"
@@ -392,7 +564,12 @@ export function AiAssistantPanel() {
                         </Tooltip>
                       </Group>
                       {msg.meta && (
-                        <Text size="xs" c="dimmed" ff="monospace" style={{ fontSize: 10 }}>
+                        <Text
+                          size="xs"
+                          c="dimmed"
+                          ff="monospace"
+                          style={{ fontSize: 10 }}
+                        >
                           {msg.meta}
                         </Text>
                       )}
@@ -400,11 +577,14 @@ export function AiAssistantPanel() {
                   </div>
                 )}
               </div>
-            )
+            ),
           )}
 
           {loading && (
-            <Group gap={8} style={{ alignSelf: "flex-start", padding: "4px 2px" }}>
+            <Group
+              gap={8}
+              style={{ alignSelf: "flex-start", padding: "4px 2px" }}
+            >
               <Loader size="xs" />
               <Text size="xs" c="dimmed">
                 Generating query…
@@ -416,8 +596,30 @@ export function AiAssistantPanel() {
 
       {/* Input */}
       <div style={{ borderTop: "1px solid var(--border)", padding: 12 }}>
+        {canWrite && (
+          <Group justify="space-between" mb={8} wrap="nowrap">
+            <SegmentedControl
+              size="xs"
+              value={mode}
+              onChange={(v) => setMode(v as AssistantMode)}
+              data={[
+                { label: "Read query", value: "read" },
+                { label: "Write query", value: "write" },
+              ]}
+            />
+            {mode === "write" && (
+              <Badge size="xs" variant="light" color="grape">
+                Drafts a change → approval
+              </Badge>
+            )}
+          </Group>
+        )}
         <Textarea
-          placeholder="Ask in plain English… (Cmd/Ctrl+Enter to send)"
+          placeholder={
+            mode === "write"
+              ? "Describe the change… e.g. “set config ai_doc_generation_enabled to false” (Cmd/Ctrl+Enter)"
+              : "Ask in plain English… (Cmd/Ctrl+Enter to send)"
+          }
           value={input}
           onChange={(e) => setInput(e.currentTarget.value)}
           onKeyDown={handleKeyDown}
@@ -429,12 +631,19 @@ export function AiAssistantPanel() {
         <Group justify="flex-end" mt={8}>
           <Button
             size="xs"
-            leftSection={<IconSend size={14} />}
+            color={mode === "write" ? "grape" : undefined}
+            leftSection={
+              mode === "write" ? (
+                <IconPencilBolt size={14} />
+              ) : (
+                <IconSend size={14} />
+              )
+            }
             onClick={handleGenerate}
             loading={loading}
             disabled={!input.trim() || !activeConn}
           >
-            Generate
+            {mode === "write" ? "Draft write" : "Generate"}
           </Button>
         </Group>
       </div>

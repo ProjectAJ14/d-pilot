@@ -23,6 +23,25 @@ router.get("/", (req: Request, res: Response) => {
   res.json(connections);
 });
 
+// Connections the user may author write requests against (write-scoped envs).
+router.get("/writable", (req: Request, res: Response) => {
+  const writeEnvs = req.user?.writeEnvironments || [];
+  const isAdmin = req.user?.isAdmin;
+  const connections = loadConnections()
+    .filter((c) => isAdmin || writeEnvs.includes(c.env))
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      env: c.env,
+      type: c.type,
+      host: c.host,
+      port: c.port,
+      database: c.database,
+      schema: c.schema,
+    }));
+  res.json(connections);
+});
+
 router.get("/grouped", (req: Request, res: Response) => {
   const allowed = req.user?.allowedEnvironments || [];
   const isAdmin = req.user?.isAdmin;

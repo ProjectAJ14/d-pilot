@@ -1,11 +1,13 @@
-import type { AiChatLogEntry } from "../types";
+import type {
+  AiChatLogEntry,
+  WriteRequest,
+  WriteAiReview,
+  QueryResult,
+} from "../types";
 
 const BASE_URL = "/api";
 
-async function request<T>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem("dbpilot_token");
 
   const headers: Record<string, string> = {
@@ -56,7 +58,14 @@ async function request<T>(
 export const api = {
   // Config (public, no auth)
   getConfig: () =>
-    fetch("/api/config").then((r) => r.json()) as Promise<{ appName: string; logoUrl: string | null; lightLogoUrl: string | null; faviconUrl: string | null; emailDomain: string | null; phiMaskedEnvironments: string[] }>,
+    fetch("/api/config").then((r) => r.json()) as Promise<{
+      appName: string;
+      logoUrl: string | null;
+      lightLogoUrl: string | null;
+      faviconUrl: string | null;
+      emailDomain: string | null;
+      phiMaskedEnvironments: string[];
+    }>,
 
   // Auth
   login: (username: string, password: string) =>
@@ -68,16 +77,126 @@ export const api = {
 
   // Connections
   getConnections: () => request<any[]>("/connections"),
-  getConnectionsGrouped: () => request<Record<string, any[]>>("/connections/grouped"),
-  testConnection: (id: string) => request<{ connected: boolean }>(`/connections/${id}/test`),
+  getWritableConnections: () => request<any[]>("/connections/writable"),
+  getConnectionsGrouped: () =>
+    request<Record<string, any[]>>("/connections/grouped"),
+  testConnection: (id: string) =>
+    request<{ connected: boolean }>(`/connections/${id}/test`),
+
+  // Write requests / approval workflow
+  getWritePolicy: () =>
+    request<{ writeModeEnabled: boolean; directEnvs: string[] }>(
+      "/write-requests/policy",
+    ),
+  updateWritePolicy: (data: {
+    writeModeEnabled?: boolean;
+    directEnvs?: string[];
+  }) =>
+    request<{ writeModeEnabled: boolean; directEnvs: string[] }>(
+      "/write-requests/policy",
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
+      },
+    ),
+  getWriteRequests: () => request<WriteRequest[]>("/write-requests"),
+  getWriteRequest: (id: string) =>
+    request<WriteRequest>(`/write-requests/${id}`),
+  createWriteRequest: (data: {
+    title: string;
+    description?: string;
+    connectionId: string;
+    selectSql?: string;
+    writeSql: string;
+  }) =>
+    request<WriteRequest>("/write-requests", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  previewWriteRequest: (id: string, defaultLimit?: number | null) =>
+    request<QueryResult>(`/write-requests/${id}/preview`, {
+      method: "POST",
+      body: JSON.stringify({ defaultLimit }),
+    }),
+  aiReviewWriteRequest: (id: string) =>
+    request<WriteAiReview>(`/write-requests/${id}/ai-review`, {
+      method: "POST",
+    }),
+  // Stateless composer helpers (before a request is saved)
+  reviewWriteDraft: (data: {
+    connectionId: string;
+    selectSql?: string;
+    writeSql: string;
+  }) =>
+    request<WriteAiReview>("/write-requests/ai-review", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  suggestWriteQuery: (data: {
+    connectionId: string;
+    selectSql: string;
+    intent?: string;
+    currentWrite?: string;
+  }) =>
+    request<{ query: string; explanation: string }>(
+      "/write-requests/suggest-write",
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      },
+    ),
+  suggestSelectQuery: (data: {
+    connectionId: string;
+    writeSql: string;
+    intent?: string;
+    currentSelect?: string;
+  }) =>
+    request<{ query: string; explanation: string }>(
+      "/write-requests/suggest-select",
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      },
+    ),
+  approveWriteRequest: (id: string, notes?: string) =>
+    request<WriteRequest>(`/write-requests/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ notes }),
+    }),
+  rejectWriteRequest: (id: string, notes?: string) =>
+    request<WriteRequest>(`/write-requests/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ notes }),
+    }),
+  cancelWriteRequest: (id: string) =>
+    request<WriteRequest>(`/write-requests/${id}/cancel`, { method: "POST" }),
+  reviseWriteRequest: (
+    id: string,
+    data: {
+      title?: string;
+      description?: string;
+      selectSql?: string;
+      writeSql?: string;
+      note?: string;
+    },
+  ) =>
+    request<WriteRequest>(`/write-requests/${id}/revise`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 
   // Query
-  executeQuery: (connectionId: string, sql: string, defaultLimit?: number | null) =>
+  executeQuery: (
+    connectionId: string,
+    sql: string,
+    defaultLimit?: number | null,
+  ) =>
     request<any>("/query/execute", {
       method: "POST",
       body: JSON.stringify({ connectionId, sql, defaultLimit }),
     }),
-  getQueryHistory: (limit = 50) => request<any[]>(`/query/history?limit=${limit}`),
+  getQueryHistory: (limit = 50) =>
+    request<any[]>(`/query/history?limit=${limit}`),
 
   // Saved Queries
   getSavedQueries: () => request<any[]>("/saved-queries"),
@@ -95,12 +214,17 @@ export const api = {
     request<any>(`/saved-queries/${id}`, { method: "DELETE" }),
 
   // Schema
-  getTables: (connectionId: string) => request<any[]>(`/schema/${connectionId}/tables`),
+  getTables: (connectionId: string) =>
+    request<any[]>(`/schema/${connectionId}/tables`),
   getColumns: (connectionId: string, table: string) =>
     request<any[]>(`/schema/${connectionId}/tables/${table}/columns`),
 
   // PHI Config
-  logPhiUnmask: (data: { reason: string; notes?: string; connectionId?: string }) =>
+  logPhiUnmask: (data: {
+    reason: string;
+    notes?: string;
+    connectionId?: string;
+  }) =>
     request<{ logged: boolean }>("/phi-config/unmask", {
       method: "POST",
       body: JSON.stringify(data),
@@ -109,7 +233,10 @@ export const api = {
   createPhiRule: (data: any) =>
     request<any>("/phi-config", { method: "POST", body: JSON.stringify(data) }),
   updatePhiRule: (id: string, data: any) =>
-    request<any>(`/phi-config/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    request<any>(`/phi-config/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
   deletePhiRule: (id: string) =>
     request<any>(`/phi-config/${id}`, { method: "DELETE" }),
 
@@ -123,7 +250,16 @@ export const api = {
     }),
 
   // Audit
-  getAuditLog: (params: { limit?: number; offset?: number; from?: string; to?: string; action?: string; userId?: string } = {}) => {
+  getAuditLog: (
+    params: {
+      limit?: number;
+      offset?: number;
+      from?: string;
+      to?: string;
+      action?: string;
+      userId?: string;
+    } = {},
+  ) => {
     const q = new URLSearchParams();
     if (params.limit) q.set("limit", String(params.limit));
     if (params.offset) q.set("offset", String(params.offset));
@@ -133,7 +269,14 @@ export const api = {
     if (params.userId) q.set("userId", params.userId);
     return request<any[]>(`/audit?${q.toString()}`);
   },
-  getArchiveLog: (params: { limit?: number; offset?: number; from?: string; to?: string } = {}) => {
+  getArchiveLog: (
+    params: {
+      limit?: number;
+      offset?: number;
+      from?: string;
+      to?: string;
+    } = {},
+  ) => {
     const q = new URLSearchParams();
     if (params.limit) q.set("limit", String(params.limit));
     if (params.offset) q.set("offset", String(params.offset));
@@ -142,7 +285,9 @@ export const api = {
     return request<any[]>(`/audit/archive?${q.toString()}`);
   },
   triggerArchive: () =>
-    request<{ archived: number; message: string }>("/audit/archive", { method: "POST" }),
+    request<{ archived: number; message: string }>("/audit/archive", {
+      method: "POST",
+    }),
 
   // Analytics
   getAnalytics: () => request<any>("/analytics"),
@@ -173,12 +318,31 @@ export const api = {
 
   // User Management (admin)
   getUsers: () => request<any[]>("/users"),
-  createUser: (data: { email: string; displayName: string; role: string; password: string; allowedEnvironments?: string[] }) =>
+  createUser: (data: {
+    email: string;
+    displayName: string;
+    password: string;
+    isAdmin?: boolean;
+    allowedEnvironments?: string[];
+    unmaskEnvironments?: string[];
+    writeEnvironments?: string[];
+    approveEnvironments?: string[];
+  }) =>
     request<any>("/users", {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  updateUser: (id: string, data: { displayName?: string; role?: string; allowedEnvironments?: string[] }) =>
+  updateUser: (
+    id: string,
+    data: {
+      displayName?: string;
+      isAdmin?: boolean;
+      allowedEnvironments?: string[];
+      unmaskEnvironments?: string[];
+      writeEnvironments?: string[];
+      approveEnvironments?: string[];
+    },
+  ) =>
     request<any>(`/users/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),
@@ -193,13 +357,22 @@ export const api = {
 
   // Azure OpenAI (admin)
   testAzureConnection: () =>
-    request<{ success: boolean; message: string; endpoint?: string; deployment?: string; model?: string }>(
-      "/azure-ai/test",
-      { method: "POST" }
-    ),
+    request<{
+      success: boolean;
+      message: string;
+      endpoint?: string;
+      deployment?: string;
+      model?: string;
+    }>("/azure-ai/test", { method: "POST" }),
 
   // AI Query Generation (any authenticated user)
-  generateQuery: (data: { connectionId: string; prompt: string; currentQuery?: string; refreshSchema?: boolean }) =>
+  generateQuery: (data: {
+    connectionId: string;
+    prompt: string;
+    currentQuery?: string;
+    refreshSchema?: boolean;
+    mode?: "read" | "write";
+  }) =>
     request<{
       query: string;
       explanation: string;
@@ -218,13 +391,24 @@ export const api = {
 
   // Clear cached schema summaries (admin)
   clearSchemaCache: (connectionId?: string) =>
-    request<{ cleared: number; scope: string }>("/azure-ai/schema-cache/clear", {
-      method: "POST",
-      body: JSON.stringify(connectionId ? { connectionId } : {}),
-    }),
+    request<{ cleared: number; scope: string }>(
+      "/azure-ai/schema-cache/clear",
+      {
+        method: "POST",
+        body: JSON.stringify(connectionId ? { connectionId } : {}),
+      },
+    ),
 
   // AI Chat Log (admin)
-  getAiChatLog: (params: { limit?: number; offset?: number; from?: string; to?: string; status?: string } = {}) => {
+  getAiChatLog: (
+    params: {
+      limit?: number;
+      offset?: number;
+      from?: string;
+      to?: string;
+      status?: string;
+    } = {},
+  ) => {
     const q = new URLSearchParams();
     if (params.limit) q.set("limit", String(params.limit));
     if (params.offset) q.set("offset", String(params.offset));

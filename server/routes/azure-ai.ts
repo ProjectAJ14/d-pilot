@@ -8,8 +8,15 @@ import {
   clearSchemaCache,
   type FullSchema,
 } from "../services/schema-introspector.js";
-import { logAiChat, getAiChatLog, getSavedQueries } from "../services/sqlite-store.js";
-import { selectExampleQueries, extractReferencedTables } from "../services/query-examples.js";
+import {
+  logAiChat,
+  getAiChatLog,
+  getSavedQueries,
+} from "../services/sqlite-store.js";
+import {
+  selectExampleQueries,
+  extractReferencedTables,
+} from "../services/query-examples.js";
 import {
   getAzureConfig,
   azureChat,
@@ -42,7 +49,7 @@ router.post("/test", requireAdmin, async (_req: Request, res: Response) => {
     const result = await azureChat(
       config,
       [{ role: "user", content: "ping" }],
-      { maxTokens: 16, timeoutMs: 20000 }
+      { maxTokens: 16, timeoutMs: 20000 },
     );
     res.json({
       success: true,
@@ -81,18 +88,41 @@ function dialectGuidance(type: DatabaseType): string {
     case "mongodb":
       return [
         "Target: MongoDB. Generate a single read-only shell expression such as",
-        'db.<collection>.find({ ... }) or db.<collection>.aggregate([ ... ]).',
+        "db.<collection>.find({ ... }) or db.<collection>.aggregate([ ... ]).",
         "Use only read operations (find, findOne, aggregate, countDocuments, distinct).",
         "Return valid MongoDB extended JSON for the filter/pipeline.",
       ].join(" ");
     case "elasticsearch":
       return [
         "Target: Elasticsearch. Generate a single read-only request in the form",
-        'GET /<index>/_search followed by a JSON query body, e.g.',
+        "GET /<index>/_search followed by a JSON query body, e.g.",
         'GET /my-index/_search\\n{ "query": { "match_all": {} }, "size": 100 }.',
       ].join(" ");
     default:
       return "Generate a single read-only query.";
+  }
+}
+
+/** Per-dialect guidance for generating a single write (DML) statement. */
+function writeDialectGuidance(type: DatabaseType): string {
+  switch (type) {
+    case "postgres":
+      return "Target: PostgreSQL. Produce a single INSERT/UPDATE/DELETE with standard PostgreSQL syntax.";
+    case "mssql":
+      return "Target: Microsoft SQL Server (T-SQL). Produce a single INSERT/UPDATE/DELETE.";
+    case "mongodb":
+      return [
+        "Target: MongoDB. Produce a single write shell expression such as",
+        "db.<collection>.updateMany(filter, { $set: { ... } }), db.<collection>.deleteMany(filter),",
+        "db.<collection>.updateOne(...), or db.<collection>.insertOne({ ... }). Use valid JSON for filters/updates.",
+      ].join(" ");
+    case "elasticsearch":
+      return [
+        "Target: Elasticsearch. Produce a single write request such as",
+        'POST /<index>/_update_by_query { "query": {...}, "script": {...} } or POST /<index>/_delete_by_query { "query": {...} }.',
+      ].join(" ");
+    default:
+      return "Produce a single write statement.";
   }
 }
 
@@ -105,7 +135,7 @@ async function selectRelevantTables(
   config: AzureConfig,
   dbType: DatabaseType,
   prompt: string,
-  full: FullSchema
+  full: FullSchema,
 ): Promise<string[] | null> {
   try {
     const system = [
@@ -124,7 +154,7 @@ async function selectRelevantTables(
         { role: "system", content: system },
         { role: "user", content: userMsg },
       ],
-      { maxTokens: 600, jsonMode: true, timeoutMs: 30000 }
+      { maxTokens: 600, jsonMode: true, timeoutMs: 30000 },
     );
 
     const cleaned = result.content
@@ -135,7 +165,9 @@ async function selectRelevantTables(
     const parsed = JSON.parse(cleaned);
     const raw = Array.isArray(parsed?.tables) ? parsed.tables : [];
 
-    const byLower = new Map(full.tables.map((t) => [t.name.toLowerCase(), t.name]));
+    const byLower = new Map(
+      full.tables.map((t) => [t.name.toLowerCase(), t.name]),
+    );
     const out: string[] = [];
     for (const n of raw) {
       if (typeof n !== "string") continue;
@@ -150,12 +182,15 @@ async function selectRelevantTables(
 }
 
 router.post("/generate-query", async (req: Request, res: Response) => {
-  const { connectionId, prompt, currentQuery, refreshSchema } = req.body as {
-    connectionId?: string;
-    prompt?: string;
-    currentQuery?: string;
-    refreshSchema?: boolean;
-  };
+  const { connectionId, prompt, currentQuery, refreshSchema, mode } =
+    req.body as {
+      connectionId?: string;
+      prompt?: string;
+      currentQuery?: string;
+      refreshSchema?: boolean;
+      mode?: "read" | "write";
+    };
+  const writeMode = mode === "write";
   const user = req.user!;
 
   if (!prompt || !prompt.trim()) {
@@ -163,7 +198,9 @@ router.post("/generate-query", async (req: Request, res: Response) => {
     return;
   }
   if (!connectionId) {
-    res.status(400).json({ error: "A connectionId is required for schema context" });
+    res
+      .status(400)
+      .json({ error: "A connectionId is required for schema context" });
     return;
   }
 
@@ -193,7 +230,10 @@ router.post("/generate-query", async (req: Request, res: Response) => {
 
   const { config, missing } = getAzureConfig();
   if (!config) {
-    record({ status: "error", errorMessage: `Azure OpenAI not configured. Missing: ${missing.join(", ")}` });
+    record({
+      status: "error",
+      errorMessage: `Azure OpenAI not configured. Missing: ${missing.join(", ")}`,
+    });
     res.status(503).json({
       error: `Azure OpenAI is not configured. Missing: ${missing.join(", ")}`,
     });
@@ -206,8 +246,13 @@ router.post("/generate-query", async (req: Request, res: Response) => {
   try {
     full = await getCachedFullSchema(conn, { forceRefresh: !!refreshSchema });
   } catch (err: any) {
-    record({ status: "error", errorMessage: `Failed to introspect schema: ${err?.message || err}` });
-    res.status(502).json({ error: `Failed to introspect schema: ${err?.message || err}` });
+    record({
+      status: "error",
+      errorMessage: `Failed to introspect schema: ${err?.message || err}`,
+    });
+    res
+      .status(502)
+      .json({ error: `Failed to introspect schema: ${err?.message || err}` });
     return;
   }
 
@@ -218,7 +263,12 @@ router.post("/generate-query", async (req: Request, res: Response) => {
   // those in full detail instead of an arbitrary cap.
   let selectedTables: string[] | null = null;
   if (allTableNames.length > TABLE_SELECTION_THRESHOLD) {
-    selectedTables = await selectRelevantTables(config, conn.type, prompt.trim(), full.schema);
+    selectedTables = await selectRelevantTables(
+      config,
+      conn.type,
+      prompt.trim(),
+      full.schema,
+    );
   }
   const selectionUsed = !!(selectedTables && selectedTables.length);
 
@@ -226,7 +276,12 @@ router.post("/generate-query", async (req: Request, res: Response) => {
   // dialect only). Never blocks generation.
   let examples: { name: string; sql: string }[] = [];
   try {
-    examples = selectExampleQueries(conn, prompt.trim(), allTableNames, getSavedQueries(user.sub));
+    examples = selectExampleQueries(
+      conn,
+      prompt.trim(),
+      allTableNames,
+      getSavedQueries(user.sub),
+    );
   } catch (e) {
     console.error("Failed to select example queries:", e);
   }
@@ -247,18 +302,32 @@ router.post("/generate-query", async (req: Request, res: Response) => {
 
   const schema = summarizeTables(full.schema, finalTables);
 
-  const systemPrompt = [
-    "You are an expert database query author embedded in a read-only data tool.",
-    "Given a database schema and a user's request in plain English, produce ONE correct, efficient, read-only query.",
-    dialectGuidance(conn.type),
-    "Rules:",
-    "- NEVER produce INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, CREATE, GRANT, REVOKE, EXEC or any write/DDL statement.",
-    "- Only reference tables and columns that exist in the provided schema.",
-    "- Columns marked [PHI] contain protected health information; you may select them when asked, but never invent filters that expose them unnecessarily.",
-    "- Prefer explicit column lists over SELECT * for complex queries, but SELECT * is acceptable for simple lookups.",
-    'Respond ONLY with a JSON object of the form {"query": "<the query>", "explanation": "<one or two short sentences>"}.',
-    "Do not wrap the JSON in markdown fences.",
-  ].join("\n");
+  const systemPrompt = writeMode
+    ? [
+        "You are an expert database change author embedded in a data tool with a mandatory approval workflow.",
+        "Given a database schema and a user's request in plain English, produce ONE write statement that accomplishes it.",
+        writeDialectGuidance(conn.type),
+        "Rules:",
+        "- Exactly ONE statement, and it MUST be a single INSERT, UPDATE or DELETE. NEVER a bare SELECT, and NEVER DDL (DROP/ALTER/TRUNCATE/CREATE/GRANT/REVOKE) or stacked statements.",
+        "- For UPDATE/DELETE, ALWAYS include a WHERE that scopes it to exactly the intended rows. NEVER a whole-table UPDATE/DELETE unless the user explicitly asks for it.",
+        "- Only reference tables and columns that exist in the schema. Keep it minimal — SET only the columns the request mentions; do not restate unchanged columns.",
+        "- Columns marked [PHI] contain protected health information; only write them when the request clearly requires it.",
+        'Respond ONLY with a JSON object of the form {"query": "<the write statement>", "explanation": "<one short sentence>"}.',
+        "Do not wrap the JSON in markdown fences.",
+      ].join("\n")
+    : [
+        "You are an expert database query author embedded in a read-only data tool.",
+        "Given a database schema and a user's request in plain English, produce ONE correct, efficient, read-only query.",
+        dialectGuidance(conn.type),
+        "Rules:",
+        "- NEVER produce INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, CREATE, GRANT, REVOKE, EXEC or any write/DDL statement.",
+        "- Only reference tables and columns that exist in the provided schema.",
+        "- Columns marked [PHI] contain protected health information; you may select them when asked, but never invent filters that expose them unnecessarily.",
+        "- Favor concise, readable queries. Use `SELECT *` for a simple single-table lookup; only list explicit columns when the user asks for specific fields, or when joining/aggregating where specific columns are genuinely needed. NEVER enumerate every column just to avoid `*`.",
+        "- Do not add filters, ordering, or limits the user did not ask for.",
+        'Respond ONLY with a JSON object of the form {"query": "<the query>", "explanation": "<one short sentence>"}.',
+        "Do not wrap the JSON in markdown fences.",
+      ].join("\n");
 
   const exampleBlock = examples.length
     ? [
@@ -324,7 +393,8 @@ router.post("/generate-query", async (req: Request, res: Response) => {
         totalTokens: result.usage?.totalTokens,
       });
       res.status(502).json({
-        error: "The model did not return a usable query. Try rephrasing your request.",
+        error:
+          "The model did not return a usable query. Try rephrasing your request.",
       });
       return;
     }
@@ -362,16 +432,24 @@ router.post("/generate-query", async (req: Request, res: Response) => {
       latencyMs: Date.now() - startedAt,
     });
     const status = err instanceof AzureOpenAIError && err.status ? 502 : 500;
-    res.status(status).json({ error: err?.message || "Query generation failed" });
+    res
+      .status(status)
+      .json({ error: err?.message || "Query generation failed" });
   }
 });
 
 // ── Clear cached schema summaries (admin only) ──
-router.post("/schema-cache/clear", requireAdmin, (req: Request, res: Response) => {
-  const connectionId = (req.body?.connectionId || req.query.connectionId) as string | undefined;
-  const result = clearSchemaCache(connectionId);
-  res.json({ ...result, scope: connectionId || "all" });
-});
+router.post(
+  "/schema-cache/clear",
+  requireAdmin,
+  (req: Request, res: Response) => {
+    const connectionId = (req.body?.connectionId || req.query.connectionId) as
+      | string
+      | undefined;
+    const result = clearSchemaCache(connectionId);
+    res.json({ ...result, scope: connectionId || "all" });
+  },
+);
 
 // ── Read the AI chat log (admin only) ──
 router.get("/chat-log", requireAdmin, (req: Request, res: Response) => {
@@ -388,7 +466,10 @@ router.get("/chat-log", requireAdmin, (req: Request, res: Response) => {
 });
 
 /** Robustly extracts {query, explanation} from the model's text output. */
-function parseGeneration(content: string): { query: string; explanation: string } {
+function parseGeneration(content: string): {
+  query: string;
+  explanation: string;
+} {
   const cleaned = content
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
@@ -399,11 +480,14 @@ function parseGeneration(content: string): { query: string; explanation: string 
     const obj = JSON.parse(cleaned);
     return {
       query: typeof obj.query === "string" ? obj.query.trim() : "",
-      explanation: typeof obj.explanation === "string" ? obj.explanation.trim() : "",
+      explanation:
+        typeof obj.explanation === "string" ? obj.explanation.trim() : "",
     };
   } catch {
     // Fallback: maybe the model returned a bare query or a fenced code block.
-    const fenceMatch = content.match(/```(?:sql|json|javascript)?\s*([\s\S]*?)```/i);
+    const fenceMatch = content.match(
+      /```(?:sql|json|javascript)?\s*([\s\S]*?)```/i,
+    );
     if (fenceMatch) return { query: fenceMatch[1].trim(), explanation: "" };
     return { query: cleaned, explanation: "" };
   }

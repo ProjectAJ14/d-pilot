@@ -1,6 +1,10 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
-import type { editor as MonacoEditor, languages, IDisposable } from "monaco-editor";
+import type {
+  editor as MonacoEditor,
+  languages,
+  IDisposable,
+} from "monaco-editor";
 import { format as formatSql } from "sql-formatter";
 import {
   Button,
@@ -22,11 +26,18 @@ import {
   IconArrowsVertical,
   IconCircleCheck,
   IconSparkles,
+  IconPencilBolt,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
+import { useNavigate } from "react-router-dom";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
-import type { DatabaseType, QueryTab, TableInfo, ColumnInfo } from "../../types";
+import type {
+  DatabaseType,
+  QueryTab,
+  TableInfo,
+  ColumnInfo,
+} from "../../types";
 
 interface Props {
   tab: QueryTab;
@@ -36,7 +47,10 @@ interface Props {
 }
 
 // Cache schema data for autocomplete
-const schemaCache: Record<string, { tables: TableInfo[]; columns: Record<string, ColumnInfo[]> }> = {};
+const schemaCache: Record<
+  string,
+  { tables: TableInfo[]; columns: Record<string, ColumnInfo[]> }
+> = {};
 let completionDisposables: IDisposable[] = [];
 
 function disposeCompletions() {
@@ -44,7 +58,8 @@ function disposeCompletions() {
   completionDisposables = [];
 }
 
-const TRIGGER_CHARS = " .,(abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\"'{[}".split("");
+const TRIGGER_CHARS =
+  " .,(abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\"'{[}".split("");
 
 /** Monaco grammar: SQL for RDBMS; JavaScript for Mongo shell-style; plaintext for ES (GET + JSON body). */
 function monacoLanguageForDb(dbType: DatabaseType | null | undefined): string {
@@ -61,13 +76,52 @@ function monacoLanguageForDb(dbType: DatabaseType | null | undefined): string {
 }
 
 const SQL_KEYWORDS = [
-  "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "IN", "LIKE", "ILIKE", "BETWEEN",
-  "JOIN", "LEFT JOIN", "RIGHT JOIN", "INNER JOIN", "OUTER JOIN", "CROSS JOIN",
-  "ON", "AS", "ORDER BY", "GROUP BY", "HAVING", "LIMIT", "OFFSET",
-  "COUNT", "SUM", "AVG", "MIN", "MAX", "DISTINCT",
-  "CASE", "WHEN", "THEN", "ELSE", "END",
-  "IS NULL", "IS NOT NULL", "EXISTS", "UNION", "UNION ALL",
-  "ASC", "DESC", "TOP", "WITH", "NULL", "TRUE", "FALSE",
+  "SELECT",
+  "FROM",
+  "WHERE",
+  "AND",
+  "OR",
+  "NOT",
+  "IN",
+  "LIKE",
+  "ILIKE",
+  "BETWEEN",
+  "JOIN",
+  "LEFT JOIN",
+  "RIGHT JOIN",
+  "INNER JOIN",
+  "OUTER JOIN",
+  "CROSS JOIN",
+  "ON",
+  "AS",
+  "ORDER BY",
+  "GROUP BY",
+  "HAVING",
+  "LIMIT",
+  "OFFSET",
+  "COUNT",
+  "SUM",
+  "AVG",
+  "MIN",
+  "MAX",
+  "DISTINCT",
+  "CASE",
+  "WHEN",
+  "THEN",
+  "ELSE",
+  "END",
+  "IS NULL",
+  "IS NOT NULL",
+  "EXISTS",
+  "UNION",
+  "UNION ALL",
+  "ASC",
+  "DESC",
+  "TOP",
+  "WITH",
+  "NULL",
+  "TRUE",
+  "FALSE",
 ];
 
 const MSSQL_EXTRA_KEYWORDS = [
@@ -139,10 +193,12 @@ const ELASTIC_KEYWORDS = [
 ];
 
 function pushKeywordSuggestions(
-  monaco: { languages: { CompletionItemKind: typeof languages.CompletionItemKind } },
+  monaco: {
+    languages: { CompletionItemKind: typeof languages.CompletionItemKind };
+  },
   suggestions: languages.CompletionItem[],
   keywords: string[],
-  range: languages.CompletionItem["range"]
+  range: languages.CompletionItem["range"],
 ) {
   for (const kw of keywords) {
     const lower = kw.toLowerCase();
@@ -177,9 +233,12 @@ async function loadSchemaForConnection(connectionId: string) {
     schemaCache[connectionId] = { tables, columns: {} };
     // Load columns for first 20 tables in background
     for (const t of tables.slice(0, 20)) {
-      api.getColumns(connectionId, t.name).then((cols) => {
-        schemaCache[connectionId].columns[t.name] = cols;
-      }).catch(() => {});
+      api
+        .getColumns(connectionId, t.name)
+        .then((cols) => {
+          schemaCache[connectionId].columns[t.name] = cols;
+        })
+        .catch(() => {});
     }
     return schemaCache[connectionId];
   } catch {
@@ -192,7 +251,7 @@ function addSqlSchemaSuggestions(
   suggestions: languages.CompletionItem[],
   connectionId: string,
   range: languages.CompletionItem["range"],
-  isTableContext: boolean
+  isTableContext: boolean,
 ) {
   const schema = schemaCache[connectionId];
   if (!schema) return;
@@ -232,7 +291,11 @@ function addSqlSchemaSuggestions(
 }
 
 /** Registers the completion provider(s) for the active connection dialect. */
-function registerQueryCompletions(monaco: any, connectionId: string, dbType: DatabaseType | null | undefined) {
+function registerQueryCompletions(
+  monaco: any,
+  connectionId: string,
+  dbType: DatabaseType | null | undefined,
+) {
   disposeCompletions();
 
   const eff: DatabaseType | "none" = dbType ?? "none";
@@ -257,17 +320,26 @@ function registerQueryCompletions(monaco: any, connectionId: string, dbType: Dat
             endLineNumber: position.lineNumber,
             endColumn: position.column,
           });
-          const lastClause = textUntilPosition.match(/\b(FROM|JOIN|INTO|UPDATE|TABLE)\s+\w*$/i);
+          const lastClause = textUntilPosition.match(
+            /\b(FROM|JOIN|INTO|UPDATE|TABLE)\s+\w*$/i,
+          );
           const isTableContext = !!lastClause;
 
           const kws = [...SQL_KEYWORDS];
           if (eff === "mssql") kws.push(...MSSQL_EXTRA_KEYWORDS);
           pushKeywordSuggestions(monaco, suggestions, kws, range);
-          if (connectionId) addSqlSchemaSuggestions(monaco, suggestions, connectionId, range, isTableContext);
+          if (connectionId)
+            addSqlSchemaSuggestions(
+              monaco,
+              suggestions,
+              connectionId,
+              range,
+              isTableContext,
+            );
 
           return { suggestions };
         },
-      })
+      }),
     );
   }
 
@@ -286,13 +358,16 @@ function registerQueryCompletions(monaco: any, connectionId: string, dbType: Dat
           const suggestions: languages.CompletionItem[] = [];
           pushKeywordSuggestions(monaco, suggestions, MONGO_KEYWORDS, range);
 
-          const lineUntil = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
+          const lineUntil = model
+            .getLineContent(position.lineNumber)
+            .slice(0, position.column - 1);
           const dbMatch = lineUntil.match(/db\.(\w*)$/);
           const schema = connectionId ? schemaCache[connectionId] : undefined;
           if (schema && dbMatch) {
             const prefix = dbMatch[1].toLowerCase();
             for (const coll of schema.tables) {
-              if (prefix && !coll.name.toLowerCase().startsWith(prefix)) continue;
+              if (prefix && !coll.name.toLowerCase().startsWith(prefix))
+                continue;
               suggestions.push({
                 label: coll.name,
                 kind: monaco.languages.CompletionItemKind.Struct,
@@ -346,12 +421,12 @@ function registerQueryCompletions(monaco: any, connectionId: string, dbType: Dat
                 sortText: "0_distinct",
                 detail: "MongoDB read",
                 range,
-              }
+              },
             );
           }
 
           const collForFields = lineUntil.match(
-            /db\.(\w+)\.(?:find|findOne|aggregate|countDocuments|distinct)\(/
+            /db\.(\w+)\.(?:find|findOne|aggregate|countDocuments|distinct)\(/,
           );
           if (schema && collForFields) {
             const collName = collForFields[1];
@@ -373,7 +448,7 @@ function registerQueryCompletions(monaco: any, connectionId: string, dbType: Dat
 
           return { suggestions };
         },
-      })
+      }),
     );
   }
 
@@ -392,13 +467,18 @@ function registerQueryCompletions(monaco: any, connectionId: string, dbType: Dat
           const suggestions: languages.CompletionItem[] = [];
           pushKeywordSuggestions(monaco, suggestions, ELASTIC_KEYWORDS, range);
 
-          const lineUntil = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
-          const pathMatch = lineUntil.match(/^(?:GET|POST)?\s*\/?([\w\-.*]*)$/i);
+          const lineUntil = model
+            .getLineContent(position.lineNumber)
+            .slice(0, position.column - 1);
+          const pathMatch = lineUntil.match(
+            /^(?:GET|POST)?\s*\/?([\w\-.*]*)$/i,
+          );
           const schema = connectionId ? schemaCache[connectionId] : undefined;
           if (schema && pathMatch) {
             const prefix = pathMatch[1].toLowerCase();
             for (const idx of schema.tables) {
-              if (prefix && !idx.name.toLowerCase().startsWith(prefix)) continue;
+              if (prefix && !idx.name.toLowerCase().startsWith(prefix))
+                continue;
               suggestions.push({
                 label: idx.name + "/_search",
                 kind: monaco.languages.CompletionItemKind.Struct,
@@ -413,7 +493,7 @@ function registerQueryCompletions(monaco: any, connectionId: string, dbType: Dat
 
           return { suggestions };
         },
-      })
+      }),
     );
   }
 }
@@ -433,6 +513,9 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
   const defaultLimitValue = useStore((s) => s.defaultLimitValue);
   const setDefaultLimitEnabled = useStore((s) => s.setDefaultLimitEnabled);
   const setDefaultLimitValue = useStore((s) => s.setDefaultLimitValue);
+  const setWriteHandoff = useStore((s) => s.setWriteHandoff);
+  const canWrite = useStore((s) => !!s.user?.canWrite);
+  const navigate = useNavigate();
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [editingSavedId, setEditingSavedId] = useState<string | null>(null);
@@ -451,7 +534,10 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
       registerQueryCompletions(monacoRef.current, connId, dbType);
       const model = editorRef.current?.getModel();
       if (model) {
-        monacoRef.current.editor.setModelLanguage(model, monacoLanguageForDb(dbType));
+        monacoRef.current.editor.setModelLanguage(
+          model,
+          monacoLanguageForDb(dbType),
+        );
       }
       return true;
     };
@@ -492,12 +578,23 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
       const result = await api.executeQuery(
         tab.connectionId,
         sqlToRun,
-        defaultLimitEnabled ? defaultLimitValue : null
+        defaultLimitEnabled ? defaultLimitValue : null,
       );
-      const conn = useStore.getState().connections.find((c) => c.id === tab.connectionId);
-      const dbDefault = (conn?.type === "mongodb" || conn?.type === "elasticsearch") ? "json" as const : "table" as const;
-      updateTab(tab.id, { result, loading: false, viewMode: tab.viewMode ?? dbDefault });
-      const connLabel = conn ? `${conn.name} · ${conn.env} · ${conn.type}` : "Unknown connection";
+      const conn = useStore
+        .getState()
+        .connections.find((c) => c.id === tab.connectionId);
+      const dbDefault =
+        conn?.type === "mongodb" || conn?.type === "elasticsearch"
+          ? ("json" as const)
+          : ("table" as const);
+      updateTab(tab.id, {
+        result,
+        loading: false,
+        viewMode: tab.viewMode ?? dbDefault,
+      });
+      const connLabel = conn
+        ? `${conn.name} · ${conn.env} · ${conn.type}`
+        : "Unknown connection";
       const dbLabel = conn?.database ? ` · ${conn.database}` : "";
       notifications.show({
         title: "Query executed successfully",
@@ -514,7 +611,38 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
       });
       notifications.show({ message: err.message, color: "red" });
     }
-  }, [tab.sql, tab.connectionId, tab.id, defaultLimitEnabled, defaultLimitValue]);
+  }, [
+    tab.sql,
+    tab.connectionId,
+    tab.id,
+    defaultLimitEnabled,
+    defaultLimitValue,
+  ]);
+
+  // Take the selected text (or the whole query) into the Write composer.
+  const handleNewWriteRequest = () => {
+    const editor = editorRef.current;
+    const selection = editor?.getSelection();
+    const model = editor?.getModel();
+    const selectedText =
+      selection && model && !selection.isEmpty()
+        ? model.getValueInRange(selection)
+        : "";
+    const seed = selectedText.trim() || tab.sql.trim();
+    if (!seed) {
+      notifications.show({
+        message: "Select or write a statement first",
+        color: "orange",
+      });
+      return;
+    }
+    setWriteHandoff({
+      writeSql: seed,
+      connectionId: tab.connectionId,
+      title: tab.title.startsWith("Query ") ? "" : tab.title,
+    });
+    navigate("/write");
+  };
 
   const handleSave = async () => {
     if (!saveName.trim()) return;
@@ -608,10 +736,17 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
     // SQL (postgres, mssql, default)
     try {
       const language = dbType === "mssql" ? "tsql" : "postgresql";
-      const formatted = formatSql(tab.sql, { language, tabWidth: 2, keywordCase: "upper" });
+      const formatted = formatSql(tab.sql, {
+        language,
+        tabWidth: 2,
+        keywordCase: "upper",
+      });
       updateTab(tab.id, { sql: formatted });
     } catch {
-      notifications.show({ message: "Could not format query", color: "orange" });
+      notifications.show({
+        message: "Could not format query",
+        color: "orange",
+      });
     }
   }, [tab.sql, tab.id, activeConn?.type]);
 
@@ -635,12 +770,14 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
 
     const connId = tab.connectionId || "";
     const dbType =
-      useStore.getState().connections.find((c) => c.id === connId)?.type ?? null;
+      useStore.getState().connections.find((c) => c.id === connId)?.type ??
+      null;
     registerQueryCompletions(monaco, connId, dbType);
     if (connId) {
       loadSchemaForConnection(connId).then(() => {
         const t =
-          useStore.getState().connections.find((c) => c.id === connId)?.type ?? null;
+          useStore.getState().connections.find((c) => c.id === connId)?.type ??
+          null;
         registerQueryCompletions(monaco, connId, t);
       });
     }
@@ -689,6 +826,20 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
             </Button>
           </Tooltip>
 
+          {canWrite && (
+            <Tooltip label="Turn the selected text (or this query) into a write request">
+              <Button
+                size="xs"
+                variant="light"
+                color="grape"
+                leftSection={<IconPencilBolt size={14} />}
+                onClick={handleNewWriteRequest}
+              >
+                Write request
+              </Button>
+            </Tooltip>
+          )}
+
           <Text
             size="xs"
             fw={700}
@@ -698,12 +849,26 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
           >
             Query
             {activeConn?.type === "mongodb" && (
-              <Text component="span" size="xs" c="dimmed" ml={6} ff="monospace" fw={400}>
+              <Text
+                component="span"
+                size="xs"
+                c="dimmed"
+                ml={6}
+                ff="monospace"
+                fw={400}
+              >
                 · Mongo shell
               </Text>
             )}
             {activeConn?.type === "elasticsearch" && (
-              <Text component="span" size="xs" c="dimmed" ml={6} ff="monospace" fw={400}>
+              <Text
+                component="span"
+                size="xs"
+                c="dimmed"
+                ml={6}
+                ff="monospace"
+                fw={400}
+              >
                 · ES REST / JSON
               </Text>
             )}
@@ -732,30 +897,40 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
           </Tooltip>
 
           <Tooltip label="Export CSV">
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              onClick={handleExportCsv}
-            >
+            <ActionIcon variant="subtle" color="gray" onClick={handleExportCsv}>
               <IconFileExport size={16} />
             </ActionIcon>
           </Tooltip>
 
           {/* Default Limit controls */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              marginLeft: 4,
+            }}
+          >
             <Checkbox
               size="xs"
               label="Limit"
               checked={defaultLimitEnabled}
               onChange={(e) => setDefaultLimitEnabled(e.currentTarget.checked)}
               styles={{
-                label: { fontSize: 11, fontWeight: 600, color: "var(--mantine-color-dimmed)", paddingLeft: 4 },
+                label: {
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "var(--mantine-color-dimmed)",
+                  paddingLeft: 4,
+                },
               }}
             />
             <NumberInput
               size="xs"
               value={defaultLimitValue}
-              onChange={(val) => setDefaultLimitValue(typeof val === "number" ? val : 500)}
+              onChange={(val) =>
+                setDefaultLimitValue(typeof val === "number" ? val : 500)
+              }
               min={1}
               max={10000}
               step={100}
@@ -777,9 +952,18 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
         </div>
 
         {/* Monaco Editor */}
-        <div style={{ margin: "0 14px 12px", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
+        <div
+          style={{
+            margin: "0 14px 12px",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            overflow: "hidden",
+          }}
+        >
           <Editor
-            height={height ? `${Math.max(60, height - TOOLBAR_HEIGHT)}px` : "150px"}
+            height={
+              height ? `${Math.max(60, height - TOOLBAR_HEIGHT)}px` : "150px"
+            }
             language={monacoLanguageForDb(activeConn?.type ?? null)}
             theme="vs"
             value={tab.sql}
@@ -824,7 +1008,10 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
       {/* Save Query Modal */}
       <Modal
         opened={saveModalOpen}
-        onClose={() => { setSaveModalOpen(false); setEditingSavedId(null); }}
+        onClose={() => {
+          setSaveModalOpen(false);
+          setEditingSavedId(null);
+        }}
         title={editingSavedId ? "Update Query" : "Save Query"}
         size="sm"
       >
@@ -836,10 +1023,18 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
           mb="md"
         />
         <Group justify="flex-end">
-          <Button variant="subtle" onClick={() => { setSaveModalOpen(false); setEditingSavedId(null); }}>
+          <Button
+            variant="subtle"
+            onClick={() => {
+              setSaveModalOpen(false);
+              setEditingSavedId(null);
+            }}
+          >
             Cancel
           </Button>
-          <Button onClick={handleSave}>{editingSavedId ? "Update" : "Save"}</Button>
+          <Button onClick={handleSave}>
+            {editingSavedId ? "Update" : "Save"}
+          </Button>
         </Group>
       </Modal>
     </>

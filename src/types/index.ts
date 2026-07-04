@@ -88,10 +88,89 @@ export interface User {
   username: string;
   email: string;
   displayName: string;
-  role: "admin" | "phi_viewer" | "read";
+  isAdmin: boolean;
   allowedEnvironments?: string[];
+  unmaskEnvironments?: string[];
+  writeEnvironments?: string[];
+  approveEnvironments?: string[];
   createdAt: string;
   lastLogin?: string;
+}
+
+export type WriteRequestStatus =
+  | "DRAFT"
+  | "PENDING"
+  | "APPROVED"
+  | "EXECUTED"
+  | "FAILED"
+  | "REJECTED"
+  | "CANCELLED";
+
+export interface WriteAiReview {
+  verdict: "SAFE" | "CAUTION" | "DANGEROUS";
+  selectMatchesWrite: boolean;
+  estimatedBlastRadius: string;
+  risks: string[];
+  summary: string;
+  recommendation: string;
+  suggestedWriteSql?: string;
+  suggestedSelectSql?: string;
+  model?: string;
+  reviewedAt?: string;
+}
+
+export interface WriteRequestEvent {
+  id: string;
+  requestId: string;
+  actorId: string;
+  actorEmail: string;
+  event:
+    | "SUBMITTED"
+    | "AI_REVIEWED"
+    | "APPROVED"
+    | "AUTO_APPROVED"
+    | "REJECTED"
+    | "RESUBMITTED"
+    | "EXECUTED"
+    | "FAILED"
+    | "CANCELLED";
+  notes?: string;
+  timestamp: string;
+}
+
+export interface WriteRequest {
+  id: string;
+  title: string;
+  description?: string;
+  connectionId: string;
+  connectionName?: string;
+  env: Environment;
+  dbType: DatabaseType;
+  selectSql: string;
+  writeSql: string;
+  status: WriteRequestStatus;
+  requestedBy: string;
+  requestedByEmail: string;
+  requestedAt: string;
+  reviewedBy?: string;
+  reviewedByEmail?: string;
+  reviewedAt?: string;
+  reviewNotes?: string;
+  executedAt?: string;
+  executedBy?: string;
+  executedByEmail?: string;
+  rowsAffected?: number;
+  executionMs?: number;
+  executionError?: string;
+  transactional?: boolean;
+  aiVerdict?: string;
+  aiReview?: WriteAiReview;
+  createdAt: string;
+  updatedAt: string;
+  events?: WriteRequestEvent[];
+  viewerCanApprove?: boolean;
+  viewerIsRequester?: boolean;
+  viewerCanPreview?: boolean;
 }
 
 export interface AiChatLogEntry {

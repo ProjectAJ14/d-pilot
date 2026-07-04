@@ -16,6 +16,7 @@ import exportRoutes from "./routes/export.js";
 import userRoutes from "./routes/users.js";
 import azureAiRoutes from "./routes/azure-ai.js";
 import analyticsRoutes from "./routes/analytics.js";
+import writeRequestRoutes from "./routes/write-requests.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "3101", 10);
@@ -67,6 +68,7 @@ app.use("/api/export", exportRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/azure-ai", azureAiRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use("/api/write-requests", writeRequestRoutes);
 
 // Serve static frontend in production
 if (process.env.NODE_ENV === "production") {

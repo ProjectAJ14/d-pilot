@@ -40,7 +40,9 @@ export function ProfilePage() {
     if (!displayName.trim()) return;
     setSavingProfile(true);
     try {
-      const updated = await api.updateProfile({ displayName: displayName.trim() });
+      const updated = await api.updateProfile({
+        displayName: displayName.trim(),
+      });
       // Update local store with new name
       if (user) {
         const token = localStorage.getItem("dbpilot_token")!;
@@ -56,11 +58,17 @@ export function ProfilePage() {
 
   const handleChangePassword = async () => {
     if (!currentPassword || !newPassword) {
-      notifications.show({ message: "All password fields are required", color: "red" });
+      notifications.show({
+        message: "All password fields are required",
+        color: "red",
+      });
       return;
     }
     if (newPassword.length < 8) {
-      notifications.show({ message: "New password must be at least 8 characters", color: "red" });
+      notifications.show({
+        message: "New password must be at least 8 characters",
+        color: "red",
+      });
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -71,7 +79,10 @@ export function ProfilePage() {
     setChangingPassword(true);
     try {
       await api.changePassword(currentPassword, newPassword);
-      notifications.show({ message: "Password changed successfully", color: "green" });
+      notifications.show({
+        message: "Password changed successfully",
+        color: "green",
+      });
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
@@ -83,7 +94,15 @@ export function ProfilePage() {
   };
 
   return (
-    <div style={{ padding: "28px 32px", maxWidth: 640, margin: "0 auto", overflow: "auto", flex: 1 }}>
+    <div
+      style={{
+        padding: "28px 32px",
+        maxWidth: 640,
+        margin: "0 auto",
+        overflow: "auto",
+        flex: 1,
+      }}
+    >
       {/* Back button */}
       <Button
         variant="subtle"
@@ -133,16 +152,43 @@ export function ProfilePage() {
           </div>
           <div style={{ flex: 1 }}>
             <Group gap="sm" mb={4}>
-              <Text fw={700} size="lg" c="secondary.9">{user?.name}</Text>
-              <Badge
-                size="sm"
-                color={user?.isAdmin ? "red" : "primary"}
-                variant="light"
-              >
-                {user?.role?.toUpperCase()}
-              </Badge>
+              <Text fw={700} size="lg" c="secondary.9">
+                {user?.name}
+              </Text>
+              {user?.isAdmin ? (
+                <Badge size="sm" color="red" variant="light">
+                  ADMIN
+                </Badge>
+              ) : (
+                <>
+                  {user?.canUnmaskPhi && (
+                    <Badge size="sm" color="orange" variant="light">
+                      PHI
+                    </Badge>
+                  )}
+                  {user?.canWrite && (
+                    <Badge size="sm" color="grape" variant="light">
+                      WRITE
+                    </Badge>
+                  )}
+                  {user?.canApprove && (
+                    <Badge size="sm" color="teal" variant="light">
+                      APPROVE
+                    </Badge>
+                  )}
+                  {!user?.canUnmaskPhi &&
+                    !user?.canWrite &&
+                    !user?.canApprove && (
+                      <Badge size="sm" color="blue" variant="light">
+                        READ
+                      </Badge>
+                    )}
+                </>
+              )}
             </Group>
-            <Text size="sm" c="dimmed" ff="monospace">{user?.email || user?.username}</Text>
+            <Text size="sm" c="dimmed" ff="monospace">
+              {user?.email || user?.username}
+            </Text>
           </div>
         </Group>
       </div>
@@ -159,7 +205,9 @@ export function ProfilePage() {
       >
         <Group gap={8} mb="md">
           <IconUser size={16} color="var(--accent)" />
-          <Text fw={600} size="sm" c="secondary.9">Display Name</Text>
+          <Text fw={600} size="sm" c="secondary.9">
+            Display Name
+          </Text>
         </Group>
 
         <TextInput
@@ -198,7 +246,9 @@ export function ProfilePage() {
       >
         <Group gap={8} mb="md">
           <IconLock size={16} color="var(--accent)" />
-          <Text fw={600} size="sm" c="secondary.9">Change Password</Text>
+          <Text fw={600} size="sm" c="secondary.9">
+            Change Password
+          </Text>
         </Group>
 
         <PasswordInput
@@ -223,7 +273,11 @@ export function ProfilePage() {
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.currentTarget.value)}
           mb="md"
-          error={confirmPassword && newPassword !== confirmPassword ? "Passwords do not match" : undefined}
+          error={
+            confirmPassword && newPassword !== confirmPassword
+              ? "Passwords do not match"
+              : undefined
+          }
         />
 
         <Button

@@ -127,8 +127,92 @@ export interface AuthUser {
   sub: string;
   email: string;
   name?: string;
-  roles: string[];
   isAdmin: boolean;
   canUnmaskPhi: boolean;
   allowedEnvironments: string[];
+  unmaskEnvironments: string[];
+  writeEnvironments: string[];
+  approveEnvironments: string[];
+  canWrite: boolean;
+  canApprove: boolean;
+}
+
+// ── Write mode / approval workflow ──
+
+export type WriteRequestStatus =
+  | "DRAFT"
+  | "PENDING"
+  | "APPROVED"
+  | "EXECUTED"
+  | "FAILED"
+  | "REJECTED"
+  | "CANCELLED";
+
+export type WriteRequestEventType =
+  | "SUBMITTED"
+  | "AI_REVIEWED"
+  | "APPROVED"
+  | "AUTO_APPROVED"
+  | "REJECTED"
+  | "RESUBMITTED"
+  | "EXECUTED"
+  | "FAILED"
+  | "CANCELLED";
+
+/** Structured AI safety assessment of a write request. */
+export interface WriteAiReview {
+  verdict: "SAFE" | "CAUTION" | "DANGEROUS";
+  selectMatchesWrite: boolean;
+  estimatedBlastRadius: string;
+  risks: string[];
+  summary: string;
+  recommendation: string;
+  /** A corrected WRITE statement when the current one is unsafe/incorrect. */
+  suggestedWriteSql?: string;
+  /** A verify SELECT that previews exactly the rows the (suggested) WRITE affects. */
+  suggestedSelectSql?: string;
+  model?: string;
+  reviewedAt?: string;
+}
+
+export interface WriteRequestEvent {
+  id: string;
+  requestId: string;
+  actorId: string;
+  actorEmail: string;
+  event: WriteRequestEventType;
+  notes?: string;
+  timestamp: string;
+}
+
+export interface WriteRequest {
+  id: string;
+  title: string;
+  description?: string;
+  connectionId: string;
+  connectionName?: string;
+  env: Environment;
+  dbType: DatabaseType;
+  selectSql: string;
+  writeSql: string;
+  status: WriteRequestStatus;
+  requestedBy: string;
+  requestedByEmail: string;
+  requestedAt: string;
+  reviewedBy?: string;
+  reviewedByEmail?: string;
+  reviewedAt?: string;
+  reviewNotes?: string;
+  executedAt?: string;
+  executedBy?: string;
+  executedByEmail?: string;
+  rowsAffected?: number;
+  executionMs?: number;
+  executionError?: string;
+  transactional?: boolean;
+  aiVerdict?: string;
+  aiReview?: WriteAiReview;
+  createdAt: string;
+  updatedAt: string;
+  events?: WriteRequestEvent[];
 }

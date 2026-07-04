@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Menu, Badge, Group, Text, ActionIcon, Tooltip } from "@mantine/core";
 import {
   IconDatabase,
@@ -8,9 +9,12 @@ import {
   IconLogout,
   IconKey,
   IconFileText,
+  IconSearch,
+  IconPencilBolt,
+  IconGitPullRequest,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useStore } from "../../store";
 import { PhiUnmaskModal } from "../phi/phi-unmask-modal";
 import type { ConnectionInfo, DatabaseType, Environment } from "../../types";
@@ -48,10 +52,18 @@ export function TopBar() {
   const logout = useStore((s) => s.logout);
 
   const navigate = useNavigate();
+  const location = useLocation();
+  const actionRequiredCount = useStore((s) => s.actionRequiredCount);
   const { appName, logoUrl, phiMaskedEnvironments } = useStore((s) => s.config);
   const activeConn = connections.find((c) => c.id === activeConnectionId);
   const maskedEnvs = phiMaskedEnvironments || ["PROD"];
   const isEnvMasked = activeConn ? maskedEnvs.includes(activeConn.env) : false;
+
+  // PHI unmask is environment-scoped: allowed only where the active connection's
+  // environment is in the user's unmask capability (admins hold all).
+  const canUnmaskHere =
+    !!user?.isAdmin ||
+    (!!activeConn && (user?.unmaskEnvironments || []).includes(activeConn.env));
 
   const handlePhiToggle = () => {
     if (!phiEnabled) {
@@ -60,9 +72,11 @@ export function TopBar() {
       return;
     }
 
-    if (!user?.canUnmaskPhi) {
+    if (!canUnmaskHere) {
       notifications.show({
-        message: "PHI de-tokenization requires admin or phi_viewer role",
+        message: activeConn
+          ? `You cannot de-tokenize PHI in ${activeConn.env}`
+          : "Select a connection first",
         color: "red",
       });
       return;
@@ -115,7 +129,9 @@ export function TopBar() {
           {logoUrl && (
             <>
               <img src={logoUrl} alt={appName} style={{ height: 32 }} />
-              <div style={{ width: 1, height: 28, background: "var(--border)" }} />
+              <div
+                style={{ width: 1, height: 28, background: "var(--border)" }}
+              />
             </>
           )}
           <Text fw={700} size="sm" c="var(--accent)">
@@ -123,6 +139,44 @@ export function TopBar() {
           </Text>
         </Group>
       </Tooltip>
+
+      <div style={{ width: 1, height: 28, background: "var(--border)" }} />
+
+      {/* Workspace nav */}
+      <div
+        style={{
+          display: "flex",
+          gap: 2,
+          background: "var(--surface2)",
+          border: "1px solid var(--border)",
+          borderRadius: 9,
+          padding: 3,
+        }}
+      >
+        <NavTab
+          icon={<IconSearch size={14} />}
+          label="Read"
+          active={location.pathname === "/"}
+          onClick={() => navigate("/")}
+        />
+        {user?.canWrite && (
+          <NavTab
+            icon={<IconPencilBolt size={14} />}
+            label="Write"
+            active={location.pathname === "/write"}
+            onClick={() => navigate("/write")}
+          />
+        )}
+        {(user?.canWrite || user?.canApprove) && (
+          <NavTab
+            icon={<IconGitPullRequest size={14} />}
+            label="Requests"
+            badge={actionRequiredCount}
+            active={location.pathname === "/requests"}
+            onClick={() => navigate("/requests")}
+          />
+        )}
+      </div>
 
       <div style={{ width: 1, height: 28, background: "var(--border)" }} />
 
@@ -143,16 +197,28 @@ export function TopBar() {
           >
             {activeConn ? (
               <>
-                <Badge size="xs" color={ENV_COLORS[activeConn.env]} variant="light">
+                <Badge
+                  size="xs"
+                  color={ENV_COLORS[activeConn.env]}
+                  variant="light"
+                >
                   {activeConn.env}
                 </Badge>
-                <Text size="xs" fw={600}>{activeConn.name}</Text>
-                <Badge size="xs" variant="light">{DB_LABELS[activeConn.type]}</Badge>
+                <Text size="xs" fw={600}>
+                  {activeConn.name}
+                </Text>
+                <Badge size="xs" variant="light">
+                  {DB_LABELS[activeConn.type]}
+                </Badge>
               </>
             ) : (
-              <Text size="xs" c="dimmed">Select connection...</Text>
+              <Text size="xs" c="dimmed">
+                Select connection...
+              </Text>
             )}
-            <Text size="xs" c="dimmed">▾</Text>
+            <Text size="xs" c="dimmed">
+              ▾
+            </Text>
           </div>
         </Menu.Target>
         <Menu.Dropdown style={{ maxHeight: "70vh", overflowY: "auto" }}>
@@ -160,7 +226,11 @@ export function TopBar() {
           {Object.entries(groupByEnv(connections)).map(([env, conns]) => (
             <div key={env}>
               <Menu.Label>
-                <Badge size="xs" color={ENV_COLORS[env as Environment]} variant="light">
+                <Badge
+                  size="xs"
+                  color={ENV_COLORS[env as Environment]}
+                  variant="light"
+                >
                   {env}
                 </Badge>
               </Menu.Label>
@@ -181,7 +251,9 @@ export function TopBar() {
                   }
                 >
                   <div>
-                    <Text size="sm" fw={600}>{conn.name}</Text>
+                    <Text size="sm" fw={600}>
+                      {conn.name}
+                    </Text>
                     <Text size="xs" c="dimmed" ff="monospace">
                       {DB_LABELS[conn.type]} · {conn.host}:{conn.port}
                     </Text>
@@ -213,7 +285,9 @@ export function TopBar() {
             borderRadius: 8,
             cursor: "pointer",
             border: `1px solid ${phiEnabled ? "rgba(31,145,150,0.4)" : "rgba(215,54,54,0.4)"}`,
-            background: phiEnabled ? "rgba(31,145,150,0.1)" : "rgba(215,54,54,0.1)",
+            background: phiEnabled
+              ? "rgba(31,145,150,0.1)"
+              : "rgba(215,54,54,0.1)",
             color: phiEnabled ? "var(--token)" : "var(--error)",
             fontSize: 12,
             fontWeight: 700,
@@ -230,9 +304,13 @@ export function TopBar() {
             }}
           />
           {phiEnabled ? (
-            <><IconShieldLock size={14} /> PHI Tokenized</>
+            <>
+              <IconShieldLock size={14} /> PHI Tokenized
+            </>
           ) : (
-            <><IconShieldOff size={14} /> PHI Visible</>
+            <>
+              <IconShieldOff size={14} /> PHI Visible
+            </>
           )}
         </div>
       </Tooltip>
@@ -242,7 +320,9 @@ export function TopBar() {
       {/* Token Config button */}
       <Tooltip label="Token Configuration">
         <button
-          onClick={() => user?.isAdmin ? navigate("/settings?tab=phi") : togglePhiPanel()}
+          onClick={() =>
+            user?.isAdmin ? navigate("/settings?tab=phi") : togglePhiPanel()
+          }
           style={{
             fontFamily: "Barlow, sans-serif",
             fontSize: 12,
@@ -256,7 +336,10 @@ export function TopBar() {
             whiteSpace: "nowrap",
           }}
         >
-          <IconKey size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />
+          <IconKey
+            size={12}
+            style={{ marginRight: 4, verticalAlign: "middle" }}
+          />
           Token Config
         </button>
       </Tooltip>
@@ -284,33 +367,75 @@ export function TopBar() {
           </div>
         </Menu.Target>
         <Menu.Dropdown>
-          <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
-            <Text fw={600} size="sm">{user?.name || user?.username}</Text>
-            <Badge
-              size="xs"
-              color={user?.isAdmin ? "red" : user?.role === "phi_viewer" ? "orange" : "blue"}
-              variant="light"
-              mt={5}
-            >
-              {user?.role === "phi_viewer" ? "PHI VIEWER" : user?.role?.toUpperCase()}
-            </Badge>
+          <div
+            style={{
+              padding: "14px 16px",
+              borderBottom: "1px solid var(--border)",
+            }}
+          >
+            <Text fw={600} size="sm">
+              {user?.name || user?.username}
+            </Text>
+            <Group gap={4} mt={5}>
+              {user?.isAdmin ? (
+                <Badge size="xs" color="red" variant="light">
+                  ADMIN
+                </Badge>
+              ) : (
+                <>
+                  {user?.canUnmaskPhi && (
+                    <Badge size="xs" color="orange" variant="light">
+                      PHI
+                    </Badge>
+                  )}
+                  {user?.canWrite && (
+                    <Badge size="xs" color="grape" variant="light">
+                      WRITE
+                    </Badge>
+                  )}
+                  {user?.canApprove && (
+                    <Badge size="xs" color="teal" variant="light">
+                      APPROVE
+                    </Badge>
+                  )}
+                  {!user?.canUnmaskPhi &&
+                    !user?.canWrite &&
+                    !user?.canApprove && (
+                      <Badge size="xs" color="blue" variant="light">
+                        READ
+                      </Badge>
+                    )}
+                </>
+              )}
+            </Group>
           </div>
-          <Menu.Item leftSection={<IconUser size={14} />} onClick={() => navigate("/profile")}>
+          <Menu.Item
+            leftSection={<IconUser size={14} />}
+            onClick={() => navigate("/profile")}
+          >
             Profile
           </Menu.Item>
           {user?.isAdmin && (
-            <Menu.Item leftSection={<IconSettings size={14} />} onClick={() => navigate("/settings")}>
+            <Menu.Item
+              leftSection={<IconSettings size={14} />}
+              onClick={() => navigate("/settings")}
+            >
               Settings
             </Menu.Item>
           )}
           {user?.isAdmin && (
-            <Menu.Item leftSection={<IconFileText size={14} />} onClick={() => navigate("/settings?tab=audit")}>
+            <Menu.Item
+              leftSection={<IconFileText size={14} />}
+              onClick={() => navigate("/settings?tab=audit")}
+            >
               Audit Log
             </Menu.Item>
           )}
           <Menu.Item
             leftSection={<IconShieldLock size={14} />}
-            onClick={() => user?.isAdmin ? navigate("/settings?tab=phi") : togglePhiPanel()}
+            onClick={() =>
+              user?.isAdmin ? navigate("/settings?tab=phi") : togglePhiPanel()
+            }
           >
             Token Configuration
           </Menu.Item>
@@ -328,11 +453,65 @@ export function TopBar() {
   );
 }
 
-function groupByEnv(connections: ConnectionInfo[]): Record<string, ConnectionInfo[]> {
+function groupByEnv(
+  connections: ConnectionInfo[],
+): Record<string, ConnectionInfo[]> {
   const grouped: Record<string, ConnectionInfo[]> = {};
   for (const c of connections) {
     if (!grouped[c.env]) grouped[c.env] = [];
     grouped[c.env].push(c);
   }
   return grouped;
+}
+
+function NavTab({
+  label,
+  icon,
+  active,
+  badge,
+  onClick,
+}: {
+  label: string;
+  icon?: ReactNode;
+  active: boolean;
+  badge?: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        fontFamily: "Barlow, sans-serif",
+        fontSize: 12,
+        fontWeight: 700,
+        letterSpacing: 0.2,
+        padding: "6px 12px",
+        borderRadius: 7,
+        border: "none",
+        background: active ? "var(--surface)" : "transparent",
+        color: active ? "var(--accent)" : "var(--muted2)",
+        boxShadow: active ? "0 1px 2px rgba(0,0,0,0.10)" : "none",
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+        transition: "color 120ms ease, background 120ms ease",
+      }}
+    >
+      {icon}
+      {label}
+      {badge != null && badge > 0 && (
+        <Badge
+          size="xs"
+          circle
+          color="red"
+          variant="filled"
+          style={{ marginLeft: 2, minWidth: 16, height: 16, padding: 0 }}
+        >
+          {badge}
+        </Badge>
+      )}
+    </button>
+  );
 }

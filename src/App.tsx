@@ -10,11 +10,18 @@ import { PhiConfigPanel } from "./components/phi/phi-config-panel";
 import { PhiUnmaskModal } from "./components/phi/phi-unmask-modal";
 import { ProfilePage } from "./components/pages/profile-page";
 import { SettingsPage } from "./components/pages/settings-page";
+import { WriteWorkspace } from "./components/write/write-workspace";
+import {
+  RequestsPage,
+  countActionRequired,
+} from "./components/write/requests-page";
+import { WriteRequestDetail } from "./components/write/write-request-detail";
 
 function AuthenticatedApp() {
   const setConnections = useStore((s) => s.setConnections);
   const setSavedQueries = useStore((s) => s.setSavedQueries);
   const setActiveConnection = useStore((s) => s.setActiveConnection);
+  const login = useStore((s) => s.login);
   const user = useStore((s) => s.user);
 
   useEffect(() => {
@@ -29,12 +36,39 @@ function AuthenticatedApp() {
       .catch(console.error);
 
     api.getSavedQueries().then(setSavedQueries).catch(console.error);
+
+    // Refresh the current user so newly-granted write/approve permissions and
+    // roles appear without requiring a re-login.
+    const token = useStore.getState().token;
+    if (token) {
+      api
+        .me()
+        .then((fresh) => login(token, fresh))
+        .catch(() => {});
+    }
+
+    // Seed the "needs my action" badge for the Requests tab.
+    if (user?.canWrite || user?.canApprove) {
+      api
+        .getWriteRequests()
+        .then((all) =>
+          useStore.getState().setActionRequiredCount(countActionRequired(all)),
+        )
+        .catch(() => {});
+    }
   }, []);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       <TopBar />
-      <div style={{ display: "flex", flex: 1, overflow: "hidden", position: "relative" }}>
+      <div
+        style={{
+          display: "flex",
+          flex: 1,
+          overflow: "hidden",
+          position: "relative",
+        }}
+      >
         <Routes>
           <Route
             path="/"
@@ -47,6 +81,23 @@ function AuthenticatedApp() {
             }
           />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route
+            path="/write"
+            element={
+              user?.canWrite ? <WriteWorkspace /> : <Navigate to="/" replace />
+            }
+          />
+          <Route
+            path="/requests"
+            element={
+              user?.canWrite || user?.canApprove ? (
+                <RequestsPage />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route path="/write-requests/:id" element={<WriteRequestDetail />} />
           <Route
             path="/settings"
             element={
@@ -66,18 +117,22 @@ export default function App() {
   const setConfig = useStore((s) => s.setConfig);
 
   useEffect(() => {
-    api.getConfig().then((cfg) => {
-      setConfig(cfg);
-      if (cfg.faviconUrl) {
-        let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
-        if (!link) {
-          link = document.createElement("link");
-          link.rel = "icon";
-          document.head.appendChild(link);
+    api
+      .getConfig()
+      .then((cfg) => {
+        setConfig(cfg);
+        if (cfg.faviconUrl) {
+          let link =
+            document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+          if (!link) {
+            link = document.createElement("link");
+            link.rel = "icon";
+            document.head.appendChild(link);
+          }
+          link.href = cfg.faviconUrl;
         }
-        link.href = cfg.faviconUrl;
-      }
-    }).catch(() => {});
+      })
+      .catch(() => {});
   }, []);
 
   if (!isAuthenticated) {

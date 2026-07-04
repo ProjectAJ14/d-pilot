@@ -40,11 +40,81 @@ export function validateQuery(sql: string): { valid: boolean; error?: string } {
   return { valid: true };
 }
 
+/** True if `sql` is a positively-shaped read query for the given engine. */
+export function isReadQuery(
+  sql: string,
+  dbType: ConnectionConfig["type"],
+): boolean {
+  const t = sql.trim();
+  if (!t) return false;
+  if (dbType === "postgres" || dbType === "mssql")
+    return /^\s*(SELECT|WITH)\b/i.test(t);
+  if (dbType === "mongodb")
+    return /\.(find|findOne|aggregate|countDocuments|distinct)\s*\(/.test(t);
+  if (dbType === "elasticsearch")
+    return /_search|_count/i.test(t) || /^[\w\-.*]+$/.test(t);
+  return true;
+}
+
+const CONNECTION_ERROR =
+  /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EHOSTUNREACH|getaddrinfo|ELOGIN|socket hang up|Failed to connect|Connection (?:lost|closed|timeout)|timeout: /i;
+
+/**
+ * Best-effort syntax/schema validation without executing the statement. Uses
+ * PostgreSQL `EXPLAIN` (plans, never runs — safe for writes too) and SQL Server
+ * `SET PARSEONLY`. Returns { checked:false } when the engine isn't supported or
+ * the database is unreachable, so validation never blocks on connectivity.
+ */
+export async function validateSqlSyntax(
+  conn: ConnectionConfig,
+  sql: string,
+): Promise<{ checked: boolean; error?: string }> {
+  const stmt = sql.trim().replace(/;\s*$/, "");
+  if (!stmt) return { checked: true, error: "Query cannot be empty" };
+  try {
+    if (conn.type === "postgres") {
+      const pool = await getPgPool(conn);
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        if (conn.schema)
+          await client.query(`SET search_path TO ${conn.schema}`);
+        await client.query(`EXPLAIN ${stmt}`);
+        return { checked: true };
+      } finally {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          /* ignore */
+        }
+        client.release();
+      }
+    }
+    if (conn.type === "mssql") {
+      const pool = await getMssqlPool(conn);
+      // PARSEONLY validates syntax without executing or binding objects.
+      await pool
+        .request()
+        .batch(`SET PARSEONLY ON;\n${stmt}\n;SET PARSEONLY OFF;`);
+      return { checked: true };
+    }
+    // Mongo/ES: parsed at execution time; only structural validation applies.
+    return { checked: false };
+  } catch (err: any) {
+    const msg = String(err?.message || err);
+    if (CONNECTION_ERROR.test(msg)) return { checked: false };
+    return { checked: true, error: msg };
+  }
+}
+
 /**
  * Auto-injects LIMIT for SELECT queries that don't already have a LIMIT clause.
  * @param defaultLimit null = skip injection, undefined = use DEFAULT_SELECT_STAR_LIMIT, number = use that value
  */
-export function applyDefaultLimit(sql: string, defaultLimit?: number | null): string {
+export function applyDefaultLimit(
+  sql: string,
+  defaultLimit?: number | null,
+): string {
   const trimmed = sql.trim().replace(/;\s*$/, "");
 
   // Only apply to SELECT statements
@@ -62,7 +132,7 @@ export function applyDefaultLimit(sql: string, defaultLimit?: number | null): st
   return `${trimmed} LIMIT ${limit}`;
 }
 
-async function getPgPool(conn: ConnectionConfig): Promise<pg.Pool> {
+export async function getPgPool(conn: ConnectionConfig): Promise<pg.Pool> {
   const existing = pgPools.get(conn.id);
   if (existing) return existing;
 
@@ -82,7 +152,9 @@ async function getPgPool(conn: ConnectionConfig): Promise<pg.Pool> {
   return pool;
 }
 
-async function getMssqlPool(conn: ConnectionConfig): Promise<mssql.ConnectionPool> {
+export async function getMssqlPool(
+  conn: ConnectionConfig,
+): Promise<mssql.ConnectionPool> {
   const existing = mssqlPools.get(conn.id);
   if (existing?.connected) return existing;
 
@@ -106,11 +178,15 @@ async function getMssqlPool(conn: ConnectionConfig): Promise<mssql.ConnectionPoo
   return pool;
 }
 
-async function getMongoClient(conn: ConnectionConfig): Promise<MongoClient> {
+export async function getMongoClient(
+  conn: ConnectionConfig,
+): Promise<MongoClient> {
   const existing = mongClients.get(conn.id);
   if (existing) return existing;
 
-  const uri = conn.uri || `mongodb://${conn.username}:${conn.password}@${conn.host}:${conn.port || 27017}/${conn.database}`;
+  const uri =
+    conn.uri ||
+    `mongodb://${conn.username}:${conn.password}@${conn.host}:${conn.port || 27017}/${conn.database}`;
   const client = new MongoClient(uri, {
     serverSelectionTimeoutMS: 10000,
     socketTimeoutMS: QUERY_TIMEOUT,
@@ -132,21 +208,25 @@ export interface RawQueryResult {
 export async function executeQuery(
   conn: ConnectionConfig,
   sql: string,
-  defaultLimit?: number | null
+  defaultLimit?: number | null,
 ): Promise<RawQueryResult> {
   const start = performance.now();
 
   // Auto-inject LIMIT for SELECT queries without one, and translate LIMIT→TOP for MSSQL
   let safeSql = conn.type === "mssql" ? convertLimitToTop(sql) : sql;
-  safeSql = conn.type === "mssql" ? applyDefaultLimitMssql(safeSql, defaultLimit) : applyDefaultLimit(safeSql, defaultLimit);
+  safeSql =
+    conn.type === "mssql"
+      ? applyDefaultLimitMssql(safeSql, defaultLimit)
+      : applyDefaultLimit(safeSql, defaultLimit);
 
   // Block MongoDB write operations before connecting
   if (conn.type === "mongodb") {
-    const MONGO_WRITE_OPS = /\b(updateOne|updateMany|insertOne|insertMany|deleteOne|deleteMany|replaceOne|drop|rename|createIndex|dropIndex|forEach|bulkWrite|findOneAndUpdate|findOneAndDelete|findOneAndReplace|save|remove)\b/;
+    const MONGO_WRITE_OPS =
+      /\b(updateOne|updateMany|insertOne|insertMany|deleteOne|deleteMany|replaceOne|drop|rename|createIndex|dropIndex|forEach|bulkWrite|findOneAndUpdate|findOneAndDelete|findOneAndReplace|save|remove)\b/;
     const writeMatch = sql.match(MONGO_WRITE_OPS);
     if (writeMatch) {
       throw new Error(
-        `'${writeMatch[1]}' is a write operation and is not allowed. This tool is read-only.`
+        `'${writeMatch[1]}' is a write operation and is not allowed. This tool is read-only.`,
       );
     }
   }
@@ -189,7 +269,10 @@ function convertLimitToTop(sql: string): string {
  * MSSQL variant: injects TOP N instead of LIMIT.
  * @param defaultLimit null = skip injection, undefined = use DEFAULT_SELECT_STAR_LIMIT, number = use that value
  */
-function applyDefaultLimitMssql(sql: string, defaultLimit?: number | null): string {
+function applyDefaultLimitMssql(
+  sql: string,
+  defaultLimit?: number | null,
+): string {
   const trimmed = sql.trim().replace(/;\s*$/, "");
 
   if (!/^\s*SELECT\b/i.test(trimmed)) return trimmed;
@@ -208,7 +291,7 @@ function applyDefaultLimitMssql(sql: string, defaultLimit?: number | null): stri
 async function executePostgres(
   conn: ConnectionConfig,
   sql: string,
-  start: number
+  start: number,
 ): Promise<RawQueryResult> {
   const pool = await getPgPool(conn);
 
@@ -222,7 +305,9 @@ async function executePostgres(
   const elapsed = performance.now() - start;
 
   // pg returns multiple results if we set search_path
-  const queryResult = Array.isArray(result) ? result[result.length - 1] : result;
+  const queryResult = Array.isArray(result)
+    ? result[result.length - 1]
+    : result;
   const rows = queryResult.rows || [];
   const columns = queryResult.fields?.map((f: any) => f.name) || [];
   const truncated = rows.length >= MAX_ROWS;
@@ -239,7 +324,7 @@ async function executePostgres(
 async function executeMssql(
   conn: ConnectionConfig,
   sql: string,
-  start: number
+  start: number,
 ): Promise<RawQueryResult> {
   const pool = await getMssqlPool(conn);
   const result = await pool.request().query(sql);
@@ -262,30 +347,34 @@ async function executeMongo(
   conn: ConnectionConfig,
   sql: string,
   start: number,
-  defaultLimit?: number | null
+  defaultLimit?: number | null,
 ): Promise<RawQueryResult> {
   const client = await getMongoClient(conn);
-  const dbName = conn.database || conn.uri?.split("/").pop()?.split("?")[0] || "test";
+  const dbName =
+    conn.database || conn.uri?.split("/").pop()?.split("?")[0] || "test";
   const db = client.db(dbName);
 
   // Block write operations
-  const MONGO_WRITE_OPS = /\b(updateOne|updateMany|insertOne|insertMany|deleteOne|deleteMany|replaceOne|drop|rename|createIndex|dropIndex|forEach|bulkWrite|findOneAndUpdate|findOneAndDelete|findOneAndReplace|save|remove)\b/;
+  const MONGO_WRITE_OPS =
+    /\b(updateOne|updateMany|insertOne|insertMany|deleteOne|deleteMany|replaceOne|drop|rename|createIndex|dropIndex|forEach|bulkWrite|findOneAndUpdate|findOneAndDelete|findOneAndReplace|save|remove)\b/;
   const writeMatch = sql.match(MONGO_WRITE_OPS);
   if (writeMatch) {
     throw new Error(
       `'${writeMatch[1]}' is a write operation and is not allowed. This tool is read-only.\n\n` +
-      "Supported read operations:\n" +
-      "  db.collection.find({...})\n" +
-      "  db.collection.find({...}).limit(100).sort({field: -1})\n" +
-      "  db.collection.aggregate([...])\n" +
-      "  db.collection.countDocuments({...})\n" +
-      "  db.collection.distinct(\"field\", {...})"
+        "Supported read operations:\n" +
+        "  db.collection.find({...})\n" +
+        "  db.collection.find({...}).limit(100).sort({field: -1})\n" +
+        "  db.collection.aggregate([...])\n" +
+        "  db.collection.countDocuments({...})\n" +
+        '  db.collection.distinct("field", {...})',
     );
   }
 
   // Parse MongoDB commands with optional chained .limit(), .sort(), .skip()
   // Uses a balanced-paren approach to extract the arguments
-  const opMatch = sql.match(/(?:db\.)?(\w+)\.(find|aggregate|countDocuments|distinct|findOne)\(/s);
+  const opMatch = sql.match(
+    /(?:db\.)?(\w+)\.(find|aggregate|countDocuments|distinct|findOne)\(/s,
+  );
   let mongoMatch: RegExpMatchArray | null = null;
 
   if (opMatch) {
@@ -300,19 +389,25 @@ async function executeMongo(
     }
     const argsStr = sql.slice(argsStart, i - 1);
     const chainStr = sql.slice(i);
-    mongoMatch = [sql, opMatch[1], opMatch[2], argsStr, chainStr] as unknown as RegExpMatchArray;
+    mongoMatch = [
+      sql,
+      opMatch[1],
+      opMatch[2],
+      argsStr,
+      chainStr,
+    ] as unknown as RegExpMatchArray;
   }
 
   if (!mongoMatch) {
     throw new Error(
       "MongoDB queries must be in format:\n" +
-      "  db.collection.find({...})\n" +
-      "  db.collection.find({...}).limit(100)\n" +
-      "  db.collection.find({...}).sort({field: -1}).limit(50)\n" +
-      "  db.collection.aggregate([...])\n" +
-      "  db.collection.countDocuments({...})\n" +
-      "  db.collection.distinct(\"field\", {...})\n" +
-      "  db.collection.findOne({...})"
+        "  db.collection.find({...})\n" +
+        "  db.collection.find({...}).limit(100)\n" +
+        "  db.collection.find({...}).sort({field: -1}).limit(50)\n" +
+        "  db.collection.aggregate([...])\n" +
+        "  db.collection.countDocuments({...})\n" +
+        '  db.collection.distinct("field", {...})\n' +
+        "  db.collection.findOne({...})",
     );
   }
 
@@ -332,7 +427,10 @@ async function executeMongo(
   const skipMatch = chainStr?.match(/\.skip\((\d+)\)/);
 
   const userLimit = limitMatch ? parseInt(limitMatch[1], 10) : null;
-  const effectiveDefault = defaultLimit === null ? MAX_ROWS : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
+  const effectiveDefault =
+    defaultLimit === null
+      ? MAX_ROWS
+      : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
   const limit = Math.min(userLimit ?? effectiveDefault, MAX_ROWS);
   const sort = sortMatch ? JSON.parse(sortMatch[1]) : undefined;
   const skip = skipMatch ? parseInt(skipMatch[1], 10) : undefined;
@@ -348,7 +446,9 @@ async function executeMongo(
       break;
     }
     case "aggregate":
-      rows = (await collection.aggregate(Array.isArray(args) ? args : [args]).toArray()) as Record<string, unknown>[];
+      rows = (await collection
+        .aggregate(Array.isArray(args) ? args : [args])
+        .toArray()) as Record<string, unknown>[];
       break;
     case "countDocuments":
       rows = [{ count: await collection.countDocuments(args) }];
@@ -361,9 +461,14 @@ async function executeMongo(
     case "distinct": {
       // distinct("field", query) — argsStr contains both field and query
       const distinctMatch = argsStr.match(/^"([^"]+)"(?:\s*,\s*([\s\S]+))?$/);
-      if (!distinctMatch) throw new Error("distinct requires a field name: db.collection.distinct(\"field\", {query})");
+      if (!distinctMatch)
+        throw new Error(
+          'distinct requires a field name: db.collection.distinct("field", {query})',
+        );
       const field = distinctMatch[1];
-      const filter = distinctMatch[2]?.trim() ? JSON.parse(distinctMatch[2]) : {};
+      const filter = distinctMatch[2]?.trim()
+        ? JSON.parse(distinctMatch[2])
+        : {};
       const values = await collection.distinct(field, filter);
       rows = values.map((v: any) => ({ [field]: v }));
       break;
@@ -387,7 +492,7 @@ async function executeMongo(
 
 // --- Elasticsearch ---
 
-function getEsClient(conn: ConnectionConfig): EsClient {
+export function getEsClient(conn: ConnectionConfig): EsClient {
   const existing = esClients.get(conn.id);
   if (existing) return existing;
 
@@ -412,7 +517,7 @@ async function executeElasticsearch(
   conn: ConnectionConfig,
   sql: string,
   start: number,
-  defaultLimit?: number | null
+  defaultLimit?: number | null,
 ): Promise<RawQueryResult> {
   const client = getEsClient(conn);
   const trimmed = sql.trim();
@@ -424,12 +529,14 @@ async function executeElasticsearch(
 
   // Format: GET /index/_search { query JSON }
   const restMatch = trimmed.match(
-    /^(?:GET|POST)?\s*\/?(\S+?)\/(_search|_count)\s*([\s\S]*)?$/i
+    /^(?:GET|POST)?\s*\/?(\S+?)\/(_search|_count)\s*([\s\S]*)?$/i,
   );
 
   if (restMatch) {
     const [, index, endpoint, bodyStr] = restMatch;
-    const body = bodyStr?.trim() ? JSON.parse(bodyStr) : { query: { match_all: {} } };
+    const body = bodyStr?.trim()
+      ? JSON.parse(bodyStr)
+      : { query: { match_all: {} } };
 
     if (endpoint === "_count") {
       const result = await client.count({ index, ...body });
@@ -445,7 +552,10 @@ async function executeElasticsearch(
 
     // _search
     if (!body.size && body.size !== 0) {
-      const esLimit = defaultLimit === null ? MAX_ROWS : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
+      const esLimit =
+        defaultLimit === null
+          ? MAX_ROWS
+          : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
       body.size = Math.min(esLimit, MAX_ROWS);
     }
     const result = await client.search({ index, ...body });
@@ -461,7 +571,10 @@ async function executeElasticsearch(
 
     const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
 
-    const totalHits = typeof result.hits.total === "number" ? result.hits.total : result.hits.total?.value ?? rows.length;
+    const totalHits =
+      typeof result.hits.total === "number"
+        ? result.hits.total
+        : (result.hits.total?.value ?? rows.length);
 
     return {
       columns,
@@ -474,7 +587,10 @@ async function executeElasticsearch(
 
   // Format: just an index name — list first N docs
   if (/^[\w\-.*]+$/.test(trimmed)) {
-    const esLimit = defaultLimit === null ? MAX_ROWS : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
+    const esLimit =
+      defaultLimit === null
+        ? MAX_ROWS
+        : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
     const result = await client.search({
       index: trimmed,
       size: Math.min(esLimit, MAX_ROWS),
@@ -489,7 +605,10 @@ async function executeElasticsearch(
     }));
     const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
 
-    const totalHits2 = typeof result.hits.total === "number" ? result.hits.total : result.hits.total?.value ?? rows.length;
+    const totalHits2 =
+      typeof result.hits.total === "number"
+        ? result.hits.total
+        : (result.hits.total?.value ?? rows.length);
 
     return {
       columns,
@@ -502,9 +621,9 @@ async function executeElasticsearch(
 
   throw new Error(
     "Elasticsearch queries must be in format:\n" +
-    "  index_name                              — list docs\n" +
-    "  GET /index/_search { \"query\": {...} }   — search with DSL\n" +
-    "  GET /index/_count { \"query\": {...} }    — count docs"
+      "  index_name                              — list docs\n" +
+      '  GET /index/_search { "query": {...} }   — search with DSL\n' +
+      '  GET /index/_count { "query": {...} }    — count docs',
   );
 }
 

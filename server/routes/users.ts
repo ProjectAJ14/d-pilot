@@ -12,32 +12,59 @@ router.use(requireAdmin);
 // List all users
 router.get("/", (_req: Request, res: Response) => {
   const db = getDb();
-  const users = db.prepare(
-    "SELECT id, username, email, display_name, role, created_at, last_login, allowed_environments FROM users ORDER BY created_at DESC"
-  ).all() as any[];
+  const users = db
+    .prepare("SELECT * FROM users ORDER BY created_at DESC")
+    .all() as any[];
 
-  res.json(
-    users.map((u) => {
-      let allowedEnvironments: string[] = ["DEV", "QA", "UAT", "STG", "PROD"];
-      try { allowedEnvironments = JSON.parse(u.allowed_environments || '[]'); } catch {}
-      if (u.role === "admin") allowedEnvironments = ["DEV", "QA", "UAT", "STG", "PROD"];
-      return {
-        id: u.id,
-        username: u.username,
-        email: u.email,
-        displayName: u.display_name,
-        role: u.role,
-        allowedEnvironments,
-        createdAt: u.created_at,
-        lastLogin: u.last_login,
-      };
-    })
-  );
+  res.json(users.map(mapUserRow));
 });
+
+const ALL_ENVS = ["DEV", "QA", "UAT", "STG", "PROD"];
+
+function parseEnvs(raw: string | null | undefined): string[] {
+  try {
+    const p = JSON.parse(raw || "[]");
+    return Array.isArray(p) ? p : [];
+  } catch {
+    return [];
+  }
+}
+
+function sanitizeEnvs(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((e) => typeof e === "string" && ALL_ENVS.includes(e));
+}
+
+function mapUserRow(u: any) {
+  const isAdmin = u.is_admin === 1 || u.is_admin === true;
+  const scoped = (raw: string) => (isAdmin ? ALL_ENVS : parseEnvs(raw));
+  return {
+    id: u.id,
+    username: u.username,
+    email: u.email,
+    displayName: u.display_name,
+    isAdmin,
+    allowedEnvironments: scoped(u.allowed_environments),
+    unmaskEnvironments: scoped(u.unmask_environments),
+    writeEnvironments: scoped(u.write_environments),
+    approveEnvironments: scoped(u.approve_environments),
+    createdAt: u.created_at,
+    lastLogin: u.last_login,
+  };
+}
 
 // Create user
 router.post("/", (req: Request, res: Response) => {
-  const { email, displayName, role, password, allowedEnvironments } = req.body;
+  const {
+    email,
+    displayName,
+    password,
+    isAdmin,
+    allowedEnvironments,
+    unmaskEnvironments,
+    writeEnvironments,
+    approveEnvironments,
+  } = req.body;
 
   if (!email || !password) {
     res.status(400).json({ error: "Email and password are required" });
@@ -60,48 +87,56 @@ router.post("/", (req: Request, res: Response) => {
     return;
   }
 
-  const validRoles = ["admin", "phi_viewer", "read"];
-  const userRole = validRoles.includes(role) ? role : "read";
-
   const db = getDb();
 
   // Check if username already exists
-  const existing = db.prepare("SELECT id FROM users WHERE username = ?").get(email);
+  const existing = db
+    .prepare("SELECT id FROM users WHERE username = ?")
+    .get(email);
   if (existing) {
     res.status(409).json({ error: "A user with this email already exists" });
     return;
   }
 
+  const admin = !!isAdmin;
   const id = `usr-${randomUUID().slice(0, 8)}`;
   const passwordHash = bcrypt.hashSync(password, 10);
-  const ALL_ENVS = ["DEV", "QA", "UAT", "STG", "PROD"];
-  const envs = userRole === "admin" ? ALL_ENVS : (Array.isArray(allowedEnvironments) ? allowedEnvironments : ["DEV", "QA"]);
-  const envsJson = JSON.stringify(envs);
+  // Admin implies all capabilities; otherwise use the supplied per-env lists.
+  const read = admin ? ALL_ENVS : sanitizeEnvs(allowedEnvironments);
+  const unmask = admin ? ALL_ENVS : sanitizeEnvs(unmaskEnvironments);
+  const write = admin ? ALL_ENVS : sanitizeEnvs(writeEnvironments);
+  const approve = admin ? ALL_ENVS : sanitizeEnvs(approveEnvironments);
 
   db.prepare(
-    "INSERT INTO users (id, username, password_hash, email, display_name, role, allowed_environments) VALUES (?, ?, ?, ?, ?, ?, ?)"
-  ).run(id, email, passwordHash, email, displayName || email.split("@")[0], userRole, envsJson);
+    "INSERT INTO users (id, username, password_hash, email, display_name, is_admin, allowed_environments, unmask_environments, write_environments, approve_environments) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(
+    id,
+    email,
+    passwordHash,
+    email,
+    displayName || email.split("@")[0],
+    admin ? 1 : 0,
+    JSON.stringify(read),
+    JSON.stringify(unmask),
+    JSON.stringify(write),
+    JSON.stringify(approve),
+  );
 
-  const created = db.prepare(
-    "SELECT id, username, email, display_name, role, created_at, last_login, allowed_environments FROM users WHERE id = ?"
-  ).get(id) as any;
-
-  res.status(201).json({
-    id: created.id,
-    username: created.username,
-    email: created.email,
-    displayName: created.display_name,
-    role: created.role,
-    allowedEnvironments: envs,
-    createdAt: created.created_at,
-    lastLogin: created.last_login,
-  });
+  const created = db.prepare("SELECT * FROM users WHERE id = ?").get(id) as any;
+  res.status(201).json(mapUserRow(created));
 });
 
 // Update user
 router.put("/:id", (req: Request, res: Response) => {
   const { id } = req.params;
-  const { displayName, role, allowedEnvironments } = req.body;
+  const {
+    displayName,
+    isAdmin,
+    allowedEnvironments,
+    unmaskEnvironments,
+    writeEnvironments,
+    approveEnvironments,
+  } = req.body;
 
   const db = getDb();
   const existing = db.prepare("SELECT id FROM users WHERE id = ?").get(id);
@@ -117,19 +152,25 @@ router.put("/:id", (req: Request, res: Response) => {
     updates.push("display_name = ?");
     values.push(displayName);
   }
-
-  if (role !== undefined) {
-    if (!["admin", "phi_viewer", "read"].includes(role)) {
-      res.status(400).json({ error: "Role must be 'admin', 'phi_viewer', or 'read'" });
-      return;
-    }
-    updates.push("role = ?");
-    values.push(role);
+  if (isAdmin !== undefined) {
+    updates.push("is_admin = ?");
+    values.push(isAdmin ? 1 : 0);
   }
-
-  if (allowedEnvironments !== undefined && Array.isArray(allowedEnvironments)) {
+  if (allowedEnvironments !== undefined) {
     updates.push("allowed_environments = ?");
-    values.push(JSON.stringify(allowedEnvironments));
+    values.push(JSON.stringify(sanitizeEnvs(allowedEnvironments)));
+  }
+  if (unmaskEnvironments !== undefined) {
+    updates.push("unmask_environments = ?");
+    values.push(JSON.stringify(sanitizeEnvs(unmaskEnvironments)));
+  }
+  if (writeEnvironments !== undefined) {
+    updates.push("write_environments = ?");
+    values.push(JSON.stringify(sanitizeEnvs(writeEnvironments)));
+  }
+  if (approveEnvironments !== undefined) {
+    updates.push("approve_environments = ?");
+    values.push(JSON.stringify(sanitizeEnvs(approveEnvironments)));
   }
 
   if (updates.length === 0) {
@@ -138,26 +179,12 @@ router.put("/:id", (req: Request, res: Response) => {
   }
 
   values.push(id);
-  db.prepare(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+  db.prepare(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`).run(
+    ...values,
+  );
 
-  const updated = db.prepare(
-    "SELECT id, username, email, display_name, role, created_at, last_login, allowed_environments FROM users WHERE id = ?"
-  ).get(id) as any;
-
-  let envs: string[] = ["DEV", "QA", "UAT", "STG", "PROD"];
-  try { envs = JSON.parse(updated.allowed_environments || '[]'); } catch {}
-  if (updated.role === "admin") envs = ["DEV", "QA", "UAT", "STG", "PROD"];
-
-  res.json({
-    id: updated.id,
-    username: updated.username,
-    email: updated.email,
-    displayName: updated.display_name,
-    role: updated.role,
-    allowedEnvironments: envs,
-    createdAt: updated.created_at,
-    lastLogin: updated.last_login,
-  });
+  const updated = db.prepare("SELECT * FROM users WHERE id = ?").get(id) as any;
+  res.json(mapUserRow(updated));
 });
 
 // Delete user
@@ -187,7 +214,9 @@ router.post("/:id/reset-password", (req: Request, res: Response) => {
   const { newPassword } = req.body;
 
   if (!newPassword || newPassword.length < 8) {
-    res.status(400).json({ error: "New password must be at least 8 characters" });
+    res
+      .status(400)
+      .json({ error: "New password must be at least 8 characters" });
     return;
   }
 

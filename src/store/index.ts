@@ -1,15 +1,24 @@
 import { create } from "zustand";
 import type { ConnectionInfo, QueryTab, SavedQuery } from "../types";
-import { loadTabs, clearPersistedTabs, createDebouncedSave } from "../utils/tab-persistence";
+import {
+  loadTabs,
+  clearPersistedTabs,
+  createDebouncedSave,
+} from "../utils/tab-persistence";
 
 interface AuthUser {
   id: string;
   username: string;
   email: string;
   name: string;
-  role: string;
   isAdmin: boolean;
   canUnmaskPhi: boolean;
+  allowedEnvironments?: string[];
+  unmaskEnvironments?: string[];
+  writeEnvironments?: string[];
+  approveEnvironments?: string[];
+  canWrite?: boolean;
+  canApprove?: boolean;
 }
 
 interface AppConfig {
@@ -77,6 +86,29 @@ interface AppState {
   aiAssistantOpen: boolean;
   toggleAiAssistant: () => void;
   setAiAssistant: (open: boolean) => void;
+
+  // Read → Write bridge: seed the write composer (from the read section, the AI
+  // assistant, or "Duplicate request").
+  writeHandoff: {
+    writeSql: string;
+    selectSql?: string;
+    connectionId?: string | null;
+    title?: string;
+    description?: string;
+  } | null;
+  setWriteHandoff: (
+    h: {
+      writeSql: string;
+      selectSql?: string;
+      connectionId?: string | null;
+      title?: string;
+      description?: string;
+    } | null,
+  ) => void;
+
+  // Requests: count of items needing the current user's attention (badge).
+  actionRequiredCount: number;
+  setActionRequiredCount: (n: number) => void;
 }
 
 let tabCounter = 1;
@@ -96,20 +128,25 @@ function createTab(connectionId?: string | null): QueryTab {
 
 const savedToken = localStorage.getItem("dbpilot_token");
 const savedUser = localStorage.getItem("dbpilot_user");
-const savedLimitEnabled = localStorage.getItem("dbpilot_limit_enabled") !== "false";
-const savedLimitValue = parseInt(localStorage.getItem("dbpilot_limit_value") || "500", 10);
+const savedLimitEnabled =
+  localStorage.getItem("dbpilot_limit_enabled") !== "false";
+const savedLimitValue = parseInt(
+  localStorage.getItem("dbpilot_limit_value") || "500",
+  10,
+);
 
 const persistedTabs = loadTabs();
 const debouncedSave = createDebouncedSave(500);
 
 if (persistedTabs) {
-  tabCounter = Math.max(
-    ...persistedTabs.tabs.map((t) => {
-      const match = t.id.match(/^tab-(\d+)$/);
-      return match ? parseInt(match[1], 10) : 0;
-    }),
-    0
-  ) + 1;
+  tabCounter =
+    Math.max(
+      ...persistedTabs.tabs.map((t) => {
+        const match = t.id.match(/^tab-(\d+)$/);
+        return match ? parseInt(match[1], 10) : 0;
+      }),
+      0,
+    ) + 1;
 }
 
 const initialTabs: QueryTab[] = persistedTabs
@@ -143,7 +180,14 @@ window.addEventListener("beforeunload", () => debouncedSave.flush());
 
 export const useStore = create<AppState>((set, get) => ({
   // Config
-  config: { appName: "D-Pilot", logoUrl: null, lightLogoUrl: null, faviconUrl: null, emailDomain: null, phiMaskedEnvironments: ["PROD"] },
+  config: {
+    appName: "D-Pilot",
+    logoUrl: null,
+    lightLogoUrl: null,
+    faviconUrl: null,
+    emailDomain: null,
+    phiMaskedEnvironments: ["PROD"],
+  },
   setConfig: (config) => set({ config }),
 
   // Auth
@@ -171,7 +215,7 @@ export const useStore = create<AppState>((set, get) => ({
     const { activeTabId, tabs } = get();
     set({
       tabs: tabs.map((t) =>
-        t.id === activeTabId ? { ...t, connectionId: id } : t
+        t.id === activeTabId ? { ...t, connectionId: id } : t,
       ),
     });
     persistAfterSet();
@@ -250,7 +294,9 @@ export const useStore = create<AppState>((set, get) => ({
   addSavedQuery: (query) =>
     set((s) => ({ savedQueries: [query, ...s.savedQueries] })),
   updateSavedQuery: (query) =>
-    set((s) => ({ savedQueries: s.savedQueries.map((q) => (q.id === query.id ? query : q)) })),
+    set((s) => ({
+      savedQueries: s.savedQueries.map((q) => (q.id === query.id ? query : q)),
+    })),
   removeSavedQuery: (id) =>
     set((s) => ({ savedQueries: s.savedQueries.filter((q) => q.id !== id) })),
 
@@ -267,6 +313,15 @@ export const useStore = create<AppState>((set, get) => ({
 
   // AI Query Assistant Panel
   aiAssistantOpen: false,
-  toggleAiAssistant: () => set((s) => ({ aiAssistantOpen: !s.aiAssistantOpen })),
+  toggleAiAssistant: () =>
+    set((s) => ({ aiAssistantOpen: !s.aiAssistantOpen })),
   setAiAssistant: (open) => set({ aiAssistantOpen: open }),
+
+  // Read → Write bridge
+  writeHandoff: null,
+  setWriteHandoff: (h) => set({ writeHandoff: h }),
+
+  // Requests badge
+  actionRequiredCount: 0,
+  setActionRequiredCount: (n) => set({ actionRequiredCount: n }),
 }));

@@ -2,7 +2,11 @@ import { Router, Request, Response } from "express";
 import { getConnection } from "../config/connections.js";
 import { validateQuery, executeQuery } from "../services/query-executor.js";
 import { maskQueryResults } from "../services/phi-masking.js";
-import { logAudit, getQueryHistory, getPhiMaskedEnvs } from "../services/sqlite-store.js";
+import {
+  logAudit,
+  getQueryHistory,
+  getPhiMaskedEnvs,
+} from "../services/sqlite-store.js";
 import type { QueryRequest, QueryResult, Environment } from "../types/index.js";
 
 const router = Router();
@@ -25,7 +29,9 @@ router.post("/execute", async (req: Request, res: Response) => {
   // Check environment access
   const allowed = user.allowedEnvironments || [];
   if (!user.isAdmin && !allowed.includes(conn.env)) {
-    res.status(403).json({ error: `You do not have access to ${conn.env} environment` });
+    res
+      .status(403)
+      .json({ error: `You do not have access to ${conn.env} environment` });
     return;
   }
 
@@ -43,12 +49,19 @@ router.post("/execute", async (req: Request, res: Response) => {
     const maskedEnvs = getPhiMaskedEnvs();
     const envRequiresMasking = maskedEnvs.includes(conn.env as Environment);
     const clientRequestsUnmask = req.headers["x-phi-shield"] === "off";
-    const unmaskReason = req.headers["x-phi-unmask-reason"] as string | undefined;
+    const unmaskReason = req.headers["x-phi-unmask-reason"] as
+      | string
+      | undefined;
     const unmaskNotes = req.headers["x-phi-unmask-notes"] as string | undefined;
+
+    // PHI unmasking is environment-scoped: the user must hold the unmask
+    // capability for this connection's environment (admins hold all).
+    const canUnmaskHere =
+      user.isAdmin || user.unmaskEnvironments.includes(conn.env);
 
     let phiEnabled = true; // default: masked
     if (clientRequestsUnmask) {
-      if (!user.canUnmaskPhi) {
+      if (!canUnmaskHere) {
         // Unauthorized unmask attempt — silently ignore, keep masked, log denial
         logAudit({
           userId: user.sub,
@@ -73,7 +86,7 @@ router.post("/execute", async (req: Request, res: Response) => {
         phiEnabled,
         isAdmin: user.isAdmin,
         database: conn.database,
-      }
+      },
     );
 
     const result: QueryResult = {
