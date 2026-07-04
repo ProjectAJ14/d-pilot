@@ -24,6 +24,7 @@ import { useStore } from "../../store";
 import type { QueryTab, ResultViewMode } from "../../types";
 import { ResultsJsonView } from "./results-json-view";
 import { CellDetailDrawer, type CellDetail } from "./cell-detail-drawer";
+import { GridCellTooltip } from "./grid-cell-tooltip";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -172,12 +173,14 @@ export function ResultsGrid({ tab }: Props) {
         filter: true,
         resizable: true,
         minWidth: 80,
-        // Tier 1 — quick peek on hover. Full/rich inspection is the click-drawer.
+        // Tier 1 — quick peek on hover. GridCellTooltip renders the value:
+        // ISO datetimes convert to the browser's local zone; long values get a
+        // wrapped text preview. Full/rich inspection is the click-drawer.
         tooltipValueGetter: (p) => {
           const v = p.value;
           if (v === null || v === undefined) return "NULL";
           const text = typeof v === "object" ? JSON.stringify(v) : String(v);
-          return text.length > 800 ? text.slice(0, 800) + "…  (click cell for full value)" : text;
+          return text.length > 2000 ? text.slice(0, 2000) + "… (click cell for full value)" : text;
         },
       };
 
@@ -214,6 +217,7 @@ export function ResultsGrid({ tab }: Props) {
       filter: true,
       resizable: true,
       suppressHeaderMenuButton: false,
+      tooltipComponent: GridCellTooltip,
     }),
     []
   );
