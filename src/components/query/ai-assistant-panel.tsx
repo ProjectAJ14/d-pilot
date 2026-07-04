@@ -167,6 +167,7 @@ export function AiAssistantPanel() {
     // even if the user switches tabs while generating.
     const tid = activeTab.id;
     const connId = activeTab.connectionId;
+    const activeSchema = activeTab.schema;
     const currentSql = activeTab.sql || undefined;
     const doRefresh = refreshArmed;
     setRefreshArmed(false);
@@ -183,6 +184,7 @@ export function AiAssistantPanel() {
         currentQuery: currentSql,
         refreshSchema: doRefresh,
         mode: genMode,
+        schema: activeSchema,
       });
       const metaParts: string[] = [];
       if (res.model) metaParts.push(res.model);

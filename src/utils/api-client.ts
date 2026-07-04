@@ -190,10 +190,11 @@ export const api = {
     connectionId: string,
     sql: string,
     defaultLimit?: number | null,
+    schema?: string,
   ) =>
     request<any>("/query/execute", {
       method: "POST",
-      body: JSON.stringify({ connectionId, sql, defaultLimit }),
+      body: JSON.stringify({ connectionId, sql, defaultLimit, schema }),
     }),
   getQueryHistory: (limit = 50) =>
     request<any[]>(`/query/history?limit=${limit}`),
@@ -214,10 +215,25 @@ export const api = {
     request<any>(`/saved-queries/${id}`, { method: "DELETE" }),
 
   // Schema
-  getTables: (connectionId: string) =>
-    request<any[]>(`/schema/${connectionId}/tables`),
-  getColumns: (connectionId: string, table: string) =>
-    request<any[]>(`/schema/${connectionId}/tables/${table}/columns`),
+  getSchemas: (connectionId: string) =>
+    request<{ schemas: string[]; default: string }>(
+      `/schema/${connectionId}/schemas`,
+    ),
+  getTables: (connectionId: string, schema?: string) =>
+    request<any[]>(
+      `/schema/${connectionId}/tables${schema ? `?schema=${encodeURIComponent(schema)}` : ""}`,
+    ),
+  getFullSchema: (connectionId: string, schema?: string) =>
+    request<{
+      tables: { name: string; type: string }[];
+      columns: Record<string, any[]>;
+    }>(
+      `/schema/${connectionId}/full${schema ? `?schema=${encodeURIComponent(schema)}` : ""}`,
+    ),
+  getColumns: (connectionId: string, table: string, schema?: string) =>
+    request<any[]>(
+      `/schema/${connectionId}/tables/${table}/columns${schema ? `?schema=${encodeURIComponent(schema)}` : ""}`,
+    ),
 
   // PHI Config
   logPhiUnmask: (data: {
@@ -372,6 +388,7 @@ export const api = {
     currentQuery?: string;
     refreshSchema?: boolean;
     mode?: "read" | "write";
+    schema?: string;
   }) =>
     request<{
       query: string;

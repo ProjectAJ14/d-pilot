@@ -17,6 +17,8 @@ import {
   Modal,
   Checkbox,
   NumberInput,
+  Select,
+  Loader,
 } from "@mantine/core";
 import {
   IconPlayerPlay,
@@ -27,6 +29,7 @@ import {
   IconCircleCheck,
   IconSparkles,
   IconPencilBolt,
+  IconDatabase,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useNavigate } from "react-router-dom";
@@ -226,24 +229,79 @@ function pushKeywordSuggestions(
   }
 }
 
-async function loadSchemaForConnection(connectionId: string) {
-  if (schemaCache[connectionId]) return schemaCache[connectionId];
-  try {
-    const tables = await api.getTables(connectionId);
-    schemaCache[connectionId] = { tables, columns: {} };
-    // Load columns for first 20 tables in background
-    for (const t of tables.slice(0, 20)) {
-      api
-        .getColumns(connectionId, t.name)
-        .then((cols) => {
-          schemaCache[connectionId].columns[t.name] = cols;
-        })
-        .catch(() => {});
+/** Autocomplete cache key: connection + active schema (schema-scoped for SQL). */
+function schemaCacheKey(connectionId: string, schema?: string) {
+  return schema ? `${connectionId}::${schema}` : connectionId;
+}
+
+/** The default schema for a connection, known client-side without a round-trip. */
+function defaultSchemaOf(conn: { type: DatabaseType; schema?: string }): string {
+  if (conn.type === "postgres") return conn.schema || "public";
+  if (conn.type === "mssql") return conn.schema || "dbo";
+  return "";
+}
+
+// De-dupe concurrent loads for the same key so multiple open tabs sharing a
+// connection/schema trigger only ONE full-schema fetch, not one per editor.
+const schemaInflight: Record<
+  string,
+  Promise<{ tables: TableInfo[]; columns: Record<string, ColumnInfo[]> }>
+> = {};
+
+async function loadSchemaForConnection(
+  connectionId: string,
+  schema?: string,
+  dbType?: DatabaseType | null,
+) {
+  const key = schemaCacheKey(connectionId, schema);
+  if (schemaCache[key]) return schemaCache[key];
+  if (schemaInflight[key]) return schemaInflight[key];
+
+  // SQL engines return the full schema (all tables + columns) in ONE cheap,
+  // server-cached call. Mongo/ES introspect a client connection per collection,
+  // so for those we only list collections and fetch fields for the first few —
+  // avoiding a large concurrent fan-out on the server for autocomplete.
+  const useFull = dbType === "postgres" || dbType === "mssql";
+
+  const pending = (async () => {
+    try {
+      if (useFull) {
+        const full = await api.getFullSchema(connectionId, schema);
+        const entry = {
+          tables: full.tables.map((t) => ({
+            schema: schema || "",
+            name: t.name,
+            type: t.type,
+          })) as TableInfo[],
+          columns: (full.columns || {}) as Record<string, ColumnInfo[]>,
+        };
+        schemaCache[key] = entry;
+        return entry;
+      }
+
+      const tables = await api.getTables(connectionId, schema);
+      const entry: { tables: TableInfo[]; columns: Record<string, ColumnInfo[]> } =
+        { tables, columns: {} };
+      schemaCache[key] = entry;
+      // Fields for the first 20 collections/indices, loaded in the background.
+      for (const t of tables.slice(0, 20)) {
+        api
+          .getColumns(connectionId, t.name, schema)
+          .then((cols) => {
+            entry.columns[t.name] = cols;
+          })
+          .catch(() => {});
+      }
+      return entry;
+    } catch {
+      return { tables: [], columns: {} };
     }
-    return schemaCache[connectionId];
-  } catch {
-    return { tables: [], columns: {} };
-  }
+  })().finally(() => {
+    delete schemaInflight[key];
+  });
+
+  schemaInflight[key] = pending;
+  return pending;
 }
 
 function addSqlSchemaSuggestions(
@@ -521,17 +579,64 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
   const [editingSavedId, setEditingSavedId] = useState<string | null>(null);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<any>(null);
+  const readyTimerRef = useRef<number | null>(null);
 
   const activeConn = connections.find((c) => c.id === tab.connectionId);
+  const supportsSchemas =
+    activeConn?.type === "postgres" || activeConn?.type === "mssql";
+  const [schemas, setSchemas] = useState<string[]>([]);
+  // Monaco lazy-loads its chunk and mounts asynchronously, which flashes a blank
+  // area then pops in text. We overlay a stable placeholder until it has mounted.
+  const [editorReady, setEditorReady] = useState(false);
+
+  // Cancel the pending reveal timer if the editor unmounts first.
+  useEffect(() => {
+    return () => {
+      if (readyTimerRef.current) window.clearTimeout(readyTimerRef.current);
+    };
+  }, []);
+
+  // Default the tab's schema synchronously from connection metadata (no
+  // round-trip) so schema-scoped autocomplete loads once with the right key,
+  // then fetch the full schema list only to populate the dropdown.
+  useEffect(() => {
+    const connId = tab.connectionId;
+    if (!connId || !supportsSchemas) {
+      setSchemas([]);
+      return;
+    }
+    if (!tab.schema && activeConn) {
+      const def = defaultSchemaOf(activeConn);
+      if (def) updateTab(tab.id, { schema: def });
+    }
+    let cancelled = false;
+    api
+      .getSchemas(connId)
+      .then((r) => {
+        if (!cancelled) setSchemas(r.schemas);
+      })
+      .catch(() => {
+        if (!cancelled) setSchemas([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab.connectionId, supportsSchemas]);
 
   // Load schema, switch Monaco language, and register dialect-specific completions
   useEffect(() => {
     const connId = tab.connectionId || "";
     const dbType = activeConn?.type ?? null;
+    // Resolve the schema up front (default when unset) so the cache key is
+    // stable and we don't fire a throwaway fetch for the undefined key.
+    const effectiveSchema =
+      tab.schema ?? (activeConn ? defaultSchemaOf(activeConn) : undefined);
+    const cacheKey = schemaCacheKey(connId, effectiveSchema);
 
     const tryApply = () => {
       if (!monacoRef.current) return false;
-      registerQueryCompletions(monacoRef.current, connId, dbType);
+      registerQueryCompletions(monacoRef.current, cacheKey, dbType);
       const model = editorRef.current?.getModel();
       if (model) {
         monacoRef.current.editor.setModelLanguage(
@@ -543,7 +648,7 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
     };
 
     const run = async () => {
-      if (connId) await loadSchemaForConnection(connId);
+      if (connId) await loadSchemaForConnection(connId, effectiveSchema, dbType);
       if (tryApply()) return;
       const interval = window.setInterval(() => {
         if (tryApply()) window.clearInterval(interval);
@@ -552,7 +657,7 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
     };
 
     void run();
-  }, [tab.connectionId, activeConn?.type]);
+  }, [tab.connectionId, tab.schema, activeConn?.type]);
 
   const handleRun = useCallback(async () => {
     const editor = editorRef.current;
@@ -579,6 +684,7 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
         tab.connectionId,
         sqlToRun,
         defaultLimitEnabled ? defaultLimitValue : null,
+        tab.schema,
       );
       const conn = useStore
         .getState()
@@ -614,6 +720,7 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
   }, [
     tab.sql,
     tab.connectionId,
+    tab.schema,
     tab.id,
     defaultLimitEnabled,
     defaultLimitValue,
@@ -757,6 +864,9 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
   const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    // Hold the placeholder ~500ms after mount so Monaco's initial layout/theme
+    // paint (the brief black-box flicker) happens behind it, then fade out.
+    readyTimerRef.current = window.setTimeout(() => setEditorReady(true), 500);
 
     // Cmd+Enter / Ctrl+Enter to run query
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
@@ -769,16 +879,15 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
     });
 
     const connId = tab.connectionId || "";
-    const dbType =
-      useStore.getState().connections.find((c) => c.id === connId)?.type ??
-      null;
-    registerQueryCompletions(monaco, connId, dbType);
+    const conn = useStore.getState().connections.find((c) => c.id === connId);
+    const dbType = conn?.type ?? null;
+    const effectiveSchema =
+      tab.schema ?? (conn ? defaultSchemaOf(conn) : undefined);
+    const cacheKey = schemaCacheKey(connId, effectiveSchema);
+    registerQueryCompletions(monaco, cacheKey, dbType);
     if (connId) {
-      loadSchemaForConnection(connId).then(() => {
-        const t =
-          useStore.getState().connections.find((c) => c.id === connId)?.type ??
-          null;
-        registerQueryCompletions(monaco, connId, t);
+      loadSchemaForConnection(connId, effectiveSchema, dbType).then(() => {
+        registerQueryCompletions(monaco, cacheKey, dbType);
       });
     }
   };
@@ -944,6 +1053,30 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
 
           <div style={{ flex: 1 }} />
 
+          {supportsSchemas && schemas.length > 0 && (
+            <Tooltip label="Active schema — tables resolve against this schema">
+              <Select
+                size="xs"
+                data={schemas}
+                value={tab.schema ?? null}
+                onChange={(val) => {
+                  if (val) updateTab(tab.id, { schema: val });
+                }}
+                allowDeselect={false}
+                checkIconPosition="right"
+                leftSection={<IconDatabase size={13} />}
+                w={160}
+                comboboxProps={{ withinPortal: true }}
+                styles={{
+                  input: {
+                    fontFamily: "IBM Plex Mono, monospace",
+                    fontSize: 12,
+                  },
+                }}
+              />
+            </Tooltip>
+          )}
+
           {activeConn && (
             <Badge size="sm" variant="light" color="gray" ff="monospace">
               {activeConn.name}
@@ -954,12 +1087,38 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
         {/* Monaco Editor */}
         <div
           style={{
+            position: "relative",
             margin: "0 14px 12px",
             border: "1px solid var(--border)",
             borderRadius: 6,
             overflow: "hidden",
           }}
         >
+          {/* Stable placeholder shown until Monaco has mounted (+500ms), then
+              fades out — hides the blank → text-pop → layout flicker. */}
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 2,
+              background: "#ffffff",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 12,
+              opacity: editorReady ? 0 : 1,
+              visibility: editorReady ? "hidden" : "visible",
+              transition: "opacity 260ms ease, visibility 0s linear 260ms",
+              pointerEvents: "none",
+            }}
+          >
+            <Loader size="sm" color="var(--accent)" type="dots" />
+            <Text size="xs" c="dimmed" style={{ letterSpacing: 0.3 }}>
+              Preparing editor…
+            </Text>
+          </div>
           <Editor
             height={
               height ? `${Math.max(60, height - TOOLBAR_HEIGHT)}px` : "150px"
@@ -969,6 +1128,7 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
             value={tab.sql}
             onChange={(value) => updateTab(tab.id, { sql: value || "" })}
             onMount={handleEditorMount}
+            loading={null}
             options={{
               minimap: { enabled: false },
               fontSize: 13,

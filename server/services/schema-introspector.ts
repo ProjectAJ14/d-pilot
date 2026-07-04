@@ -5,12 +5,28 @@ import { Client as EsClient } from "@elastic/elasticsearch";
 import type { ConnectionConfig, TableInfo, ColumnInfo } from "../types/index.js";
 import { findMatchingRule } from "./phi-masking.js";
 
-export async function getTables(conn: ConnectionConfig): Promise<TableInfo[]> {
+/** The default schema for a connection when none is explicitly selected. */
+export function defaultSchema(conn: ConnectionConfig): string {
+  if (conn.type === "postgres") return conn.schema || "public";
+  if (conn.type === "mssql") return conn.schema || "dbo";
+  return conn.schema || "";
+}
+
+/** Resolves an (optional) requested schema to a concrete one for Postgres/MSSQL. */
+export function resolveSchema(conn: ConnectionConfig, schema?: string): string {
+  const s = (schema ?? "").trim();
+  return s || defaultSchema(conn);
+}
+
+export async function getTables(
+  conn: ConnectionConfig,
+  schema?: string
+): Promise<TableInfo[]> {
   switch (conn.type) {
     case "postgres":
-      return getPostgresTables(conn);
+      return getPostgresTables(conn, resolveSchema(conn, schema));
     case "mssql":
-      return getMssqlTables(conn);
+      return getMssqlTables(conn, resolveSchema(conn, schema));
     case "mongodb":
       return getMongoCollections(conn);
     case "elasticsearch":
@@ -20,12 +36,16 @@ export async function getTables(conn: ConnectionConfig): Promise<TableInfo[]> {
   }
 }
 
-export async function getColumns(conn: ConnectionConfig, tableName: string): Promise<ColumnInfo[]> {
+export async function getColumns(
+  conn: ConnectionConfig,
+  tableName: string,
+  schema?: string
+): Promise<ColumnInfo[]> {
   switch (conn.type) {
     case "postgres":
-      return getPostgresColumns(conn, tableName);
+      return getPostgresColumns(conn, tableName, resolveSchema(conn, schema));
     case "mssql":
-      return getMssqlColumns(conn, tableName);
+      return getMssqlColumns(conn, tableName, resolveSchema(conn, schema));
     case "mongodb":
       return getMongoFields(conn, tableName);
     case "elasticsearch":
@@ -35,9 +55,86 @@ export async function getColumns(conn: ConnectionConfig, tableName: string): Pro
   }
 }
 
+/**
+ * Discovers the schemas a connection exposes (Postgres/MSSQL only). System
+ * schemas are excluded. When the connection declares a `schemas` allowlist, the
+ * result is intersected with it. Mongo/Elasticsearch return an empty list
+ * (the concept doesn't apply the same way).
+ */
+export async function getSchemas(
+  conn: ConnectionConfig
+): Promise<{ schemas: string[]; default: string }> {
+  let discovered: string[] = [];
+  if (conn.type === "postgres") discovered = await getPostgresSchemas(conn);
+  else if (conn.type === "mssql") discovered = await getMssqlSchemas(conn);
+  else return { schemas: [], default: "" };
+
+  const allow = conn.schemas?.length
+    ? new Set(conn.schemas)
+    : null;
+  let schemas = allow ? discovered.filter((s) => allow.has(s)) : discovered;
+
+  // Always surface the default schema, even if filtered/undiscovered.
+  const def = defaultSchema(conn);
+  if (def && !schemas.includes(def)) schemas = [def, ...schemas];
+
+  return { schemas, default: def };
+}
+
+async function getPostgresSchemas(conn: ConnectionConfig): Promise<string[]> {
+  const pool = new pg.Pool({
+    host: conn.host,
+    port: conn.port || 5432,
+    database: conn.database,
+    user: conn.username,
+    password: conn.password,
+    max: 2,
+    connectionTimeoutMillis: 10000,
+  });
+  try {
+    const res = await pool.query(
+      `SELECT schema_name FROM information_schema.schemata
+       WHERE schema_name NOT LIKE 'pg_%' AND schema_name <> 'information_schema'
+       ORDER BY schema_name`
+    );
+    return res.rows.map((r) => r.schema_name as string);
+  } finally {
+    await pool.end();
+  }
+}
+
+async function getMssqlSchemas(conn: ConnectionConfig): Promise<string[]> {
+  const pool = new mssql.ConnectionPool({
+    server: conn.host || "localhost",
+    port: conn.port || 1433,
+    database: conn.database,
+    user: conn.username,
+    password: conn.password,
+    options: { encrypt: false, trustServerCertificate: true },
+    connectionTimeout: 10000,
+  });
+  try {
+    await pool.connect();
+    const res = await pool.request().query(
+      `SELECT name FROM sys.schemas
+       WHERE name NOT IN ('sys','INFORMATION_SCHEMA','guest','db_owner',
+         'db_accessadmin','db_securityadmin','db_ddladmin','db_backupoperator',
+         'db_datareader','db_datawriter','db_denydatareader','db_denydatawriter')
+         AND name NOT LIKE 'db_%'
+       ORDER BY name`
+    );
+    return (res.recordset as any[]).map((r) => r.name as string);
+  } finally {
+    await pool.close();
+  }
+}
+
 // --- PostgreSQL ---
 
-async function getPostgresTables(conn: ConnectionConfig): Promise<TableInfo[]> {
+async function getPostgresTables(
+  conn: ConnectionConfig,
+  schema: string
+): Promise<TableInfo[]> {
   const pool = new pg.Pool({
     host: conn.host,
     port: conn.port || 5432,
@@ -48,7 +145,6 @@ async function getPostgresTables(conn: ConnectionConfig): Promise<TableInfo[]> {
   });
 
   try {
-    const schema = conn.schema || "public";
     const result = await pool.query(
       `SELECT table_name, table_type
        FROM information_schema.tables
@@ -67,7 +163,11 @@ async function getPostgresTables(conn: ConnectionConfig): Promise<TableInfo[]> {
   }
 }
 
-async function getPostgresColumns(conn: ConnectionConfig, tableName: string): Promise<ColumnInfo[]> {
+async function getPostgresColumns(
+  conn: ConnectionConfig,
+  tableName: string,
+  schema: string
+): Promise<ColumnInfo[]> {
   const pool = new pg.Pool({
     host: conn.host,
     port: conn.port || 5432,
@@ -78,8 +178,6 @@ async function getPostgresColumns(conn: ConnectionConfig, tableName: string): Pr
   });
 
   try {
-    const schema = conn.schema || "public";
-
     const colResult = await pool.query(
       `SELECT c.column_name, c.data_type, c.is_nullable, c.column_default,
               CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_pk,
@@ -118,7 +216,10 @@ async function getPostgresColumns(conn: ConnectionConfig, tableName: string): Pr
 
 // --- SQL Server ---
 
-async function getMssqlTables(conn: ConnectionConfig): Promise<TableInfo[]> {
+async function getMssqlTables(
+  conn: ConnectionConfig,
+  schema: string
+): Promise<TableInfo[]> {
   const pool = new mssql.ConnectionPool({
     server: conn.host || "localhost",
     port: conn.port || 1433,
@@ -130,11 +231,15 @@ async function getMssqlTables(conn: ConnectionConfig): Promise<TableInfo[]> {
 
   try {
     await pool.connect();
-    const result = await pool.request().query(
-      `SELECT TABLE_NAME, TABLE_TYPE, TABLE_SCHEMA
-       FROM INFORMATION_SCHEMA.TABLES
-       ORDER BY TABLE_NAME`
-    );
+    const result = await pool
+      .request()
+      .input("schema", mssql.VarChar, schema)
+      .query(
+        `SELECT TABLE_NAME, TABLE_TYPE, TABLE_SCHEMA
+         FROM INFORMATION_SCHEMA.TABLES
+         WHERE TABLE_SCHEMA = @schema
+         ORDER BY TABLE_NAME`
+      );
 
     return result.recordset.map((r: any) => ({
       schema: r.TABLE_SCHEMA,
@@ -146,7 +251,11 @@ async function getMssqlTables(conn: ConnectionConfig): Promise<TableInfo[]> {
   }
 }
 
-async function getMssqlColumns(conn: ConnectionConfig, tableName: string): Promise<ColumnInfo[]> {
+async function getMssqlColumns(
+  conn: ConnectionConfig,
+  tableName: string,
+  schema: string
+): Promise<ColumnInfo[]> {
   const pool = new mssql.ConnectionPool({
     server: conn.host || "localhost",
     port: conn.port || 1433,
@@ -158,8 +267,12 @@ async function getMssqlColumns(conn: ConnectionConfig, tableName: string): Promi
 
   try {
     await pool.connect();
-    const result = await pool.request().input("table", mssql.VarChar, tableName).query(
-      `SELECT c.COLUMN_NAME, c.DATA_TYPE, c.IS_NULLABLE, c.COLUMN_DEFAULT,
+    const result = await pool
+      .request()
+      .input("table", mssql.VarChar, tableName)
+      .input("schema", mssql.VarChar, schema)
+      .query(
+        `SELECT c.COLUMN_NAME, c.DATA_TYPE, c.IS_NULLABLE, c.COLUMN_DEFAULT,
               CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as is_pk,
               CASE WHEN fk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as is_fk
        FROM INFORMATION_SCHEMA.COLUMNS c
@@ -167,17 +280,17 @@ async function getMssqlColumns(conn: ConnectionConfig, tableName: string): Promi
          SELECT ku.COLUMN_NAME
          FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
          JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
-         WHERE tc.TABLE_NAME = @table AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+         WHERE tc.TABLE_NAME = @table AND tc.TABLE_SCHEMA = @schema AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
        ) pk ON c.COLUMN_NAME = pk.COLUMN_NAME
        LEFT JOIN (
          SELECT ku.COLUMN_NAME
          FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
          JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
-         WHERE tc.TABLE_NAME = @table AND tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
+         WHERE tc.TABLE_NAME = @table AND tc.TABLE_SCHEMA = @schema AND tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
        ) fk ON c.COLUMN_NAME = fk.COLUMN_NAME
-       WHERE c.TABLE_NAME = @table
+       WHERE c.TABLE_NAME = @table AND c.TABLE_SCHEMA = @schema
        ORDER BY c.ORDINAL_POSITION`
-    );
+      );
 
     return result.recordset.map((r: any) => ({
       name: r.COLUMN_NAME,
@@ -307,9 +420,12 @@ const MAX_COLS_PER_TABLE = 80;
 // the fan-out. SQL engines fetch all columns in one query — no bound needed.
 const MAX_SAMPLED_TABLES = 120;
 
-async function getFullSchema(conn: ConnectionConfig): Promise<FullSchema> {
-  if (conn.type === "postgres") return getPostgresFullSchema(conn);
-  if (conn.type === "mssql") return getMssqlFullSchema(conn);
+async function getFullSchema(
+  conn: ConnectionConfig,
+  schema: string
+): Promise<FullSchema> {
+  if (conn.type === "postgres") return getPostgresFullSchema(conn, schema);
+  if (conn.type === "mssql") return getMssqlFullSchema(conn, schema);
   return getSampledFullSchema(conn);
 }
 
@@ -394,11 +510,13 @@ function getSchemaCacheTtlMs(): number {
  */
 export async function getCachedFullSchema(
   conn: ConnectionConfig,
-  opts: { forceRefresh?: boolean } = {}
+  opts: { forceRefresh?: boolean; schema?: string } = {}
 ): Promise<CachedFullSchema> {
   const ttlMs = getSchemaCacheTtlMs();
   const ttlHours = ttlMs / 3_600_000;
-  const key = conn.id;
+  const schemaName = resolveSchema(conn, opts.schema);
+  // Cache per (connection, schema) so switching schemas doesn't collide.
+  const key = `${conn.id}:${schemaName}`;
   const now = Date.now();
 
   if (!opts.forceRefresh && ttlMs > 0) {
@@ -411,7 +529,7 @@ export async function getCachedFullSchema(
   // De-dupe concurrent introspections (skip sharing when forcing a refresh).
   let pending = opts.forceRefresh ? undefined : schemaInflight.get(key);
   if (!pending) {
-    pending = getFullSchema(conn)
+    pending = getFullSchema(conn, schemaName)
       .then((schema) => {
         if (ttlMs > 0) {
           const ts = Date.now();
@@ -430,14 +548,22 @@ export async function getCachedFullSchema(
   return { schema, cached: false, cachedAt: new Date(rec?.cachedAt ?? now).toISOString(), ttlHours };
 }
 
-/** Clears cached schemas. Pass a connectionId to clear just that one. */
+/** Clears cached schemas. Pass a connectionId to clear all of its schemas. */
 export function clearSchemaCache(connectionId?: string): { cleared: number } {
   if (!connectionId) {
     const n = schemaCache.size;
     schemaCache.clear();
     return { cleared: n };
   }
-  return { cleared: schemaCache.delete(connectionId) ? 1 : 0 };
+  // Cache keys are `${connectionId}:${schema}` — clear every schema for this conn.
+  const prefix = `${connectionId}:`;
+  let cleared = 0;
+  for (const key of schemaCache.keys()) {
+    if (key === connectionId || key.startsWith(prefix)) {
+      if (schemaCache.delete(key)) cleared++;
+    }
+  }
+  return { cleared };
 }
 
 function formatTable(
@@ -462,7 +588,10 @@ function formatTable(
   return `${name}${label}\n${lines.join("\n")}`;
 }
 
-async function getPostgresFullSchema(conn: ConnectionConfig): Promise<FullSchema> {
+async function getPostgresFullSchema(
+  conn: ConnectionConfig,
+  schema: string
+): Promise<FullSchema> {
   const pool = new pg.Pool({
     host: conn.host,
     port: conn.port || 5432,
@@ -473,8 +602,6 @@ async function getPostgresFullSchema(conn: ConnectionConfig): Promise<FullSchema
   });
 
   try {
-    const schema = conn.schema || "public";
-
     const [tablesRes, colsRes, pkRes, fkRes] = await Promise.all([
       pool.query(
         `SELECT table_name, table_type FROM information_schema.tables
@@ -528,7 +655,10 @@ async function getPostgresFullSchema(conn: ConnectionConfig): Promise<FullSchema
   }
 }
 
-async function getMssqlFullSchema(conn: ConnectionConfig): Promise<FullSchema> {
+async function getMssqlFullSchema(
+  conn: ConnectionConfig,
+  schema: string
+): Promise<FullSchema> {
   const pool = new mssql.ConnectionPool({
     server: conn.host || "localhost",
     port: conn.port || 1433,
@@ -540,24 +670,27 @@ async function getMssqlFullSchema(conn: ConnectionConfig): Promise<FullSchema> {
 
   try {
     await pool.connect();
-    const tablesRes = await pool.request().query(
-      `SELECT TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES ORDER BY TABLE_NAME`
+    const req = () => pool.request().input("schema", mssql.VarChar, schema);
+    const tablesRes = await req().query(
+      `SELECT TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES
+       WHERE TABLE_SCHEMA = @schema ORDER BY TABLE_NAME`
     );
-    const colsRes = await pool.request().query(
+    const colsRes = await req().query(
       `SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE, ORDINAL_POSITION
-       FROM INFORMATION_SCHEMA.COLUMNS ORDER BY TABLE_NAME, ORDINAL_POSITION`
+       FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = @schema
+       ORDER BY TABLE_NAME, ORDINAL_POSITION`
     );
-    const pkRes = await pool.request().query(
+    const pkRes = await req().query(
       `SELECT tc.TABLE_NAME, ku.COLUMN_NAME
        FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
        JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
-       WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'`
+       WHERE tc.TABLE_SCHEMA = @schema AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'`
     );
-    const fkRes = await pool.request().query(
+    const fkRes = await req().query(
       `SELECT tc.TABLE_NAME, ku.COLUMN_NAME
        FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
        JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
-       WHERE tc.CONSTRAINT_TYPE = 'FOREIGN KEY'`
+       WHERE tc.TABLE_SCHEMA = @schema AND tc.CONSTRAINT_TYPE = 'FOREIGN KEY'`
     );
 
     const pkSet = new Set(pkRes.recordset.map((r: any) => `${r.TABLE_NAME}.${r.COLUMN_NAME}`));

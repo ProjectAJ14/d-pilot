@@ -155,6 +155,7 @@ const initialTabs: QueryTab[] = persistedTabs
       title: t.title,
       sql: t.sql,
       connectionId: t.connectionId,
+      schema: t.schema,
       viewMode: t.viewMode,
       result: null,
       loading: false,
@@ -214,8 +215,9 @@ export const useStore = create<AppState>((set, get) => ({
     set({ activeConnectionId: id });
     const { activeTabId, tabs } = get();
     set({
+      // Reset the tab's schema — schemas are connection-specific.
       tabs: tabs.map((t) =>
-        t.id === activeTabId ? { ...t, connectionId: id } : t,
+        t.id === activeTabId ? { ...t, connectionId: id, schema: undefined } : t,
       ),
     });
     persistAfterSet();

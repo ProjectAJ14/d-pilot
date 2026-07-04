@@ -8,6 +8,7 @@ import {
   ScrollArea,
   Loader,
   Divider,
+  Select,
 } from "@mantine/core";
 import {
   IconChevronDown,
@@ -37,6 +38,21 @@ const DB_SHORT: Record<DatabaseType, string> = {
   postgres: "PG", mssql: "SQL", mongodb: "MDB", elasticsearch: "ES",
 };
 
+/** Explorer cache key scoping tables/columns by connection + active schema. */
+function keyFor(connId: string, schema: string, table?: string) {
+  const base = schema ? `${connId}::${schema}` : connId;
+  return table ? `${base}::${table}` : base;
+}
+
+const SCHEMA_DB_TYPES: DatabaseType[] = ["postgres", "mssql"];
+
+/** The default schema for a connection, known client-side without a round-trip. */
+function defaultSchemaOf(conn: ConnectionInfo): string {
+  if (conn.type === "postgres") return conn.schema || "public";
+  if (conn.type === "mssql") return conn.schema || "dbo";
+  return "";
+}
+
 export function Sidebar() {
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const connections = useStore((s) => s.connections);
@@ -58,6 +74,9 @@ export function Sidebar() {
   const [tables, setTables] = useState<Record<string, TableInfo[]>>({});
   const [columns, setColumns] = useState<Record<string, ColumnInfo[]>>({});
   const [expandedTable, setExpandedTable] = useState<string | null>(null);
+  // Per-connection schema discovery + the schema currently browsed in the tree.
+  const [connSchemas, setConnSchemas] = useState<Record<string, string[]>>({});
+  const [explorerSchema, setExplorerSchema] = useState<Record<string, string>>({});
   const [explorerSearch, setExplorerSearch] = useState("");
   const [savedSearch, setSavedSearch] = useState("");
   const [historySearch, setHistorySearch] = useState("");
@@ -75,6 +94,23 @@ export function Sidebar() {
     });
   };
 
+  // Loads the table list for a connection/schema into the tree cache.
+  const loadTablesForSchema = (connId: string, schema: string) => {
+    const tKey = keyFor(connId, schema);
+    if (tables[tKey]) return;
+    setLoadingConn(connId);
+    api.getTables(connId, schema || undefined)
+      .then((t) => setTables((prev) => ({ ...prev, [tKey]: t })))
+      .catch((err) => {
+        setTables((prev) => ({ ...prev, [tKey]: [] }));
+        notifications.show({
+          message: `Failed to load tables: ${err.message}`,
+          color: "red",
+        });
+      })
+      .finally(() => setLoadingConn(null));
+  };
+
   const selectConn = (connId: string) => {
     setActiveConnection(connId);
     if (expandedConn === connId) {
@@ -82,23 +118,38 @@ export function Sidebar() {
       return;
     }
     setExpandedConn(connId);
-    if (!tables[connId]) {
-      setLoadingConn(connId);
-      api.getTables(connId)
-        .then((t) => setTables((prev) => ({ ...prev, [connId]: t })))
-        .catch((err) => {
-          setTables((prev) => ({ ...prev, [connId]: [] }));
-          notifications.show({
-            message: `Failed to load tables: ${err.message}`,
-            color: "red",
-          });
-        })
-        .finally(() => setLoadingConn(null));
+
+    const conn = connections.find((c) => c.id === connId);
+    const supportsSchemas = !!conn && SCHEMA_DB_TYPES.includes(conn.type);
+
+    // Load tables for the (client-known) default schema immediately so the tree
+    // and its loading indicator show right away — no waiting on schema discovery.
+    const sch =
+      explorerSchema[connId] ??
+      (supportsSchemas && conn ? defaultSchemaOf(conn) : "");
+    if (explorerSchema[connId] == null) {
+      setExplorerSchema((prev) => ({ ...prev, [connId]: sch }));
+    }
+    loadTablesForSchema(connId, sch);
+
+    // Discover the full schema list in the background, only to populate the picker.
+    if (supportsSchemas && !connSchemas[connId]) {
+      api.getSchemas(connId)
+        .then((r) => setConnSchemas((prev) => ({ ...prev, [connId]: r.schemas })))
+        .catch(() => {});
     }
   };
 
+  // Switch the schema browsed for a connection in the explorer tree.
+  const changeExplorerSchema = (connId: string, schema: string) => {
+    setExplorerSchema((prev) => ({ ...prev, [connId]: schema }));
+    setExpandedTable(null);
+    loadTablesForSchema(connId, schema);
+  };
+
   const toggleTable = (connId: string, tableName: string) => {
-    const key = `${connId}:${tableName}`;
+    const schema = explorerSchema[connId] ?? "";
+    const key = keyFor(connId, schema, tableName);
     if (expandedTable === key) {
       setExpandedTable(null);
       return;
@@ -106,7 +157,7 @@ export function Sidebar() {
     setExpandedTable(key);
     if (!columns[key]) {
       setLoadingTable(key);
-      api.getColumns(connId, tableName)
+      api.getColumns(connId, tableName, schema || undefined)
         .then((cols) => setColumns((prev) => ({ ...prev, [key]: cols })))
         .catch(() => setColumns((prev) => ({ ...prev, [key]: [] })))
         .finally(() => setLoadingTable(null));
@@ -115,17 +166,24 @@ export function Sidebar() {
 
   const doubleClickTable = (connId: string, tableName: string) => {
     const conn = connections.find((c) => c.id === connId);
+    const schema = explorerSchema[connId] ?? "";
+    // Schema-qualify the name for SQL engines so it resolves regardless of the
+    // session's default schema (matters for MSSQL, which has no search_path).
+    const qualified =
+      schema && SCHEMA_DB_TYPES.includes(conn!.type)
+        ? `${schema}.${tableName}`
+        : tableName;
     const sql = conn?.type === "elasticsearch"
       ? `GET /${tableName}/_search {"query":{"match_all":{}},"size":100}`
       : conn?.type === "mongodb"
         ? `db.${tableName}.find({})`
-        : `SELECT * FROM ${tableName} LIMIT 100`;
+        : `SELECT * FROM ${qualified} LIMIT 100`;
     addTab(connId);
     setTimeout(() => {
       const tabId = useStore.getState().activeTabId;
-      updateTab(tabId, { sql, title: tableName, connectionId: connId, loading: true });
+      updateTab(tabId, { sql, title: tableName, connectionId: connId, schema: schema || undefined, loading: true });
       const viewMode = (conn?.type === "mongodb" || conn?.type === "elasticsearch") ? "json" as const : "table" as const;
-      api.executeQuery(connId, sql)
+      api.executeQuery(connId, sql, undefined, schema || undefined)
         .then((result) => updateTab(tabId, { result, loading: false, viewMode }))
         .catch((err) => updateTab(tabId, { error: err.message, loading: false }));
     }, 0);
@@ -304,6 +362,13 @@ export function Sidebar() {
                     {conns.map((conn) => {
                       const isActive = conn.id === activeConnectionId;
                       const isHovered = hovered === `conn-${conn.id}`;
+                      const sch = explorerSchema[conn.id] ?? "";
+                      const tKey = keyFor(conn.id, sch);
+                      const connSchemaList = connSchemas[conn.id];
+                      const showSchemaPicker =
+                        SCHEMA_DB_TYPES.includes(conn.type) &&
+                        !!connSchemaList &&
+                        connSchemaList.length > 0;
                       return (
                         <div key={conn.id}>
                           <div
@@ -352,6 +417,33 @@ export function Sidebar() {
                             </div>
                           </div>
 
+                          {/* Schema picker (Postgres/MSSQL) */}
+                          {expandedConn === conn.id && showSchemaPicker && (
+                            <div style={{ padding: "4px 12px 6px 20px" }}>
+                              <Select
+                                size="xs"
+                                data={connSchemaList}
+                                value={sch || null}
+                                onChange={(val) => {
+                                  if (val) changeExplorerSchema(conn.id, val);
+                                }}
+                                allowDeselect={false}
+                                checkIconPosition="right"
+                                leftSection={<IconDatabase size={12} />}
+                                comboboxProps={{ withinPortal: true }}
+                                styles={{
+                                  input: {
+                                    background: "#ffffff",
+                                    fontFamily: "IBM Plex Mono, monospace",
+                                    fontSize: 11,
+                                    minHeight: 28,
+                                    height: 28,
+                                  },
+                                }}
+                              />
+                            </div>
+                          )}
+
                           {/* Loading tables */}
                           {expandedConn === conn.id && loadingConn === conn.id && (
                             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px" }}>
@@ -361,12 +453,12 @@ export function Sidebar() {
                           )}
 
                           {/* Tables tree */}
-                          {expandedConn === conn.id && tables[conn.id] && (
+                          {expandedConn === conn.id && tables[tKey] && (
                             <div style={{ paddingLeft: 14, paddingBottom: 4 }}>
-                              {tables[conn.id]
+                              {tables[tKey]
                                 .filter((t) => !explorerSearch || t.name.toLowerCase().includes(explorerSearch.toLowerCase()))
                                 .map((table) => {
-                                  const tableKey = `${conn.id}:${table.name}`;
+                                  const tableKey = keyFor(conn.id, sch, table.name);
                                   const isTableHovered = hovered === `table-${tableKey}`;
                                   return (
                                     <div key={table.name}>

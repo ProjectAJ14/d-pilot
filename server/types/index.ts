@@ -12,13 +12,22 @@ export interface ConnectionConfig {
   database?: string;
   username?: string;
   password?: string;
+  /** Default schema (Postgres/MSSQL). For Elasticsearch this field holds the protocol. */
   schema?: string;
+  /**
+   * Optional allowlist of schemas this connection may expose (Postgres/MSSQL).
+   * When set, schema discovery is intersected with this list; when omitted, all
+   * non-system schemas discovered on the database are offered.
+   */
+  schemas?: string[];
   uri?: string; // for MongoDB
 }
 
 export interface QueryRequest {
   connectionId: string;
   sql: string;
+  /** Active schema to run against (Postgres/MSSQL). Falls back to the connection default. */
+  schema?: string;
   page?: number;
   pageSize?: number;
   defaultLimit?: number | null;

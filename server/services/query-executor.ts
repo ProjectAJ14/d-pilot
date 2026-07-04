@@ -20,6 +20,32 @@ const BLOCKED_PATTERNS = [
 
 const DEFAULT_SELECT_STAR_LIMIT = 500;
 
+// Schema identifiers are interpolated into `SET search_path` (Postgres has no
+// bind parameter for it), so they must be validated before use. Accept only
+// ordinary unquoted identifiers; anything else (quotes, semicolons, dots) is
+// rejected rather than executed.
+const SAFE_SCHEMA_IDENT = /^[A-Za-z_][A-Za-z0-9_$]*$/;
+
+/**
+ * Validates a schema name and returns it double-quoted for safe interpolation.
+ * Throws if the name isn't a plain identifier.
+ */
+export function quoteSchemaIdent(schema: string): string {
+  if (!SAFE_SCHEMA_IDENT.test(schema)) {
+    throw new Error(`Invalid schema name: ${schema}`);
+  }
+  return `"${schema}"`;
+}
+
+/** The active schema for a request: explicit override, else the connection default. */
+function activeSchema(
+  conn: ConnectionConfig,
+  schema?: string,
+): string | undefined {
+  const s = (schema ?? conn.schema ?? "").trim();
+  return s || undefined;
+}
+
 export function validateQuery(sql: string): { valid: boolean; error?: string } {
   const trimmed = sql.trim();
 
@@ -68,6 +94,7 @@ const CONNECTION_ERROR =
 export async function validateSqlSyntax(
   conn: ConnectionConfig,
   sql: string,
+  schema?: string,
 ): Promise<{ checked: boolean; error?: string }> {
   const stmt = sql.trim().replace(/;\s*$/, "");
   if (!stmt) return { checked: true, error: "Query cannot be empty" };
@@ -77,8 +104,9 @@ export async function validateSqlSyntax(
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        if (conn.schema)
-          await client.query(`SET search_path TO ${conn.schema}`);
+        const schemaName = activeSchema(conn, schema);
+        if (schemaName)
+          await client.query(`SET search_path TO ${quoteSchemaIdent(schemaName)}`);
         await client.query(`EXPLAIN ${stmt}`);
         return { checked: true };
       } finally {
@@ -209,6 +237,7 @@ export async function executeQuery(
   conn: ConnectionConfig,
   sql: string,
   defaultLimit?: number | null,
+  schema?: string,
 ): Promise<RawQueryResult> {
   const start = performance.now();
 
@@ -233,7 +262,7 @@ export async function executeQuery(
 
   switch (conn.type) {
     case "postgres":
-      return executePostgres(conn, safeSql, start);
+      return executePostgres(conn, safeSql, start, schema);
     case "mssql":
       return executeMssql(conn, safeSql, start);
     case "mongodb":
@@ -292,13 +321,15 @@ async function executePostgres(
   conn: ConnectionConfig,
   sql: string,
   start: number,
+  schema?: string,
 ): Promise<RawQueryResult> {
   const pool = await getPgPool(conn);
 
-  // Set search_path if schema specified
+  // Set search_path to the active schema (validated + quoted) when present.
   let finalSql = sql;
-  if (conn.schema) {
-    finalSql = `SET search_path TO ${conn.schema}; ${sql}`;
+  const schemaName = activeSchema(conn, schema);
+  if (schemaName) {
+    finalSql = `SET search_path TO ${quoteSchemaIdent(schemaName)}; ${sql}`;
   }
 
   const result = await pool.query(finalSql);

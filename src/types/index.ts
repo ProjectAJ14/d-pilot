@@ -77,6 +77,8 @@ export interface QueryTab {
   title: string;
   sql: string;
   connectionId: string | null;
+  /** Active schema for this tab (Postgres/MSSQL). Undefined = connection default. */
+  schema?: string;
   result: QueryResult | null;
   loading: boolean;
   error: string | null;

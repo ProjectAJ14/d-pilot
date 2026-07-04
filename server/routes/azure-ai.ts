@@ -182,14 +182,21 @@ async function selectRelevantTables(
 }
 
 router.post("/generate-query", async (req: Request, res: Response) => {
-  const { connectionId, prompt, currentQuery, refreshSchema, mode } =
-    req.body as {
-      connectionId?: string;
-      prompt?: string;
-      currentQuery?: string;
-      refreshSchema?: boolean;
-      mode?: "read" | "write";
-    };
+  const {
+    connectionId,
+    prompt,
+    currentQuery,
+    refreshSchema,
+    mode,
+    schema: schemaOverride,
+  } = req.body as {
+    connectionId?: string;
+    prompt?: string;
+    currentQuery?: string;
+    refreshSchema?: boolean;
+    mode?: "read" | "write";
+    schema?: string;
+  };
   const writeMode = mode === "write";
   const user = req.user!;
 
@@ -244,7 +251,10 @@ router.post("/generate-query", async (req: Request, res: Response) => {
   // pull), then send only the tables relevant to this request.
   let full;
   try {
-    full = await getCachedFullSchema(conn, { forceRefresh: !!refreshSchema });
+    full = await getCachedFullSchema(conn, {
+      forceRefresh: !!refreshSchema,
+      schema: schemaOverride,
+    });
   } catch (err: any) {
     record({
       status: "error",

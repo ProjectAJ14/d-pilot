@@ -8,6 +8,7 @@ interface PersistedTab {
   title: string;
   sql: string;
   connectionId: string | null;
+  schema?: string;
   viewMode?: ResultViewMode;
 }
 
@@ -32,6 +33,7 @@ function sanitizeTab(tab: QueryTab): PersistedTab {
     title: tab.title,
     sql: tab.sql,
     connectionId: tab.connectionId,
+    schema: tab.schema,
     viewMode: tab.viewMode,
   };
 }
