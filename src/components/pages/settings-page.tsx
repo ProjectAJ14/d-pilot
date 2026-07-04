@@ -128,7 +128,7 @@ const SETTINGS_SECTIONS = [
 export function SettingsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get("tab") || "users";
+  const activeTab = searchParams.get("tab") || SETTINGS_SECTIONS[0].value;
   const user = useStore((s) => s.user);
   const active =
     SETTINGS_SECTIONS.find((s) => s.value === activeTab) ||

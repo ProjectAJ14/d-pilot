@@ -245,7 +245,7 @@ function defaultSchemaOf(conn: { type: DatabaseType; schema?: string }): string 
 // connection/schema trigger only ONE full-schema fetch, not one per editor.
 const schemaInflight: Record<
   string,
-  Promise<{ tables: TableInfo[]; columns: Record<string, ColumnInfo[]> }>
+  Promise<{ tables: TableInfo[]; columns: Record<string, ColumnInfo[]> }> | undefined
 > = {};
 
 async function loadSchemaForConnection(
@@ -255,7 +255,8 @@ async function loadSchemaForConnection(
 ) {
   const key = schemaCacheKey(connectionId, schema);
   if (schemaCache[key]) return schemaCache[key];
-  if (schemaInflight[key]) return schemaInflight[key];
+  const inflight = schemaInflight[key];
+  if (inflight) return inflight;
 
   // SQL engines return the full schema (all tables + columns) in ONE cheap,
   // server-cached call. Mongo/ES introspect a client connection per collection,

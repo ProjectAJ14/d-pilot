@@ -1,14 +1,11 @@
 import type { ReactNode } from "react";
-import { Menu, Badge, Group, Text, ActionIcon, Tooltip } from "@mantine/core";
+import { Menu, Badge, Group, Text, Tooltip } from "@mantine/core";
 import {
-  IconDatabase,
   IconShieldLock,
   IconShieldOff,
   IconSettings,
   IconUser,
   IconLogout,
-  IconKey,
-  IconFileText,
   IconSearch,
   IconPencilBolt,
   IconGitPullRequest,
@@ -17,34 +14,10 @@ import { notifications } from "@mantine/notifications";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useStore } from "../../store";
 import { PhiUnmaskModal } from "../phi/phi-unmask-modal";
-import type { ConnectionInfo, DatabaseType, Environment } from "../../types";
-
-const ENV_COLORS: Record<Environment, string> = {
-  PROD: "red",
-  STG: "orange",
-  UAT: "teal",
-  QA: "violet",
-  DEV: "green",
-};
-
-const DB_LABELS: Record<DatabaseType, string> = {
-  postgres: "PostgreSQL",
-  mssql: "SQL Server",
-  mongodb: "MongoDB",
-  elasticsearch: "Elasticsearch",
-};
-
-const DB_ICONS: Record<DatabaseType, string> = {
-  postgres: "🐘",
-  mssql: "🗄️",
-  mongodb: "🍃",
-  elasticsearch: "🔍",
-};
 
 export function TopBar() {
   const connections = useStore((s) => s.connections);
   const activeConnectionId = useStore((s) => s.activeConnectionId);
-  const setActiveConnection = useStore((s) => s.setActiveConnection);
   const phiEnabled = useStore((s) => s.phiEnabled);
   const setPhi = useStore((s) => s.setPhi);
   const togglePhiPanel = useStore((s) => s.togglePhiPanel);
@@ -180,93 +153,6 @@ export function TopBar() {
 
       <div style={{ width: 1, height: 28, background: "var(--border)" }} />
 
-      {/* Connection Picker */}
-      <Menu shadow="lg" width={360}>
-        <Menu.Target>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 7,
-              background: "var(--surface2)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              padding: "5px 10px",
-              cursor: "pointer",
-            }}
-          >
-            {activeConn ? (
-              <>
-                <Badge
-                  size="xs"
-                  color={ENV_COLORS[activeConn.env]}
-                  variant="light"
-                >
-                  {activeConn.env}
-                </Badge>
-                <Text size="xs" fw={600}>
-                  {activeConn.name}
-                </Text>
-                <Badge size="xs" variant="light">
-                  {DB_LABELS[activeConn.type]}
-                </Badge>
-              </>
-            ) : (
-              <Text size="xs" c="dimmed">
-                Select connection...
-              </Text>
-            )}
-            <Text size="xs" c="dimmed">
-              ▾
-            </Text>
-          </div>
-        </Menu.Target>
-        <Menu.Dropdown style={{ maxHeight: "70vh", overflowY: "auto" }}>
-          <Menu.Label>Environments & Connections</Menu.Label>
-          {Object.entries(groupByEnv(connections)).map(([env, conns]) => (
-            <div key={env}>
-              <Menu.Label>
-                <Badge
-                  size="xs"
-                  color={ENV_COLORS[env as Environment]}
-                  variant="light"
-                >
-                  {env}
-                </Badge>
-              </Menu.Label>
-              {conns.map((conn) => (
-                <Menu.Item
-                  key={conn.id}
-                  leftSection={<span>{DB_ICONS[conn.type]}</span>}
-                  onClick={() => setActiveConnection(conn.id)}
-                  style={
-                    conn.id === activeConnectionId
-                      ? { background: "rgba(31,145,150,0.08)" }
-                      : undefined
-                  }
-                  rightSection={
-                    maskedEnvs.includes(conn.env) ? (
-                      <IconShieldLock size={12} color="var(--token)" />
-                    ) : null
-                  }
-                >
-                  <div>
-                    <Text size="sm" fw={600}>
-                      {conn.name}
-                    </Text>
-                    <Text size="xs" c="dimmed" ff="monospace">
-                      {DB_LABELS[conn.type]} · {conn.host}:{conn.port}
-                    </Text>
-                  </div>
-                </Menu.Item>
-              ))}
-            </div>
-          ))}
-        </Menu.Dropdown>
-      </Menu>
-
-      <div style={{ width: 1, height: 28, background: "var(--border)" }} />
-
       {/* PHI Shield */}
       <Tooltip
         label={
@@ -316,33 +202,6 @@ export function TopBar() {
       </Tooltip>
 
       <div style={{ flex: 1 }} />
-
-      {/* Token Config button */}
-      <Tooltip label="Token Configuration">
-        <button
-          onClick={() =>
-            user?.isAdmin ? navigate("/settings?tab=phi") : togglePhiPanel()
-          }
-          style={{
-            fontFamily: "Barlow, sans-serif",
-            fontSize: 12,
-            fontWeight: 600,
-            padding: "6px 12px",
-            borderRadius: 7,
-            border: "1px solid var(--border2)",
-            background: "var(--surface2)",
-            color: "var(--muted2)",
-            cursor: "pointer",
-            whiteSpace: "nowrap",
-          }}
-        >
-          <IconKey
-            size={12}
-            style={{ marginRight: 4, verticalAlign: "middle" }}
-          />
-          Token Config
-        </button>
-      </Tooltip>
 
       {/* User Dropdown */}
       <Menu shadow="lg" width={210}>
@@ -415,30 +274,23 @@ export function TopBar() {
           >
             Profile
           </Menu.Item>
-          {user?.isAdmin && (
+          {/* Admins get Settings (the hub — PHI/token config, audit, etc. live
+              there as tabs). Non-admins get the lighter token config panel. */}
+          {user?.isAdmin ? (
             <Menu.Item
               leftSection={<IconSettings size={14} />}
               onClick={() => navigate("/settings")}
             >
               Settings
             </Menu.Item>
-          )}
-          {user?.isAdmin && (
+          ) : (
             <Menu.Item
-              leftSection={<IconFileText size={14} />}
-              onClick={() => navigate("/settings?tab=audit")}
+              leftSection={<IconShieldLock size={14} />}
+              onClick={togglePhiPanel}
             >
-              Audit Log
+              Token Configuration
             </Menu.Item>
           )}
-          <Menu.Item
-            leftSection={<IconShieldLock size={14} />}
-            onClick={() =>
-              user?.isAdmin ? navigate("/settings?tab=phi") : togglePhiPanel()
-            }
-          >
-            Token Configuration
-          </Menu.Item>
           <Menu.Divider />
           <Menu.Item
             leftSection={<IconLogout size={14} />}
@@ -451,17 +303,6 @@ export function TopBar() {
       </Menu>
     </div>
   );
-}
-
-function groupByEnv(
-  connections: ConnectionInfo[],
-): Record<string, ConnectionInfo[]> {
-  const grouped: Record<string, ConnectionInfo[]> = {};
-  for (const c of connections) {
-    if (!grouped[c.env]) grouped[c.env] = [];
-    grouped[c.env].push(c);
-  }
-  return grouped;
 }
 
 function NavTab({

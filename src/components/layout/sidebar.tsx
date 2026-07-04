@@ -380,38 +380,92 @@ export function Sidebar() {
                               alignItems: "center",
                               gap: 8,
                               padding: "8px 12px",
-                              borderRadius: 6,
+                              borderRadius: 8,
                               cursor: "pointer",
-                              marginBottom: 2,
-                              borderLeft: isActive ? "2px solid var(--accent)" : "2px solid transparent",
+                              marginBottom: 3,
+                              border: isActive
+                                ? "1px solid rgba(31,145,150,0.35)"
+                                : "1px solid transparent",
+                              borderLeft: isActive
+                                ? "3px solid var(--accent)"
+                                : "3px solid transparent",
                               background: isActive
-                                ? "rgba(31,145,150,0.06)"
+                                ? "linear-gradient(90deg, rgba(31,145,150,0.16), rgba(31,145,150,0.03))"
                                 : isHovered
                                   ? "rgba(0,0,0,0.02)"
                                   : "transparent",
-                              boxShadow: isHovered && !isActive
-                                ? "0 1px 2px 0 rgba(0,0,0,0.06)"
-                                : "none",
+                              boxShadow: isActive
+                                ? "0 2px 10px 0 rgba(31,145,150,0.16)"
+                                : isHovered
+                                  ? "0 1px 2px 0 rgba(0,0,0,0.06)"
+                                  : "none",
                               transition: "all 150ms ease",
                             }}
                           >
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <Text
-                                size="xs"
-                                fw={600}
-                                ff="monospace"
-                                c={isActive ? "primary.8" : "secondary.9"}
-                                style={{ fontSize: 12, wordBreak: "break-word", lineHeight: 1.4 }}
-                              >
-                                {conn.name}
-                              </Text>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                <Text
+                                  size="xs"
+                                  fw={isActive ? 700 : 600}
+                                  ff="monospace"
+                                  c={isActive ? "primary.8" : "secondary.9"}
+                                  style={{ fontSize: 12, wordBreak: "break-word", lineHeight: 1.4 }}
+                                >
+                                  {conn.name}
+                                </Text>
+                                {isActive && (
+                                  <span
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 4,
+                                      background: "var(--accent)",
+                                      color: "#fff",
+                                      fontSize: 8,
+                                      fontWeight: 800,
+                                      letterSpacing: 0.7,
+                                      textTransform: "uppercase",
+                                      padding: "2px 6px",
+                                      borderRadius: 5,
+                                      lineHeight: 1,
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    <span
+                                      style={{
+                                        width: 5,
+                                        height: 5,
+                                        borderRadius: "50%",
+                                        background: "#fff",
+                                        boxShadow: "0 0 5px rgba(255,255,255,0.9)",
+                                        animation: "pulse 1.8s ease-in-out infinite",
+                                      }}
+                                    />
+                                    Active
+                                  </span>
+                                )}
+                              </div>
                               <Text size="xs" c="dimmed" style={{ marginTop: 2, fontSize: 10 }}>
                                 {conn.database || ""}
                               </Text>
                             </div>
-                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                flexShrink: 0,
+                                padding: isActive ? "2px 4px" : undefined,
+                                borderRadius: 6,
+                                background: isActive ? "rgba(31,145,150,0.10)" : undefined,
+                              }}
+                            >
                               <span style={{ fontSize: 22, lineHeight: 1 }}>{DB_ICONS[conn.type]}</span>
-                              <Text ff="monospace" c="dimmed" style={{ fontSize: 9, marginTop: 2 }}>
+                              <Text
+                                ff="monospace"
+                                c={isActive ? "primary.7" : "dimmed"}
+                                style={{ fontSize: 9, marginTop: 2, fontWeight: isActive ? 700 : 400 }}
+                              >
                                 {DB_SHORT[conn.type]}
                               </Text>
                             </div>
