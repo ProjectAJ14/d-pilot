@@ -4,8 +4,12 @@ import { MantineProvider, createTheme, Text, Button, TextInput, type MantineColo
 import { Notifications } from "@mantine/notifications";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { installClipboardFallback } from "./utils/clipboard-polyfill";
 import "./styles/fonts.css";
 import "./styles/global.css";
+
+// Enable copy-to-clipboard in insecure contexts (e.g. app opened via http://<lan-ip>).
+installClipboardFallback();
 
 const primary: MantineColorsTuple = [
   '#e7fdfe', '#d7f6f7', '#b0ecee', '#86e1e4', '#65d8dc',
