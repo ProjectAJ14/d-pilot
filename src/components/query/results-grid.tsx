@@ -1,13 +1,29 @@
-import { useMemo, useCallback, useRef, useEffect } from "react";
+import { useMemo, useCallback, useRef, useEffect, useState } from "react";
 import { Text, Badge, SegmentedControl } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconShieldLock, IconAlertTriangle, IconTable, IconBraces, IconCopy } from "@tabler/icons-react";
+import {
+  IconShieldLock,
+  IconAlertTriangle,
+  IconTable,
+  IconBraces,
+  IconCopy,
+  IconEye,
+  IconClick,
+  IconCopyCheck,
+} from "@tabler/icons-react";
 import { AgGridReact } from "ag-grid-react";
-import type { ColDef, CellClassParams, GetRowIdParams, CellDoubleClickedEvent } from "ag-grid-community";
+import type {
+  ColDef,
+  CellClassParams,
+  GetRowIdParams,
+  CellDoubleClickedEvent,
+  CellClickedEvent,
+} from "ag-grid-community";
 import { AllCommunityModule, ModuleRegistry, themeQuartz } from "ag-grid-community";
 import { useStore } from "../../store";
 import type { QueryTab, ResultViewMode } from "../../types";
 import { ResultsJsonView } from "./results-json-view";
+import { CellDetailDrawer, type CellDetail } from "./cell-detail-drawer";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -28,6 +44,10 @@ const gridTheme = themeQuartz.withParams({
   spacing: 6,
   wrapperBorderRadius: 0,
 });
+
+// Short values render fully in the cell, so opening the inspector for them is
+// just friction. Only values longer than this get a click-to-expand panel.
+const INSPECT_MIN_CHARS = 24;
 
 interface Props {
   tab: QueryTab;
@@ -90,6 +110,42 @@ export function ResultsGrid({ tab }: Props) {
 
   const { result, error } = tab;
 
+  // Cell inspector: single-click a data cell to open/refresh the detail drawer.
+  const [cellDetail, setCellDetail] = useState<CellDetail | null>(null);
+  // Opening the panel is deferred briefly so a double-click (copy) can cancel it
+  // before it fires — otherwise a double-click both copies and opens the panel.
+  const openTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    return () => {
+      if (openTimerRef.current) window.clearTimeout(openTimerRef.current);
+    };
+  }, []);
+
+  // Close the inspector when the click isn't on a data cell and isn't inside the
+  // drawer — i.e. empty grid space, the row-number column, or anywhere outside.
+  // Clicking another data cell is left alone so onCellClicked can just refresh
+  // the panel (closing + reopening here would flicker). Runs only while open.
+  const inspectorOpen = !!cellDetail;
+  useEffect(() => {
+    if (!inspectorOpen) return;
+    const onMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      // Interacting with the drawer itself keeps it open.
+      if (target.closest(".mantine-Drawer-content")) return;
+      // A data cell (col-id other than the row-number column) will refresh via
+      // onCellClicked — don't close it out from under that.
+      const cell = target.closest(".ag-cell");
+      if (cell) {
+        const colId = cell.getAttribute("col-id");
+        if (colId && colId !== "__rownum") return;
+      }
+      setCellDetail(null);
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, [inspectorOpen]);
+
   const columnDefs = useMemo<ColDef[]>(() => {
     if (!result) return [];
 
@@ -97,6 +153,7 @@ export function ResultsGrid({ tab }: Props) {
     const cols: ColDef[] = [
       {
         headerName: "#",
+        colId: "__rownum",
         valueGetter: "node.rowIndex + 1",
         width: 60,
         pinned: "left",
@@ -115,6 +172,13 @@ export function ResultsGrid({ tab }: Props) {
         filter: true,
         resizable: true,
         minWidth: 80,
+        // Tier 1 — quick peek on hover. Full/rich inspection is the click-drawer.
+        tooltipValueGetter: (p) => {
+          const v = p.value;
+          if (v === null || v === undefined) return "NULL";
+          const text = typeof v === "object" ? JSON.stringify(v) : String(v);
+          return text.length > 800 ? text.slice(0, 800) + "…  (click cell for full value)" : text;
+        },
       };
 
       if (col.isMasked) {
@@ -159,7 +223,57 @@ export function ResultsGrid({ tab }: Props) {
     []
   );
 
+  // name → isMasked, so the inspector can enforce the same PHI rule as the grid.
+  const maskedByColumn = useMemo(() => {
+    const m = new Map<string, boolean>();
+    for (const col of result?.columns ?? []) m.set(col.name, col.isMasked);
+    return m;
+  }, [result]);
+
+  const onCellClicked = useCallback(
+    (event: CellClickedEvent) => {
+      const field = event.colDef.field;
+      // Skip the row-number column (it has no field).
+      if (!field) return;
+      // Cancel any previously-scheduled open (rapid clicks / double-click).
+      if (openTimerRef.current) {
+        window.clearTimeout(openTimerRef.current);
+        openTimerRef.current = null;
+      }
+      const v = event.value;
+      const text =
+        v === null || v === undefined
+          ? ""
+          : typeof v === "object"
+            ? JSON.stringify(v)
+            : String(v);
+      // Short values are fully visible in the cell — don't open the panel, and
+      // dismiss it if it was showing a previous (longer) value.
+      if (text.length <= INSPECT_MIN_CHARS) {
+        setCellDetail(null);
+        return;
+      }
+      const detail: CellDetail = {
+        column: field,
+        value: v,
+        isMasked: maskedByColumn.get(field) ?? false,
+      };
+      // Defer the open so onCellDoubleClicked can cancel it within the dbl-click
+      // window (~250ms). A lone single click just opens ~250ms later.
+      openTimerRef.current = window.setTimeout(() => {
+        setCellDetail(detail);
+        openTimerRef.current = null;
+      }, 250);
+    },
+    [maskedByColumn]
+  );
+
   const onCellDoubleClicked = useCallback((event: CellDoubleClickedEvent) => {
+    // Cancel the pending panel open — this gesture is a copy, not an inspect.
+    if (openTimerRef.current) {
+      window.clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
     const colName = event.colDef.headerName ?? "";
     // Skip row number column
     if (colName === "#") return;
@@ -310,6 +424,42 @@ export function ResultsGrid({ tab }: Props) {
             truncated
           </Badge>
         )}
+
+        {/* Discoverability hint — table view only (the JSON view shows full
+            values already, so these gestures don't apply there). */}
+        {viewMode === "table" && (
+          <div
+            style={{
+              marginLeft: "auto",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "3px 10px",
+              borderRadius: 999,
+              background: "rgba(31,145,150,0.07)",
+              border: "1px solid rgba(31,145,150,0.16)",
+              color: "var(--muted)",
+              fontSize: 11,
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+          >
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <IconEye size={13} style={{ color: "var(--accent)" }} />
+              hover to peek
+            </span>
+            <span style={{ opacity: 0.35 }}>·</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <IconClick size={13} style={{ color: "var(--accent)" }} />
+              click a long value to expand
+            </span>
+            <span style={{ opacity: 0.35 }}>·</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <IconCopyCheck size={13} style={{ color: "var(--accent)" }} />
+              double-click to copy
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Results view */}
@@ -323,6 +473,7 @@ export function ResultsGrid({ tab }: Props) {
             columnDefs={columnDefs}
             defaultColDef={defaultColDef}
             getRowId={getRowId}
+            onCellClicked={onCellClicked}
             onCellDoubleClicked={onCellDoubleClicked}
             animateRows={false}
             enableCellTextSelection={true}
@@ -367,6 +518,8 @@ export function ResultsGrid({ tab }: Props) {
           </Text>
         </div>
       )}
+
+      <CellDetailDrawer detail={cellDetail} onClose={() => setCellDetail(null)} />
     </div>
   );
 }
