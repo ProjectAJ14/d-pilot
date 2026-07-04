@@ -213,6 +213,15 @@ router.put("/policy", requireAdmin, (req: Request, res: Response) => {
       res.status(400).json({ error: "Invalid environment in directEnvs" });
       return;
     }
+    // Production must ALWAYS use the two-person rule — it can never be a
+    // direct-write environment, regardless of who is asking.
+    if (directEnvs.includes("PROD")) {
+      res.status(422).json({
+        error:
+          "Production can't be a direct-write environment. Writes to PROD always require the two-person rule — a second person must approve every change.",
+      });
+      return;
+    }
     setSetting("write_direct_envs", JSON.stringify(directEnvs));
   }
   res.json({

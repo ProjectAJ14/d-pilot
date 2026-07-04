@@ -20,16 +20,22 @@ router.get("/masked-envs", (_req: Request, res: Response) => {
 
 router.put("/masked-envs", requireAdmin, (req: Request, res: Response) => {
   const { environments } = req.body;
-  const valid: Environment[] = ["DEV", "QA", "STG", "PROD"];
+  const valid: Environment[] = ["DEV", "QA", "UAT", "STG", "PROD"];
   if (
     !Array.isArray(environments) ||
     !environments.every((e: string) => valid.includes(e as Environment))
   ) {
-    res
-      .status(400)
-      .json({
-        error: "Invalid environments list. Allowed: DEV, QA, STG, PROD",
-      });
+    res.status(400).json({
+      error: "Invalid environments list. Allowed: DEV, QA, UAT, STG, PROD",
+    });
+    return;
+  }
+  // Production PHI must always be tokenized — it can't be removed from masking.
+  if (!environments.includes("PROD")) {
+    res.status(422).json({
+      error:
+        "Production PHI is always tokenized and can't be exposed. PROD must remain a masked environment.",
+    });
     return;
   }
   setSetting("phi_masked_envs", JSON.stringify(environments));

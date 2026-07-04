@@ -46,6 +46,7 @@ import {
   IconUserCheck,
   IconPencilBolt,
   IconBolt,
+  IconLock,
 } from "@tabler/icons-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useStore } from "../../store";
@@ -1472,6 +1473,16 @@ function WriteModeTab() {
   };
 
   const toggleDirect = (env: string) => {
+    // Production is locked to the two-person rule — it can never be direct-write.
+    if (env === "PROD") {
+      notifications.show({
+        color: "red",
+        title: "Not allowed for Production",
+        message:
+          "Production always requires the two-person rule — a second person must approve every write. It can't be set to direct-write.",
+      });
+      return;
+    }
     const next = directEnvs.includes(env)
       ? directEnvs.filter((e) => e !== env)
       : [...directEnvs, env];
@@ -1547,19 +1558,42 @@ function WriteModeTab() {
       <Group gap={8} mb="lg">
         {WRITE_ENVS.map((env) => {
           const active = directEnvs.includes(env);
-          return (
+          const locked = env === "PROD";
+          const button = (
             <Button
               key={env}
               size="xs"
-              variant={active ? "filled" : "outline"}
-              color={active ? "green" : "gray"}
+              variant={active && !locked ? "filled" : "outline"}
+              color={locked ? "red" : active ? "green" : "gray"}
               onClick={() => toggleDirect(env)}
-              loading={saving}
-              leftSection={active ? <IconBolt size={12} /> : null}
-              style={{ minWidth: 84 }}
+              loading={saving && !locked}
+              leftSection={
+                locked ? (
+                  <IconLock size={12} />
+                ) : active ? (
+                  <IconBolt size={12} />
+                ) : null
+              }
+              style={{
+                minWidth: 84,
+                ...(locked ? { cursor: "not-allowed", opacity: 0.85 } : {}),
+              }}
             >
               {env}
             </Button>
+          );
+          return locked ? (
+            <Tooltip
+              key={env}
+              label="Production always requires two-person approval — it can't be a direct-write environment."
+              withArrow
+              multiline
+              w={240}
+            >
+              {button}
+            </Tooltip>
+          ) : (
+            button
           );
         })}
       </Group>
@@ -1621,6 +1655,16 @@ function PhiManagementTab() {
   }, []);
 
   const toggleEnv = async (env: string) => {
+    // Production PHI is always tokenized — it can't be removed from masking.
+    if (env === "PROD") {
+      notifications.show({
+        color: "red",
+        title: "Production is always tokenized",
+        message:
+          "Production PHI stays masked at all times and can't be exposed here. Users with the PHI Viewer or Admin role can still de-tokenize individual queries with a logged reason.",
+      });
+      return;
+    }
     const next = maskedEnvs.includes(env)
       ? maskedEnvs.filter((e) => e !== env)
       : [...maskedEnvs, env];
@@ -1700,19 +1744,42 @@ function PhiManagementTab() {
       <Group gap={8} mb="lg">
         {ENV_OPTIONS.map((env) => {
           const active = maskedEnvs.includes(env);
-          return (
+          const locked = env === "PROD";
+          const button = (
             <Button
               key={env}
               size="xs"
               variant={active ? "filled" : "outline"}
               color={ENV_COLORS[env]}
               onClick={() => toggleEnv(env)}
-              loading={envSaving}
-              leftSection={active ? <IconCheck size={12} /> : null}
-              style={{ minWidth: 80 }}
+              loading={envSaving && !locked}
+              leftSection={
+                locked ? (
+                  <IconLock size={12} />
+                ) : active ? (
+                  <IconCheck size={12} />
+                ) : null
+              }
+              style={{
+                minWidth: 80,
+                ...(locked ? { cursor: "not-allowed" } : {}),
+              }}
             >
               {env}
             </Button>
+          );
+          return locked ? (
+            <Tooltip
+              key={env}
+              label="Production PHI is always tokenized and can't be exposed."
+              withArrow
+              multiline
+              w={240}
+            >
+              {button}
+            </Tooltip>
+          ) : (
+            button
           );
         })}
       </Group>

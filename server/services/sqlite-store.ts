@@ -396,12 +396,20 @@ export function setSetting(key: string, value: string): void {
 
 export function getPhiMaskedEnvs(): Environment[] {
   const val = getSetting("phi_masked_envs");
-  if (!val) return ["PROD"];
-  try {
-    return JSON.parse(val);
-  } catch {
-    return ["PROD"];
+  let envs: Environment[];
+  if (!val) {
+    envs = ["PROD"];
+  } else {
+    try {
+      const parsed = JSON.parse(val);
+      envs = Array.isArray(parsed) ? parsed : ["PROD"];
+    } catch {
+      envs = ["PROD"];
+    }
   }
+  // Production PHI is always tokenized — guarantee PROD is masked, regardless
+  // of what's stored.
+  return envs.includes("PROD") ? envs : ["PROD", ...envs];
 }
 
 export function getWriteModeEnabled(): boolean {
@@ -410,12 +418,20 @@ export function getWriteModeEnabled(): boolean {
 
 export function getWriteDirectEnvs(): Environment[] {
   const val = getSetting("write_direct_envs");
-  if (!val) return ["DEV"];
-  try {
-    return JSON.parse(val);
-  } catch {
-    return ["DEV"];
+  let envs: Environment[];
+  if (!val) {
+    envs = ["DEV"];
+  } else {
+    try {
+      const parsed = JSON.parse(val);
+      envs = Array.isArray(parsed) ? parsed : ["DEV"];
+    } catch {
+      envs = ["DEV"];
+    }
   }
+  // Production is never a direct-write environment — it always requires the
+  // two-person rule. Strip it defensively, regardless of what's stored.
+  return envs.filter((e) => e !== "PROD");
 }
 
 // --- Audit Log ---
