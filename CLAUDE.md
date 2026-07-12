@@ -2,7 +2,7 @@
 
 Guidance for Claude Code (claude.ai/code) working with this repo.
 
-D-Pilot is an internal, read-first SQL explorer for Baylor Genetics databases: PHI
+D-Pilot is an internal, read-first SQL explorer for your organization's databases: PHI
 tokenization, an AI query assistant, a governed write-approval workflow, multi-database
 support, and per-environment capability-based access control. See `README.md` for the
 full feature list and deployment guide.

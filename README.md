@@ -1,6 +1,6 @@
 # D-Pilot
 
-Internal, read-first SQL explorer for Baylor Genetics databases — with built-in PHI
+Internal, read-first SQL explorer for your organization's databases — with built-in PHI
 tokenization, an AI query assistant, a governed write-approval workflow, multi-database
 support, and per-environment capability-based access control.
 

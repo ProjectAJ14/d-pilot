@@ -8,7 +8,7 @@ by hand.
 ## [1.0.0] - 2026-07-12
 
 Initial release of CEP DB Pilot — an internal, read-first SQL explorer with
-built-in PHI masking for Baylor Genetics databases.
+built-in PHI masking for your organization's databases.
 
 ### Added
 
