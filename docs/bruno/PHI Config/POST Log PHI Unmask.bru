@@ -1,0 +1,29 @@
+meta {
+  name: Log PHI Unmask
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/phi-config/unmask
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "reason": "Investigating a data issue",
+    "notes": "ticket OPP-000",
+    "connectionId": "{{connectionId}}"
+  }
+}
+
+docs {
+  Record an audited PHI-unmask event. Requires unmask capability for the connection's environment.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

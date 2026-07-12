@@ -1,0 +1,21 @@
+meta {
+  name: List Tables
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/schema/{{connectionId}}/tables
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~schema: public
+}
+
+docs {
+  Tables/collections for the connection.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

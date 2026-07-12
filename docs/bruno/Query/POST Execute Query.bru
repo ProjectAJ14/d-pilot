@@ -1,0 +1,33 @@
+meta {
+  name: Execute Query
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/query/execute
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+  ~X-PHI-Shield: off
+  ~X-PHI-Unmask-Reason: Investigating a data issue
+  ~X-PHI-Unmask-Notes: ticket OPP-000
+}
+
+body:json {
+  {
+    "connectionId": "{{connectionId}}",
+    "sql": "SELECT 1",
+    "defaultLimit": 500
+  }
+}
+
+docs {
+  Run a read-only query against a target connection. DML/DDL is rejected; a LIMIT is auto-injected when absent. Results are PHI-masked per rules unless unmask headers are supplied and permitted.
+
+  Requires a valid Bearer JWT ({{token}}).
+  Supports PHI unmask headers (disabled by default; enable to reveal PHI where permitted).
+}

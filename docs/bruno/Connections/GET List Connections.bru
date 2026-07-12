@@ -1,0 +1,17 @@
+meta {
+  name: List Connections
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/connections
+  body: none
+  auth: inherit
+}
+
+docs {
+  Target connections you can read (filtered by your allowed environments). Credentials are never returned.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

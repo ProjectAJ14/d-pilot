@@ -1,0 +1,17 @@
+meta {
+  name: List PHI Rules
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/phi-config
+  body: none
+  auth: inherit
+}
+
+docs {
+  All PHI field-masking rules.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

@@ -1,0 +1,17 @@
+meta {
+  name: List Write Requests
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/write-requests
+  body: none
+  auth: inherit
+}
+
+docs {
+  Write requests you authored plus those you may approve.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

@@ -1,0 +1,29 @@
+meta {
+  name: AI Review (ad-hoc)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/write-requests/ai-review
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "connectionId": "{{connectionId}}",
+    "selectSql": "SELECT id, active FROM patients WHERE id = 42",
+    "writeSql": "UPDATE patients SET active = true WHERE id = 42"
+  }
+}
+
+docs {
+  AI safety review of an un-persisted SELECT + WRITE pair.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

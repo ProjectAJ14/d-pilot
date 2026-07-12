@@ -1,0 +1,17 @@
+meta {
+  name: Get Masked Environments
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/phi-config/masked-envs
+  body: none
+  auth: inherit
+}
+
+docs {
+  Environments where PHI is tokenized. PROD is always included.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

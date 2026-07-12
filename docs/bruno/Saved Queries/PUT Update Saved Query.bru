@@ -1,0 +1,32 @@
+meta {
+  name: Update Saved Query
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{baseUrl}}/api/saved-queries/{{savedQueryId}}
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "Active patients (v2)",
+    "sql": "SELECT * FROM patients WHERE active = true LIMIT 100",
+    "isShared": true,
+    "tags": [
+      "example"
+    ]
+  }
+}
+
+docs {
+  Update a saved query you own.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

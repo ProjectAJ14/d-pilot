@@ -1,0 +1,18 @@
+meta {
+  name: Usage Analytics
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/analytics
+  body: none
+  auth: inherit
+}
+
+docs {
+  Aggregate usage analytics (users, audit, AI, saved queries, writes) for the admin dashboard.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

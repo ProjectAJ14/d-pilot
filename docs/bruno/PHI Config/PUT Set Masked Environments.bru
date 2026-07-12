@@ -1,0 +1,34 @@
+meta {
+  name: Set Masked Environments
+  type: http
+  seq: 2
+}
+
+put {
+  url: {{baseUrl}}/api/phi-config/masked-envs
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "environments": [
+      "DEV",
+      "QA",
+      "UAT",
+      "STG",
+      "PROD"
+    ]
+  }
+}
+
+docs {
+  Set the masked-environment list. PROD must remain present (422 otherwise).
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

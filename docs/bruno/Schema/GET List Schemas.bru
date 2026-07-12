@@ -1,0 +1,17 @@
+meta {
+  name: List Schemas
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/schema/{{connectionId}}/schemas
+  body: none
+  auth: inherit
+}
+
+docs {
+  Available schemas for the connection (Postgres/MSSQL). Empty for Mongo/ES.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

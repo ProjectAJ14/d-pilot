@@ -1,0 +1,17 @@
+meta {
+  name: Test Connection
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/connections/{{connectionId}}/test
+  body: none
+  auth: inherit
+}
+
+docs {
+  Attempt to connect to a target DB and report reachability.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

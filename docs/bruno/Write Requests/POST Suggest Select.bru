@@ -1,0 +1,30 @@
+meta {
+  name: Suggest Select
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/write-requests/suggest-select
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "connectionId": "{{connectionId}}",
+    "writeSql": "UPDATE patients SET active = true WHERE id = 42",
+    "intent": "",
+    "currentSelect": ""
+  }
+}
+
+docs {
+  Suggest a verify SELECT derived from the WRITE (write-first flow).
+
+  Requires a valid Bearer JWT ({{token}}).
+}

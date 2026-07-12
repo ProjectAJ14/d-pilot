@@ -1,0 +1,31 @@
+meta {
+  name: Set Write Policy
+  type: http
+  seq: 2
+}
+
+put {
+  url: {{baseUrl}}/api/write-requests/policy
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "writeModeEnabled": true,
+    "directEnvs": [
+      "DEV"
+    ]
+  }
+}
+
+docs {
+  Update write-mode and direct-write environments. PROD can never be a direct-write env (422).
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

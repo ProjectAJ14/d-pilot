@@ -1,0 +1,18 @@
+meta {
+  name: Test Azure Connection
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/azure-ai/test
+  body: none
+  auth: inherit
+}
+
+docs {
+  Verify Azure OpenAI connectivity using the configured environment variables.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

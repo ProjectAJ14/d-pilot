@@ -1,0 +1,18 @@
+meta {
+  name: Archive Old Entries
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/audit/archive
+  body: none
+  auth: inherit
+}
+
+docs {
+  Manually trigger archival of audit entries older than 30 days.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

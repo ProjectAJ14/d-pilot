@@ -1,0 +1,17 @@
+meta {
+  name: AI Review Write Request
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/write-requests/{{writeRequestId}}/ai-review
+  body: none
+  auth: inherit
+}
+
+docs {
+  Run and persist an AI safety review on a saved write request.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

@@ -1,0 +1,17 @@
+meta {
+  name: Get Write Request
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/api/write-requests/{{writeRequestId}}
+  body: none
+  auth: inherit
+}
+
+docs {
+  Fetch a single write request with viewer permission flags.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

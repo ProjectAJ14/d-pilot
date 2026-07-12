@@ -1,0 +1,17 @@
+meta {
+  name: Writable Connections
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/connections/writable
+  body: none
+  auth: inherit
+}
+
+docs {
+  Connections you may author write requests against (write-scoped environments).
+
+  Requires a valid Bearer JWT ({{token}}).
+}

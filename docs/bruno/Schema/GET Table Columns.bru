@@ -1,0 +1,21 @@
+meta {
+  name: Table Columns
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/schema/{{connectionId}}/tables/{{tableName}}/columns
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~schema: public
+}
+
+docs {
+  Columns for a specific table.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

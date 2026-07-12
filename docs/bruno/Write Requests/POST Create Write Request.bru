@@ -1,0 +1,32 @@
+meta {
+  name: Create Write Request
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/write-requests
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "title": "Fix patient status",
+    "description": "Correct a mis-set flag",
+    "connectionId": "{{connectionId}}",
+    "selectSql": "SELECT id, active FROM patients WHERE id = 42",
+    "writeSql": "UPDATE patients SET active = true WHERE id = 42"
+  }
+}
+
+docs {
+  Submit a write request (verify SELECT + WRITE pair). On DIRECT-policy envs an authorized author executes immediately; otherwise it goes PENDING for approval.
+
+  Requires a valid Bearer JWT ({{token}}).
+  Requires **write mode** to be enabled.
+}

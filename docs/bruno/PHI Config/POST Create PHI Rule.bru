@@ -1,0 +1,32 @@
+meta {
+  name: Create PHI Rule
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/phi-config
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "pattern": "ssn",
+    "maskingType": "FULL",
+    "alwaysMasked": false,
+    "database": null,
+    "table": null
+  }
+}
+
+docs {
+  Create a PHI masking rule. `maskingType`: FULL | PARTIAL | HASH | REDACT.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

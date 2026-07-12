@@ -1,0 +1,17 @@
+meta {
+  name: Public Config
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/config
+  body: none
+  auth: none
+}
+
+docs {
+  Non-sensitive front-end config (app name, logos, PHI-masked environments).
+
+  **Public** — no auth.
+}

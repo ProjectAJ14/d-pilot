@@ -1,0 +1,18 @@
+meta {
+  name: Delete User
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/api/users/{{userId}}
+  body: none
+  auth: inherit
+}
+
+docs {
+  Delete a user. You cannot delete your own account.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

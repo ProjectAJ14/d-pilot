@@ -1,0 +1,34 @@
+meta {
+  name: Create Saved Query
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/saved-queries
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "Active patients",
+    "sql": "SELECT * FROM patients WHERE active = true",
+    "description": "Example",
+    "connectionId": "{{connectionId}}",
+    "isShared": true,
+    "tags": [
+      "example"
+    ]
+  }
+}
+
+docs {
+  Create a saved query. Shared by default.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

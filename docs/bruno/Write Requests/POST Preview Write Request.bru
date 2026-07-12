@@ -1,0 +1,31 @@
+meta {
+  name: Preview Write Request
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/api/write-requests/{{writeRequestId}}/preview
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+  ~X-PHI-Shield: off
+  ~X-PHI-Unmask-Reason: Investigating a data issue
+  ~X-PHI-Unmask-Notes: ticket OPP-000
+}
+
+body:json {
+  {
+    "defaultLimit": 500
+  }
+}
+
+docs {
+  Run the request's verify SELECT to preview affected rows (masked; requires read access to the env).
+
+  Requires a valid Bearer JWT ({{token}}).
+  Supports PHI unmask headers (disabled by default; enable to reveal PHI where permitted).
+}

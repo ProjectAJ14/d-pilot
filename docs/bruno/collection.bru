@@ -1,0 +1,20 @@
+auth {
+  mode: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+docs {
+  # CEP DB Pilot API
+
+  Every request under this collection inherits Bearer auth from the `{{token}}`
+  variable. Run **Auth / Login** first — its post-response script stores the JWT
+  into `token` automatically. Public endpoints (Health, Public Config, Login)
+  override auth to `none`.
+
+  Select an environment (LOCAL by default) to set `{{baseUrl}}` and the id
+  placeholders. See CLAUDE.md in this folder for the file-naming system and how
+  to keep this collection in sync with the API.
+}

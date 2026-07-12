@@ -1,0 +1,17 @@
+meta {
+  name: List Saved Queries
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/saved-queries
+  body: none
+  auth: inherit
+}
+
+docs {
+  Your saved queries plus queries shared with you.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

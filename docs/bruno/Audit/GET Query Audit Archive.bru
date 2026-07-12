@@ -1,0 +1,25 @@
+meta {
+  name: Query Audit Archive
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/audit/archive?limit=100&offset=0
+  body: none
+  auth: inherit
+}
+
+params:query {
+  limit: 100
+  offset: 0
+  ~from: 2025-01-01
+  ~to: 2025-12-31
+}
+
+docs {
+  Query archived audit entries (older than 30 days).
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

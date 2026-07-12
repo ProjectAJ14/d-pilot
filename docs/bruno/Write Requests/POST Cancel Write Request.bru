@@ -1,0 +1,17 @@
+meta {
+  name: Cancel Write Request
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{baseUrl}}/api/write-requests/{{writeRequestId}}/cancel
+  body: none
+  auth: inherit
+}
+
+docs {
+  Withdraw your own PENDING/DRAFT request.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

@@ -1,0 +1,32 @@
+meta {
+  name: Generate Query
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/azure-ai/generate-query
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "connectionId": "{{connectionId}}",
+    "prompt": "Show the 10 most recent orders",
+    "currentQuery": "",
+    "refreshSchema": false,
+    "mode": "read",
+    "schema": "public"
+  }
+}
+
+docs {
+  Generate a query from natural language. `mode`: read | write. Only schema metadata is sent to the model — never row data.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

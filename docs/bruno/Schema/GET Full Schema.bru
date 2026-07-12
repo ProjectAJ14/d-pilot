@@ -1,0 +1,21 @@
+meta {
+  name: Full Schema
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/schema/{{connectionId}}/full
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~schema: public
+}
+
+docs {
+  Cached full schema (all tables + columns) for a connection, used by editor autocomplete.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

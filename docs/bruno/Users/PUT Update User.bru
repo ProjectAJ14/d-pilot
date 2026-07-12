@@ -1,0 +1,43 @@
+meta {
+  name: Update User
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{baseUrl}}/api/users/{{userId}}
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "displayName": "Updated Name",
+    "isAdmin": false,
+    "allowedEnvironments": [
+      "DEV",
+      "QA",
+      "UAT"
+    ],
+    "unmaskEnvironments": [
+      "DEV"
+    ],
+    "writeEnvironments": [
+      "DEV"
+    ],
+    "approveEnvironments": [
+      "QA"
+    ]
+  }
+}
+
+docs {
+  Update a user's display name, admin flag, or capability lists.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

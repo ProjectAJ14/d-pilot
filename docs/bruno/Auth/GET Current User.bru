@@ -1,0 +1,17 @@
+meta {
+  name: Current User
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/auth/me
+  body: none
+  auth: inherit
+}
+
+docs {
+  Returns the authenticated user's capability profile (isAdmin + per-env read/unmask/write/approve lists).
+
+  Requires a valid Bearer JWT ({{token}}).
+}

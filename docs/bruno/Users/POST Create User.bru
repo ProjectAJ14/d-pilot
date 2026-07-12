@@ -1,0 +1,40 @@
+meta {
+  name: Create User
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/users
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "email": "user@example.com",
+    "displayName": "New User",
+    "password": "changeme123",
+    "isAdmin": false,
+    "allowedEnvironments": [
+      "DEV",
+      "QA"
+    ],
+    "unmaskEnvironments": [],
+    "writeEnvironments": [
+      "DEV"
+    ],
+    "approveEnvironments": []
+  }
+}
+
+docs {
+  Create a user. Admin implies all capabilities; otherwise supply per-env lists.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

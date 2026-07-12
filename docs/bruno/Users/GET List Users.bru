@@ -1,0 +1,18 @@
+meta {
+  name: List Users
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/users
+  body: none
+  auth: inherit
+}
+
+docs {
+  List all users with their capability profiles.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

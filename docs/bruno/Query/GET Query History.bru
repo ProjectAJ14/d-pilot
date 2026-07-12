@@ -1,0 +1,21 @@
+meta {
+  name: Query History
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/query/history?limit=50
+  body: none
+  auth: inherit
+}
+
+params:query {
+  limit: 50
+}
+
+docs {
+  Your recent query history (max 200).
+
+  Requires a valid Bearer JWT ({{token}}).
+}

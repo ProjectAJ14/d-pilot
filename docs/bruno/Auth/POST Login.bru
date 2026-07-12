@@ -1,0 +1,35 @@
+meta {
+  name: Login
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/auth/login
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "username": "admin@example.com",
+    "password": "changeme123"
+  }
+}
+
+script:post-response {
+  // Capture the JWT so every other request can inherit it.
+  if (res.getStatus() === 200 && res.getBody() && res.getBody().token) {
+    bru.setEnvVar("token", res.getBody().token);
+  }
+}
+
+docs {
+  Authenticate with username/password. On success, stores the returned JWT into the `token` environment variable for the rest of the collection.
+
+  **Public** — no auth.
+}

@@ -1,0 +1,27 @@
+meta {
+  name: List Audit Log
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/audit?limit=100&offset=0
+  body: none
+  auth: inherit
+}
+
+params:query {
+  limit: 100
+  offset: 0
+  ~from: 2026-01-01
+  ~to: 2026-12-31
+  ~action: QUERY_EXECUTE
+  ~userId: {{userId}}
+}
+
+docs {
+  Query the audit log with optional filters.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

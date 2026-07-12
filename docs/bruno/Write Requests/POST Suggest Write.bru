@@ -1,0 +1,30 @@
+meta {
+  name: Suggest Write
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/write-requests/suggest-write
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "connectionId": "{{connectionId}}",
+    "selectSql": "SELECT id, active FROM patients WHERE id = 42",
+    "intent": "deactivate this patient",
+    "currentWrite": ""
+  }
+}
+
+docs {
+  Suggest a WRITE statement derived from the verify SELECT + intent.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

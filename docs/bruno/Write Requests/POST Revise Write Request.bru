@@ -1,0 +1,32 @@
+meta {
+  name: Revise Write Request
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{baseUrl}}/api/write-requests/{{writeRequestId}}/revise
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "title": "Fix patient status (v2)",
+    "description": "Narrowed the WHERE",
+    "selectSql": "SELECT id, active FROM patients WHERE id = 42",
+    "writeSql": "UPDATE patients SET active = true WHERE id = 42",
+    "note": "Addressed reviewer feedback"
+  }
+}
+
+docs {
+  Edit and resubmit a REJECTED/CANCELLED/FAILED request (keeps the same id and history).
+
+  Requires a valid Bearer JWT ({{token}}).
+  Requires **write mode** to be enabled.
+}

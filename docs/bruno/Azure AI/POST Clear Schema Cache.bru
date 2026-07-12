@@ -1,0 +1,28 @@
+meta {
+  name: Clear Schema Cache
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/azure-ai/schema-cache/clear
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "connectionId": "{{connectionId}}"
+  }
+}
+
+docs {
+  Clear the cached schema summary for one connection (or all when omitted).
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

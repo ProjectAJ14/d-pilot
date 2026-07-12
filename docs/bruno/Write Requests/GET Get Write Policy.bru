@@ -1,0 +1,17 @@
+meta {
+  name: Get Write Policy
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/write-requests/policy
+  body: none
+  auth: inherit
+}
+
+docs {
+  Current write-mode toggle and direct-write environment list.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

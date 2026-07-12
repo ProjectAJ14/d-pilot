@@ -1,0 +1,18 @@
+meta {
+  name: Delete PHI Rule
+  type: http
+  seq: 7
+}
+
+delete {
+  url: {{baseUrl}}/api/phi-config/{{phiRuleId}}
+  body: none
+  auth: inherit
+}
+
+docs {
+  Delete a PHI masking rule.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

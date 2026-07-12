@@ -1,0 +1,28 @@
+meta {
+  name: Approve Write Request
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/api/write-requests/{{writeRequestId}}/approve
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "notes": "Looks correct — approved."
+  }
+}
+
+docs {
+  Approve and execute a PENDING request. Requires approve capability for the env; you cannot approve your own.
+
+  Requires a valid Bearer JWT ({{token}}).
+  Requires **write mode** to be enabled.
+}

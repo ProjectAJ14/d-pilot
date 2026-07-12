@@ -1,0 +1,17 @@
+meta {
+  name: Grouped Connections
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/connections/grouped
+  body: none
+  auth: inherit
+}
+
+docs {
+  Readable connections grouped by environment.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

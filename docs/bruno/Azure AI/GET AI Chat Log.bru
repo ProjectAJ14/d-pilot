@@ -1,0 +1,27 @@
+meta {
+  name: AI Chat Log
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/azure-ai/chat-log?limit=100&offset=0
+  body: none
+  auth: inherit
+}
+
+params:query {
+  limit: 100
+  offset: 0
+  ~status: success
+  ~from: 2026-01-01
+  ~to: 2026-12-31
+  ~userId: {{userId}}
+}
+
+docs {
+  Read the AI generation chat log for prompt tuning and auditing.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}
