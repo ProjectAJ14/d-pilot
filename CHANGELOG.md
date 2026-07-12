@@ -1,11 +1,9 @@
 # Changelog
 
-All notable changes to **CEP DB Pilot** are documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [Unreleased]
+All notable changes to **CEP DB Pilot** are documented in this file. Releases
+below v1.0.0's successors are generated automatically by semantic-release from
+[Conventional Commits](https://www.conventionalcommits.org/); do not edit them
+by hand.
 
 ## [1.0.0] - 2026-07-12
 
@@ -42,6 +40,3 @@ built-in PHI masking for Baylor Genetics databases.
 - Corrected doubled `dist` path for static client files in production.
 - Bound the server and Vite dev server to `0.0.0.0` for network access.
 - Used store logout for 401 handling instead of a full page reload.
-
-[Unreleased]: https://github.com/ProjectAJ14/d-pilot/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/ProjectAJ14/d-pilot/releases/tag/v1.0.0

@@ -1,0 +1,45 @@
+name: Release
+
+# Bumps the version, updates CHANGELOG.md, tags, and creates a GitHub Release
+# from Conventional Commits whenever code lands on main. The version bump is
+# committed back to main with "[skip ci]" so it does not re-trigger this run.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write # push the release commit + tag, create the GitHub Release
+  issues: write # semantic-release comments on resolved issues
+  pull-requests: write # ...and on merged PRs
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Skip the version-bump commit that semantic-release pushes back to main.
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    env:
+      HUSKY: 0 # don't run local git hooks (commitlint) inside CI
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so commit-analyzer sees every commit
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Release
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          extra_plugins: |
+            @semantic-release/changelog@6
+            @semantic-release/git@10
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
