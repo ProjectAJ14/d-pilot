@@ -26,6 +26,8 @@ import {
   IconClock,
   IconEdit,
   IconCopyPlus,
+  IconEye,
+  IconArrowBarToUp,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useParams, useNavigate } from "react-router-dom";
@@ -39,13 +41,12 @@ import type {
   ConnectionInfo,
 } from "../../types";
 import {
-  StatusBadge,
   EnvBadge,
-  VerdictBadge,
   AiReviewCard,
   PreviewTable,
   SqlBlock,
   fmtDateTime,
+  STATUS_META,
 } from "./shared";
 import { WriteComposer } from "./write-composer";
 
@@ -250,6 +251,16 @@ export function WriteRequestDetail() {
     aiReview?.verdict === "DANGEROUS" ||
     /unbounded/i.test(aiReview?.estimatedBlastRadius || "");
 
+  const statusMeta = STATUS_META[wr.status] || {
+    label: wr.status,
+    color: "gray",
+  };
+  const previewNote = preview
+    ? `Preview ran · ${preview.totalRows} row(s) returned`
+    : "Runs the verify SELECT only — read-only, changes nothing";
+  const showAiButton = wr.status !== "EXECUTED";
+  const showDecisionBar = canApprove || canCancel || showAiButton;
+
   return (
     <div
       style={{
@@ -259,23 +270,23 @@ export function WriteRequestDetail() {
         background: "var(--bg)",
       }}
     >
-      <div style={{ maxWidth: 880, margin: "0 auto", padding: "24px 28px" }}>
-        <Group justify="space-between" mb="md">
+      <div style={{ maxWidth: 940, margin: "0 auto", padding: "24px 28px 60px" }}>
+        <Group justify="space-between" mb="lg">
           <Button
             variant="subtle"
             color="gray"
-            size="xs"
-            leftSection={<IconArrowLeft size={14} />}
+            size="sm"
+            px={6}
+            leftSection={<IconArrowLeft size={15} />}
             onClick={() => navigate(-1)}
           >
-            Back
+            Back to requests
           </Button>
           <Group gap={8}>
             {canWrite && (
               <Button
                 size="xs"
-                variant="light"
-                color="grape"
+                variant="default"
                 leftSection={<IconCopyPlus size={14} />}
                 onClick={duplicate}
               >
@@ -286,8 +297,8 @@ export function WriteRequestDetail() {
               {({ copied, copy }) => (
                 <Button
                   size="xs"
-                  variant="light"
-                  color={copied ? "teal" : "gray"}
+                  variant="default"
+                  color={copied ? "teal" : undefined}
                   leftSection={
                     copied ? <IconCheck size={14} /> : <IconLink size={14} />
                   }
@@ -300,26 +311,61 @@ export function WriteRequestDetail() {
           </Group>
         </Group>
 
-        {/* Header */}
-        <Group gap={10} mb={6} align="center" wrap="wrap">
-          <Text fw={700} size="xl" c="secondary.9">
+        {/* Title + status */}
+        <Group gap={12} mb={10} align="center" wrap="wrap">
+          <Text
+            fw={700}
+            c="secondary.9"
+            style={{ fontSize: 26, lineHeight: 1.2, letterSpacing: "-0.02em" }}
+          >
             {wr.title}
           </Text>
-          <StatusBadge status={wr.status} />
-          <EnvBadge env={wr.env} />
-          {wr.aiVerdict && <VerdictBadge verdict={wr.aiVerdict} />}
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 7,
+              fontSize: 11.5,
+              fontWeight: 700,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+              color: `var(--mantine-color-${statusMeta.color}-8)`,
+              background: `var(--mantine-color-${statusMeta.color}-1)`,
+              borderRadius: 999,
+              padding: "4px 11px",
+            }}
+          >
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background: `var(--mantine-color-${statusMeta.color}-6)`,
+              }}
+            />
+            {statusMeta.label}
+          </span>
         </Group>
-        <Group gap={14} mb="md">
-          <Group gap={5}>
+
+        {/* Metadata strip */}
+        <Group gap={12} mb="lg" align="center" wrap="wrap">
+          <Group gap={6}>
             <IconDatabase size={13} color="var(--muted)" />
             <Text size="xs" c="dimmed" ff="monospace">
               {wr.connectionName || wr.connectionId} · {wr.dbType}
             </Text>
           </Group>
-          <Group gap={5}>
+          <span style={{ width: 1, height: 13, background: "var(--border)" }} />
+          <EnvBadge env={wr.env} />
+          <span style={{ width: 1, height: 13, background: "var(--border)" }} />
+          <Text size="xs" c="dimmed" ff="monospace">
+            {wr.requestedByEmail}
+          </Text>
+          <span style={{ width: 1, height: 13, background: "var(--border)" }} />
+          <Group gap={6}>
             <IconClock size={13} color="var(--muted)" />
-            <Text size="xs" c="dimmed">
-              Raised by {wr.requestedByEmail} · {fmtDateTime(wr.requestedAt)}
+            <Text size="xs" c="dimmed" ff="monospace">
+              {fmtDateTime(wr.requestedAt)}
             </Text>
           </Group>
         </Group>
@@ -394,198 +440,303 @@ export function WriteRequestDetail() {
           </Alert>
         )}
 
-        {/* Queries */}
+        {/* Review card */}
         <div
           style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 14,
-            marginBottom: 18,
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: 16,
+            padding: 26,
+            boxShadow:
+              "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -18px rgba(15,23,42,0.18)",
           }}
         >
-          <SqlBlock
-            label="1 · Verify SELECT"
-            code={wr.selectSql}
-            dbType={wr.dbType}
-            accent="blue"
-          />
-          <SqlBlock
-            label="2 · Write statement"
-            code={wr.writeSql}
-            dbType={wr.dbType}
-            accent="orange"
-          />
-        </div>
-
-        {/* Review tools */}
-        <Group mb="md">
-          <Tooltip
-            label={`You need read access to ${wr.env} to preview rows`}
-            disabled={wr.viewerCanPreview !== false}
+          {/* Queries — write first, verify second */}
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: 22 }}
           >
-            <Button
-              size="xs"
-              variant="light"
-              color="blue"
-              leftSection={<IconPlayerPlay size={14} />}
-              onClick={runPreview}
-              loading={previewLoading}
-              disabled={!wr.selectSql || wr.viewerCanPreview === false}
-            >
-              Run SELECT preview
-            </Button>
-          </Tooltip>
-          <Button
-            size="xs"
-            variant="light"
-            color="primary"
-            leftSection={<IconSparkles size={14} />}
-            onClick={runAiReview}
-            loading={aiLoading}
-          >
-            {aiReview ? "Re-run AI review" : "Review with AI"}
-          </Button>
-        </Group>
-
-        {previewError && (
-          <Alert color="red" mb="md" variant="light">
-            {previewError}
-          </Alert>
-        )}
-        {preview && (
-          <div style={{ marginBottom: 18 }}>
-            <PreviewTable result={preview} />
-          </div>
-        )}
-        {aiReview && (
-          <div style={{ marginBottom: 18 }}>
-            <AiReviewCard review={aiReview} />
-          </div>
-        )}
-
-        {/* Decision actions */}
-        {canApprove && (
-          <>
-            <Divider my="md" />
-            {dangerous && (
-              <Alert
-                color="red"
-                mb="sm"
-                variant="light"
-                icon={<IconAlertTriangle size={16} />}
-              >
-                AI flagged this write as high-risk. Review the preview and blast
-                radius carefully before approving.
-              </Alert>
-            )}
-            <Group>
-              <Button
-                color="green"
-                leftSection={<IconThumbUp size={16} />}
-                onClick={() => {
-                  setNotes("");
-                  setDecisionModal("approve");
-                }}
-              >
-                Approve &amp; run
-              </Button>
-              <Button
-                color="red"
-                variant="light"
-                leftSection={<IconThumbDown size={16} />}
-                onClick={() => {
-                  setNotes("");
-                  setDecisionModal("reject");
-                }}
-              >
-                Reject
-              </Button>
-            </Group>
-          </>
-        )}
-
-        {wr.status === "PENDING" && !wr.viewerCanApprove && !canCancel && (
-          <Alert
-            color="gray"
-            variant="light"
-            mt="md"
-            icon={<IconClock size={16} />}
-          >
-            Waiting for an approver in {wr.env}.
-          </Alert>
-        )}
-
-        {canCancel && (
-          <>
-            <Divider my="md" />
-            <Group justify="space-between">
-              <Text size="sm" c="dimmed">
-                Waiting for an approver in {wr.env}.
-              </Text>
-              <Button
-                color="gray"
-                variant="light"
-                leftSection={<IconX size={16} />}
-                onClick={handleCancel}
-              >
-                Cancel request
-              </Button>
-            </Group>
-          </>
-        )}
-
-        {/* Timeline */}
-        {wr.events && wr.events.length > 0 && (
-          <>
-            <Divider my="lg" label="Activity" labelPosition="left" />
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {wr.events.map((ev) => (
-                <Group key={ev.id} gap={10} wrap="nowrap" align="flex-start">
-                  <Badge
-                    size="xs"
-                    variant="light"
-                    color={EVENT_COLORS[ev.event] || "gray"}
-                    style={{ minWidth: 96, overflow: "visible" }}
+            <SqlBlock
+              step={1}
+              label="Write statement"
+              hint="the change this request will apply · single INSERT / UPDATE / DELETE"
+              code={wr.writeSql}
+              dbType={wr.dbType}
+              accent="orange"
+              barTone="amber"
+              barLabel="WRITES DATA — RUNS ON APPROVAL"
+              barIcon={<IconArrowBarToUp size={13} />}
+            />
+            <SqlBlock
+              step={2}
+              label="Verify SELECT"
+              hint="a read-only query that previews the rows the write will affect"
+              code={wr.selectSql}
+              dbType={wr.dbType}
+              accent="gray"
+              barTone="neutral"
+              barLabel="READ-ONLY PREVIEW QUERY"
+              barIcon={<IconEye size={13} />}
+              footer={
+                <Group gap={12} align="center" wrap="nowrap">
+                  <Tooltip
+                    label={`You need read access to ${wr.env} to preview rows`}
+                    disabled={wr.viewerCanPreview !== false}
                   >
-                    {ev.event}
-                  </Badge>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <Text size="xs" c="secondary.9">
-                      {ev.actorEmail}
-                      {ev.notes ? (
-                        <Text component="span" size="xs" c="dimmed">
-                          {" "}
-                          — {ev.notes}
-                        </Text>
-                      ) : null}
-                    </Text>
-                    <Text size="10px" c="dimmed">
-                      {fmtDateTime(ev.timestamp)}
-                    </Text>
-                  </div>
+                    <Button
+                      size="xs"
+                      variant="default"
+                      leftSection={<IconPlayerPlay size={14} />}
+                      onClick={runPreview}
+                      loading={previewLoading}
+                      disabled={!wr.selectSql || wr.viewerCanPreview === false}
+                    >
+                      Run this SELECT
+                    </Button>
+                  </Tooltip>
+                  <Text size="xs" c="dimmed">
+                    {previewNote}
+                  </Text>
                 </Group>
-              ))}
+              }
+            />
+          </div>
+
+          {previewError && (
+            <Alert color="red" mt="md" variant="light">
+              {previewError}
+            </Alert>
+          )}
+          {preview && (
+            <div style={{ marginTop: 16 }}>
+              <PreviewTable result={preview} />
             </div>
-          </>
-        )}
+          )}
+
+          {/* AI review panel — inline, above the decision bar */}
+          {(aiLoading || aiReview) && (
+            <div style={{ marginTop: 20 }}>
+              {aiLoading ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    border: "1px solid var(--border)",
+                    borderRadius: 12,
+                    background: "var(--surface2)",
+                    padding: "14px 16px",
+                  }}
+                >
+                  <Loader size={16} color="grape" />
+                  <Text size="sm" c="dimmed">
+                    Analyzing the write and verify SELECT…
+                  </Text>
+                </div>
+              ) : aiReview ? (
+                <AiReviewCard review={aiReview} />
+              ) : null}
+            </div>
+          )}
+
+          {/* Decision bar */}
+          {showDecisionBar && (
+            <>
+              <Divider my="lg" />
+              {canApprove && dangerous && (
+                <Alert
+                  color="red"
+                  mb="md"
+                  variant="light"
+                  icon={<IconAlertTriangle size={16} />}
+                >
+                  AI flagged this write as high-risk. Review the preview and
+                  blast radius carefully before approving.
+                </Alert>
+              )}
+              <Group justify="space-between" align="center" wrap="wrap" gap={12}>
+                <div>
+                  {showAiButton && (
+                    <Button
+                      variant="light"
+                      color="primary"
+                      leftSection={<IconSparkles size={16} />}
+                      onClick={runAiReview}
+                      loading={aiLoading}
+                    >
+                      {aiReview ? "Re-run AI review" : "Review with AI"}
+                    </Button>
+                  )}
+                </div>
+                <Group gap={10}>
+                  {canApprove && (
+                    <>
+                      <Button
+                        variant="default"
+                        leftSection={<IconThumbDown size={16} />}
+                        onClick={() => {
+                          setNotes("");
+                          setDecisionModal("reject");
+                        }}
+                        style={{
+                          color: "var(--mantine-color-red-7)",
+                          borderColor: "var(--mantine-color-red-3)",
+                        }}
+                      >
+                        Reject
+                      </Button>
+                      <Button
+                        color="green"
+                        leftSection={<IconThumbUp size={16} />}
+                        onClick={() => {
+                          setNotes("");
+                          setDecisionModal("approve");
+                        }}
+                      >
+                        Approve &amp; run
+                      </Button>
+                    </>
+                  )}
+                  {canCancel && (
+                    <Button
+                      variant="default"
+                      color="gray"
+                      leftSection={<IconX size={16} />}
+                      onClick={handleCancel}
+                    >
+                      Cancel request
+                    </Button>
+                  )}
+                </Group>
+              </Group>
+            </>
+          )}
+
+          {wr.status === "PENDING" && !wr.viewerCanApprove && !canCancel && (
+            <Alert
+              color="gray"
+              variant="light"
+              mt="md"
+              icon={<IconClock size={16} />}
+            >
+              Waiting for an approver in {wr.env}.
+            </Alert>
+          )}
+
+          {/* Timeline */}
+          {wr.events && wr.events.length > 0 && (
+            <>
+              <Divider
+                my="lg"
+                labelPosition="left"
+                label={
+                  <Text
+                    size="xs"
+                    fw={700}
+                    c="dimmed"
+                    tt="uppercase"
+                    style={{ letterSpacing: 0.6 }}
+                  >
+                    Activity
+                  </Text>
+                }
+              />
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 12 }}
+              >
+                {wr.events.map((ev) => (
+                  <Group key={ev.id} gap={10} wrap="nowrap" align="flex-start">
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        width: 8,
+                        height: 8,
+                        marginTop: 5,
+                        borderRadius: "50%",
+                        background: `var(--mantine-color-${EVENT_COLORS[ev.event] || "gray"}-6)`,
+                      }}
+                    />
+                    <Badge
+                      size="xs"
+                      variant="light"
+                      color={EVENT_COLORS[ev.event] || "gray"}
+                      style={{ minWidth: 96, overflow: "visible" }}
+                    >
+                      {ev.event}
+                    </Badge>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <Text size="xs" c="secondary.9">
+                        {ev.actorEmail}
+                        {ev.notes ? (
+                          <Text component="span" size="xs" c="dimmed">
+                            {" "}
+                            — {ev.notes}
+                          </Text>
+                        ) : null}
+                      </Text>
+                      <Text size="10px" c="dimmed">
+                        {fmtDateTime(ev.timestamp)}
+                      </Text>
+                    </div>
+                  </Group>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Decision modal */}
       <Modal
         opened={!!decisionModal}
         onClose={() => setDecisionModal(null)}
+        centered
+        radius={16}
+        size={460}
+        overlayProps={{ backgroundOpacity: 0.55, blur: 3 }}
         title={
-          decisionModal === "approve"
-            ? "Approve & run write"
-            : "Reject write request"
+          <Group gap={12} align="center" wrap="nowrap">
+            <div
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 10,
+                flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background:
+                  decisionModal === "reject"
+                    ? "var(--mantine-color-red-1)"
+                    : "var(--mantine-color-green-1)",
+                color:
+                  decisionModal === "reject"
+                    ? "var(--mantine-color-red-7)"
+                    : "var(--mantine-color-green-7)",
+              }}
+            >
+              {decisionModal === "reject" ? (
+                <IconAlertTriangle size={20} />
+              ) : (
+                <IconThumbUp size={20} />
+              )}
+            </div>
+            <Text fw={700} size="md" c="secondary.9">
+              {decisionModal === "approve"
+                ? "Approve & run write"
+                : "Reject write request"}
+            </Text>
+          </Group>
         }
-        size="md"
       >
-        {decisionModal === "approve" && (
+        {decisionModal === "reject" ? (
+          <Text size="sm" c="dimmed" mb="md">
+            The requester will be notified and this can&apos;t be undone.
+          </Text>
+        ) : (
           <Alert
             color={dangerous ? "red" : "yellow"}
             variant="light"
-            mb="sm"
+            mb="md"
             icon={<IconAlertTriangle size={16} />}
           >
             This will execute the write statement against{" "}
@@ -600,6 +751,7 @@ export function WriteRequestDetail() {
               ? "Approval note (optional)"
               : "Reason for rejection"
           }
+          required={decisionModal === "reject"}
           placeholder={
             decisionModal === "approve"
               ? "Looks correct, verified against preview…"
@@ -608,23 +760,20 @@ export function WriteRequestDetail() {
           value={notes}
           onChange={(e) => setNotes(e.currentTarget.value)}
           autosize
-          minRows={2}
-          mb="md"
+          minRows={decisionModal === "reject" ? 3 : 2}
+          mb="lg"
         />
-        <Group justify="flex-end">
-          <Button
-            variant="subtle"
-            color="gray"
-            onClick={() => setDecisionModal(null)}
-          >
+        <Group justify="flex-end" gap={8}>
+          <Button variant="default" onClick={() => setDecisionModal(null)}>
             Cancel
           </Button>
           <Button
             color={decisionModal === "approve" ? "green" : "red"}
             loading={deciding}
+            disabled={decisionModal === "reject" && !notes.trim()}
             onClick={submitDecision}
           >
-            {decisionModal === "approve" ? "Approve & run" : "Reject"}
+            {decisionModal === "approve" ? "Approve & run" : "Reject request"}
           </Button>
         </Group>
       </Modal>

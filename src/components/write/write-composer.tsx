@@ -7,7 +7,6 @@ import {
   Select,
   TextInput,
   Textarea,
-  Badge,
   Alert,
 } from "@mantine/core";
 import {
@@ -17,6 +16,7 @@ import {
   IconSparkles,
   IconWand,
   IconInfoCircle,
+  IconEye,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useStore } from "../../store";
@@ -28,7 +28,7 @@ import type {
   WriteAiReview,
   DatabaseType,
 } from "../../types";
-import { EnvBadge, PreviewTable, AiReviewCard } from "./shared";
+import { EnvBadge, PreviewTable, AiReviewCard, StepBadge } from "./shared";
 
 function monacoLang(dbType?: DatabaseType): string {
   if (dbType === "mongodb") return "javascript";
@@ -389,11 +389,42 @@ export function WriteComposer({
       ? "Run write"
       : "Submit for approval";
 
+  // Mockup-style env strip colors: teal for direct, amber for approval.
+  const modeMeta = isDirect
+    ? {
+        label: "Direct write · runs immediately",
+        text: "var(--accent)",
+        dot: "var(--accent)",
+        halo: "rgba(31,145,150,0.18)",
+      }
+    : {
+        label: "Approval required · second reviewer",
+        text: "#b47707",
+        dot: "#e0a020",
+        halo: "rgba(224,160,32,0.18)",
+      };
+
+  // A light hint mirroring the current (unchanged) required-field gating.
+  const runHint = !title.trim()
+    ? "Add a title"
+    : !connectionId
+      ? "Pick a connection"
+      : !writeSql.trim()
+        ? "Write a statement first"
+        : !selectSql.trim()
+          ? "Add a verify SELECT"
+          : "";
+
+  const previewNote = preview
+    ? `Preview ran · ${preview.totalRows} row(s) returned`
+    : "Runs the verify SELECT only — read-only, changes nothing";
+
   return (
     <div>
-      <Group grow mb="sm" align="flex-start">
+      <Group grow mb="md" align="flex-start">
         <TextInput
           label="Title"
+          radius="md"
           placeholder="e.g. Fix duplicated patient status"
           value={title}
           onChange={(e) => setTitle(e.currentTarget.value)}
@@ -401,6 +432,7 @@ export function WriteComposer({
         {lockConnectionId ? (
           <TextInput
             label="Target connection"
+            radius="md"
             value={
               conn
                 ? `${conn.env} · ${conn.name} · ${conn.type}`
@@ -412,6 +444,7 @@ export function WriteComposer({
         ) : (
           <Select
             label="Target connection"
+            radius="md"
             data={connectionOptions}
             value={connectionId}
             onChange={setConnectionId}
@@ -422,59 +455,88 @@ export function WriteComposer({
       </Group>
       <Textarea
         label="Description / reason (optional)"
+        radius="md"
         placeholder="Why is this change needed? Link a ticket if relevant."
         value={description}
         onChange={(e) => setDescription(e.currentTarget.value)}
         autosize
         minRows={1}
         maxRows={3}
-        mb="sm"
+        mb="md"
       />
 
       {conn && (
-        <Group gap={8} mb="sm">
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+            padding: "11px 14px",
+            background: "var(--surface2)",
+            border: "1px solid var(--border)",
+            borderRadius: 11,
+            marginBottom: 16,
+          }}
+        >
           <EnvBadge env={conn.env} />
-          <Badge
-            size="sm"
-            variant="light"
-            color={isDirect ? "green" : "yellow"}
-            style={{ overflow: "visible" }}
+          <span
+            style={{ width: 1, height: 16, background: "var(--border)" }}
+          />
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 7,
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: modeMeta.text,
+            }}
           >
-            {isDirect ? "Direct write (runs immediately)" : "Requires approval"}
-          </Badge>
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: modeMeta.dot,
+                boxShadow: `0 0 0 3px ${modeMeta.halo}`,
+              }}
+            />
+            {modeMeta.label}
+          </span>
           {conn.database && (
-            <Text size="xs" c="dimmed" ff="monospace">
+            <Text
+              size="xs"
+              c="dimmed"
+              ff="monospace"
+              style={{ marginLeft: "auto" }}
+            >
               {conn.database}
             </Text>
           )}
-        </Group>
+        </div>
       )}
 
       {/* 1 · Write statement */}
-      <Text
-        size="xs"
-        fw={700}
-        tt="uppercase"
-        c="dimmed"
-        mb={4}
-        mt="xs"
-        style={{ letterSpacing: 0.5 }}
-      >
-        1 · Write statement{" "}
-        <Text component="span" size="xs" c="dimmed" fw={400} tt="none">
-          — what you want to do (single INSERT / UPDATE / DELETE)
+      <Group gap={8} mb={9} align="center">
+        <StepBadge n={1} />
+        <Text size="sm" fw={600} c="secondary.9">
+          Write statement
         </Text>
-      </Text>
+        <Text size="xs" c="dimmed">
+          single INSERT / UPDATE / DELETE
+        </Text>
+      </Group>
       <div
         style={{
-          border: "1px solid var(--mantine-color-orange-3)",
-          borderRadius: 8,
+          border: "1px solid rgba(31,145,150,0.35)",
+          borderRadius: 12,
           overflow: "hidden",
-          marginBottom: 12,
+          marginBottom: 20,
         }}
       >
         <Editor
-          height="110px"
+          height="132px"
           language={monacoLang(dbType)}
           theme="vs"
           value={writeSql}
@@ -487,45 +549,66 @@ export function WriteComposer({
       </div>
 
       {/* 2 · Verify SELECT */}
-      <Group justify="space-between" align="flex-end" mb={4}>
-        <Text
-          size="xs"
-          fw={700}
-          tt="uppercase"
-          c="dimmed"
-          style={{ letterSpacing: 0.5 }}
-        >
-          2 · Verify SELECT{" "}
-          <Text component="span" size="xs" c="red" fw={600} tt="none">
-            (required)
-          </Text>
-          <Text component="span" size="xs" c="dimmed" fw={400} tt="none">
-            {" "}
-            — previews the rows the write will affect
-          </Text>
+      <Group gap={8} mb={9} align="center">
+        <StepBadge n={2} />
+        <Text size="sm" fw={600} c="secondary.9">
+          Verify SELECT
         </Text>
-        <Button
-          size="compact-xs"
-          variant="light"
-          color="teal"
-          leftSection={<IconWand size={13} />}
-          onClick={handleGenerateSelect}
-          loading={genSelecting}
-          disabled={!writeSql.trim() || !connectionId}
-        >
-          Generate from write
-        </Button>
+        <Text size="xs" c="red" fw={600}>
+          required
+        </Text>
+        <Text size="xs" c="dimmed">
+          a read-only query that previews the rows the write will affect
+        </Text>
       </Group>
       <div
         style={{
           border: "1px solid var(--border)",
-          borderRadius: 8,
+          borderRadius: 12,
           overflow: "hidden",
-          marginBottom: 8,
+          background: "var(--surface)",
         }}
       >
+        {/* header bar */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+            padding: "8px 10px 8px 14px",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--surface2)",
+          }}
+        >
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 7,
+              fontSize: 11.5,
+              fontWeight: 600,
+              letterSpacing: "0.02em",
+              color: "var(--muted)",
+            }}
+          >
+            <IconEye size={13} />
+            READ-ONLY PREVIEW QUERY
+          </span>
+          <Button
+            size="compact-xs"
+            variant="light"
+            color="teal"
+            leftSection={<IconWand size={13} />}
+            onClick={handleGenerateSelect}
+            loading={genSelecting}
+            disabled={!writeSql.trim() || !connectionId}
+          >
+            Generate from write
+          </Button>
+        </div>
         <Editor
-          height="110px"
+          height="104px"
           language={monacoLang(dbType)}
           theme="vs"
           value={selectSql}
@@ -535,33 +618,46 @@ export function WriteComposer({
           }}
           options={editorOptions(SELECT_PLACEHOLDERS[dbType || "postgres"])}
         />
-      </div>
-      <Group mb="md">
-        <Button
-          size="xs"
-          variant="light"
-          color="blue"
-          leftSection={<IconPlayerPlay size={14} />}
-          onClick={handlePreview}
-          loading={previewLoading}
-          disabled={!selectSql.trim() || !connectionId}
+        {/* footer bar */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            padding: "9px 12px",
+            borderTop: "1px solid var(--border)",
+            background: "var(--surface2)",
+          }}
         >
-          Run preview
-        </Button>
-      </Group>
+          <Button
+            size="xs"
+            variant="light"
+            color="blue"
+            leftSection={<IconPlayerPlay size={14} />}
+            onClick={handlePreview}
+            loading={previewLoading}
+            disabled={!selectSql.trim() || !connectionId}
+          >
+            Run this SELECT
+          </Button>
+          <Text size="xs" c="dimmed">
+            {previewNote}
+          </Text>
+        </div>
+      </div>
       {previewError && (
-        <Alert color="red" mb="md" variant="light">
+        <Alert color="red" mt="md" variant="light">
           {previewError}
         </Alert>
       )}
       {preview && (
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginTop: 16 }}>
           <PreviewTable result={preview} />
         </div>
       )}
 
       {aiReview && (
-        <div style={{ marginBottom: 12 }}>
+        <div style={{ marginTop: 20 }}>
           <AiReviewCard review={aiReview} onApply={applySuggestion} />
         </div>
       )}
@@ -575,14 +671,14 @@ export function WriteComposer({
           autosize
           minRows={1}
           maxRows={3}
-          mb="md"
+          mt="md"
         />
       )}
 
       {!writeModeEnabled && (
         <Alert
           color="red"
-          mb="md"
+          mt="md"
           variant="light"
           icon={<IconInfoCircle size={16} />}
         >
@@ -591,7 +687,13 @@ export function WriteComposer({
         </Alert>
       )}
 
-      <Group justify="space-between">
+      <Group
+        justify="space-between"
+        align="center"
+        mt="lg"
+        pt="md"
+        style={{ borderTop: "1px solid var(--border)" }}
+      >
         <Button
           size="sm"
           variant="light"
@@ -603,7 +705,12 @@ export function WriteComposer({
         >
           Review with AI
         </Button>
-        <Group gap={8}>
+        <Group gap={12} align="center">
+          {runHint && (
+            <Text size="xs" c="dimmed">
+              {runHint}
+            </Text>
+          )}
           {onCancel && (
             <Button variant="subtle" color="gray" onClick={onCancel}>
               Cancel

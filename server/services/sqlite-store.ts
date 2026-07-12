@@ -1203,9 +1203,11 @@ export function addWriteRequestEvent(
 }
 
 export function getWriteRequestEvents(requestId: string): WriteRequestEvent[] {
+  // Newest first for the detail-page activity timeline. timestamp is only
+  // second-precision, so rowid breaks ties by insertion order (also descending).
   const rows = db
     .prepare(
-      "SELECT * FROM write_request_events WHERE request_id = ? ORDER BY timestamp ASC",
+      "SELECT * FROM write_request_events WHERE request_id = ? ORDER BY timestamp DESC, rowid DESC",
     )
     .all(requestId) as any[];
   return rows.map((r) => ({

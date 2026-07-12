@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import Editor from "@monaco-editor/react";
 import {
   Badge,
@@ -28,6 +28,29 @@ function monacoLang(dbType?: DatabaseType): string {
   if (dbType === "mongodb") return "javascript";
   if (dbType === "elasticsearch") return "plaintext";
   return "sql";
+}
+
+/** Small numbered circle used to head each step in the write flow. */
+export function StepBadge({ n }: { n: number }) {
+  return (
+    <span
+      style={{
+        flexShrink: 0,
+        width: 20,
+        height: 20,
+        borderRadius: 999,
+        background: "rgba(31,145,150,0.12)",
+        color: "var(--accent)",
+        fontSize: 12,
+        fontWeight: 700,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {n}
+    </span>
+  );
 }
 
 /** Read-only, syntax-highlighted query view that auto-sizes to its content. */
@@ -83,48 +106,119 @@ export function SqlBlock({
   code,
   dbType,
   accent = "gray",
+  step,
+  hint,
+  barLabel,
+  barIcon,
+  barTone = "neutral",
+  footer,
 }: {
   label: string;
   code: string;
   dbType?: DatabaseType;
   accent?: string;
+  /** Optional numbered step badge to head the block. */
+  step?: number;
+  /** Optional muted hint shown after the label. */
+  hint?: string;
+  /** Optional colored header bar inside the box stating the query's nature. */
+  barLabel?: string;
+  barIcon?: ReactNode;
+  barTone?: "amber" | "neutral";
+  /** Optional footer row rendered inside the box, below the code. */
+  footer?: ReactNode;
 }) {
+  const bar =
+    barTone === "amber"
+      ? {
+          color: "#b47707",
+          background: "rgba(224,160,32,0.10)",
+          border: "rgba(224,160,32,0.28)",
+        }
+      : {
+          color: "var(--muted)",
+          background: "var(--surface2)",
+          border: "var(--border)",
+        };
   return (
     <div>
-      <Text
-        size="xs"
-        fw={700}
-        tt="uppercase"
-        c="dimmed"
-        mb={4}
-        style={{ letterSpacing: 0.5 }}
-      >
-        {label}
-      </Text>
-      {code?.trim() ? (
-        <div
-          style={{
-            border: `1px solid var(--mantine-color-${accent}-3, var(--border))`,
-            borderRadius: 8,
-            overflow: "hidden",
-          }}
-        >
-          <SqlView code={code} dbType={dbType} />
-        </div>
+      {step != null ? (
+        <Group gap={8} mb={7} align="center">
+          <StepBadge n={step} />
+          <Text size="sm" fw={600} c="secondary.9">
+            {label}
+          </Text>
+          {hint && (
+            <Text size="xs" c="dimmed">
+              {hint}
+            </Text>
+          )}
+        </Group>
       ) : (
-        <div
-          style={{
-            border: "1px solid var(--border)",
-            borderRadius: 8,
-            padding: "10px 14px",
-            fontFamily: "IBM Plex Mono, monospace",
-            fontSize: 12.5,
-            color: "var(--muted)",
-          }}
+        <Text
+          size="xs"
+          fw={700}
+          tt="uppercase"
+          c="dimmed"
+          mb={4}
+          style={{ letterSpacing: 0.5 }}
         >
-          (empty)
-        </div>
+          {label}
+        </Text>
       )}
+      <div
+        style={{
+          border: `1px solid var(--mantine-color-${accent}-3, var(--border))`,
+          borderRadius: 12,
+          overflow: "hidden",
+          background: "var(--surface)",
+        }}
+      >
+        {barLabel && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              padding: "8px 14px",
+              borderBottom: `1px solid ${bar.border}`,
+              background: bar.background,
+              color: bar.color,
+              fontSize: 11.5,
+              fontWeight: 700,
+              letterSpacing: "0.04em",
+            }}
+          >
+            {barIcon}
+            {barLabel}
+          </div>
+        )}
+        {code?.trim() ? (
+          <SqlView code={code} dbType={dbType} />
+        ) : (
+          <div
+            style={{
+              padding: "10px 14px",
+              fontFamily: "IBM Plex Mono, monospace",
+              fontSize: 12.5,
+              color: "var(--muted)",
+            }}
+          >
+            (empty)
+          </div>
+        )}
+        {footer && (
+          <div
+            style={{
+              borderTop: "1px solid var(--border)",
+              background: "var(--surface2)",
+              padding: "9px 12px",
+            }}
+          >
+            {footer}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
