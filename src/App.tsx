@@ -5,6 +5,7 @@ import { api } from "./utils/api-client";
 import { LoginScreen } from "./components/auth/login-screen";
 import { TopBar } from "./components/layout/top-bar";
 import { Sidebar } from "./components/layout/sidebar";
+import { Footer } from "./components/layout/footer";
 import { QueryWorkspace } from "./components/query/query-workspace";
 import { PhiConfigPanel } from "./components/phi/phi-config-panel";
 import { PhiUnmaskModal } from "./components/phi/phi-unmask-modal";
@@ -107,6 +108,7 @@ function AuthenticatedApp() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
+      <Footer />
       <PhiUnmaskModal />
     </div>
   );
