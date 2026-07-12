@@ -2,10 +2,15 @@
 
 Guidance for Claude Code (claude.ai/code) working with this repo.
 
+D-Pilot is an internal, read-first SQL explorer for Baylor Genetics databases: PHI
+tokenization, an AI query assistant, a governed write-approval workflow, multi-database
+support, and per-environment capability-based access control. See `README.md` for the
+full feature list and deployment guide.
+
 ## Commands
 
 ```bash
-npm run dev              # Run server + client concurrently (server :3101, client :3100)
+npm run dev              # Server + client concurrently (server :3101, client :3100)
 npm run dev:server       # Server only (tsx watch, port 3101)
 npm run dev:client       # Vite dev server only (port 3100)
 npm run build            # Production build: vite build + tsc -p tsconfig.server.json
@@ -14,45 +19,55 @@ npm run lint             # ESLint (.ts, .tsx)
 npm run format           # Prettier
 ```
 
+`predev` frees the dev ports first (`scripts/free-ports.mjs`). Ports are set in `.env`
+(`PORT`, `VITE_PORT`).
+
 ## Architecture
 
-Full-stack TypeScript app: React 19 frontend + Express backend, single repo.
+Full-stack TypeScript, single repo: React 19 SPA (`/src`) + Express backend (`/server`),
+with SQLite (better-sqlite3, WAL) as the app's own store. Target databases are queried
+read-only; writes only flow through the governed write workflow.
 
-### Frontend (`/src`)
+**Request flow:** Client → `src/utils/api-client.ts` (adds JWT + PHI headers) → Express →
+`authMiddleware` (JWT verify, capability model) → route handler → `query-executor` /
+`write-executor` (validate + run on target DB) → `phi-masking` (mask results) → audit log
+→ response.
 
-- **UI**: Mantine v8, Tabler Icons, AG Grid (results table), Monaco Editor (SQL editor)
-- **State**: Zustand single store (`src/store/index.ts`) — auth, connections, tabs, PHI shield, saved queries, UI state
-- **Routing**: React Router v7 — `/` (query workspace), `/profile`, `/settings` (admin)
-- **API client**: `src/utils/api-client.ts` — fetch wrapper injecting Bearer token + PHI headers (`X-PHI-Shield`, `X-PHI-Unmask-Reason`, `X-PHI-Unmask-Notes`). Auto-logout on 401
-- **Tab persistence**: `src/utils/tab-persistence.ts` — localStorage w/ 500ms debounce, restores tabs/connection/sidebar on reload
-- **Path alias**: `@src/*` → `./src/*`
+Detailed guidance lives with the code — read these when working in each area:
+- **`server/CLAUDE.md`** — routes, services, SQLite schema, PHI masking, write workflow, AI, auth.
+- **`src/CLAUDE.md`** — components, Zustand store, routing, api-client, utils.
 
-### Backend (`/server`)
+### Cross-cutting rules (apply everywhere)
 
-- **Entry**: `server/index.ts` — Express app, middleware chain, route mounting
-- **Auth**: JWT (`server/middleware/auth.ts`) — bcrypt hashing, role-based (admin/phi_viewer/read), env-based access control
-- **Query execution**: `server/services/query-executor.ts` — PostgreSQL, MSSQL, MongoDB, Elasticsearch. Read-only enforced (blocks DML/DDL). Auto-injects LIMIT if missing (default 500, max 10,000)
-- **PHI masking**: `server/services/phi-masking.ts` — pattern-based column matching, types: FULL/PARTIAL/HASH/REDACT. Rules in SQLite `phi_field_rules` table. `alwaysMasked` fields can't unmask
-- **Schema introspection**: `server/services/schema-introspector.ts` — table/column discovery per DB type
-- **App database**: SQLite via better-sqlite3 (`data/dbpilot.sqlite`, WAL mode). Tables: users, saved_queries, phi_field_rules, audit_log, app_settings
-- **Connections**: from `DBFORGE_CONNECTIONS` env var (JSON array), cached in `server/config/connections.ts`
-
-### Request Flow
-
-Client → `api-client.ts` (adds JWT + PHI headers) → Express → `authMiddleware` (JWT verify + env access check) → route handler → `query-executor.ts` (validate SQL, execute on target DB) → `phi-masking.ts` (mask results) → audit log → response
-
-### Key Types (`/src/types/index.ts`)
-
-- `QueryTab`: id, title, sql, connectionId, result, loading, error, viewMode
-- `QueryResult`: columns (with isMasked, maskingType), rows, totalRows, executionTimeMs, truncated
-- `Connection`: id, name, env (DEV/QA/STG/PROD), type (postgres/mssql/mongodb/elasticsearch)
+- **Capability-based access, scoped per environment** (`DEV`/`QA`/`UAT`/`STG`/`PROD`).
+  A user has `isAdmin` plus four env lists: read (`allowedEnvironments`), unmask PHI
+  (`unmaskEnvironments`), write (`writeEnvironments`), approve (`approveEnvironments`).
+  Admin implies all capabilities on all envs. There is **no** legacy `role` column — it
+  was migrated to capabilities (see `initAuthTables` in `server/middleware/auth.ts`).
+- **PROD safety rails always apply**, regardless of capabilities: PROD is always PHI-tokenized
+  (cannot be turned off) and PROD writes always require a second approver (no direct execute).
+- **In-app config, not env vars:** masked environments, PHI rules, write-mode toggle, and
+  direct-write environments live in the SQLite `app_settings`/`phi_field_rules` tables and
+  are edited in Settings — not in `.env`. (Legacy `PHI_ALWAYS_MASKED` / `PHI_ADMIN_CAN_UNMASK`
+  env vars are no longer read.)
+- **Types are duplicated** by design: `src/types/index.ts` (frontend) and
+  `server/types/index.ts` (backend) — keep shared shapes (`Environment`, `MaskingType`,
+  `WriteRequest`, etc.) in sync when you change one.
 
 ## Environment
 
-Copy `.env.example` → `.env`. Key vars: `JWT_SECRET`, `DBFORGE_CONNECTIONS` (JSON array of DB connections), `PORT` (3101), `VITE_PORT` (3100), `MAX_ROWS` (10000), `QUERY_TIMEOUT_MS` (90000).
+Copy `.env.example` → `.env`. Key vars: `JWT_SECRET`, `DBFORGE_CONNECTIONS` (JSON array of
+target DB connections), `PORT` (3101), `VITE_PORT` (3100), `MAX_ROWS` (10000),
+`QUERY_TIMEOUT_MS` (90000), `SCHEMA_CACHE_TTL_HOURS` (24), `AZURE_OPENAI_*` (optional AI),
+`APP_NAME`/`LOGO_URL`/`LIGHT_LOGO_URL`/`FAVICON_URL` (branding), `EMAIL_DOMAIN`,
+`DEFAULT_ADMIN_PASSWORD` (first-run admin seed). Full reference in `README.md`.
 
 ## Conventions
 
-- Husky + commitlint enforce conventional commits
-- Vite dev server proxies `/api` → Express server
-- Production: Express serves built client static from `dist/client/`
+- Husky + commitlint enforce Conventional Commits. **Do not add `Co-Authored-By` trailers**
+  — commitlint rejects them here.
+- `semantic-release` (`.releaserc.json`, `.github/workflows/release.yml`) derives the version
+  and `CHANGELOG.md` from commit messages on release — commit types matter.
+- Vite dev server proxies `/api` → Express. In production Express serves the built client
+  from `dist/client/`.
+- Path alias `@src/*` → `./src/*`.
