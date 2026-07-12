@@ -1,6 +1,6 @@
 {
   "name": "cep-db-pilot",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "CEP DB Pilot — Internal SQL Explorer with PHI Masking",
   "private": true,
   "type": "module",
