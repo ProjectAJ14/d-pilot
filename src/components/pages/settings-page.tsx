@@ -19,6 +19,9 @@ import {
   NavLink,
   SimpleGrid,
   Loader,
+  Textarea,
+  CopyButton,
+  Divider,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
@@ -47,10 +50,15 @@ import {
   IconPencilBolt,
   IconBolt,
   IconLock,
+  IconWand,
+  IconClipboardCheck,
+  IconMail,
 } from "@tabler/icons-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
+import { copyToClipboard } from "../../utils/clipboard";
+import { generatePassword } from "../../utils/password";
 import type {
   User,
   PhiFieldRule,
@@ -752,6 +760,7 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
   const [editUser, setEditUser] = useState<User | null>(null);
   const [deleteUser, setDeleteUser] = useState<User | null>(null);
   const [resetPwUser, setResetPwUser] = useState<User | null>(null);
+  const [credentials, setCredentials] = useState<CredentialInfo | null>(null);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -910,6 +919,7 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
         opened={addModalOpen}
         onClose={() => setAddModalOpen(false)}
         onSuccess={loadUsers}
+        onCreated={setCredentials}
         emailDomain={emailDomain}
       />
 
@@ -931,6 +941,13 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
       <ResetPasswordModal
         user={resetPwUser}
         onClose={() => setResetPwUser(null)}
+        onReset={setCredentials}
+      />
+
+      {/* Credentials handoff popup (after create / reset) */}
+      <CredentialsModal
+        info={credentials}
+        onClose={() => setCredentials(null)}
       />
     </>
   );
@@ -1010,11 +1027,13 @@ function AddUserModal({
   opened,
   onClose,
   onSuccess,
+  onCreated,
   emailDomain,
 }: {
   opened: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  onCreated: (info: CredentialInfo) => void;
   emailDomain: string | null;
 }) {
   const [email, setEmail] = useState("");
@@ -1026,6 +1045,13 @@ function AddUserModal({
   const [writeEnvs, setWriteEnvs] = useState<string[]>([]);
   const [approveEnvs, setApproveEnvs] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+
+  // Pre-fill a strong password when the modal opens so onboarding is one step
+  // shorter — the admin can still overwrite it or click Generate for a new one.
+  useEffect(() => {
+    if (opened && !password) setPassword(generatePassword());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opened]);
 
   const handleSave = async () => {
     if (emailDomain) {
@@ -1051,11 +1077,12 @@ function AddUserModal({
       return;
     }
 
+    const resolvedName = displayName || email.split("@")[0];
     setSaving(true);
     try {
       await api.createUser({
         email,
-        displayName: displayName || email.split("@")[0],
+        displayName: resolvedName,
         password,
         isAdmin,
         allowedEnvironments: readEnvs,
@@ -1063,12 +1090,15 @@ function AddUserModal({
         writeEnvironments: writeEnvs,
         approveEnvironments: approveEnvs,
       });
-      notifications.show({
-        message: "User created successfully",
-        color: "green",
-      });
       onClose();
       onSuccess();
+      // Hand the plaintext to the credentials popup before we clear the form.
+      onCreated({
+        mode: "created",
+        email,
+        displayName: resolvedName,
+        password,
+      });
       setEmail("");
       setDisplayName("");
       setPassword("");
@@ -1117,12 +1147,24 @@ function AddUserModal({
         approveEnvs={approveEnvs}
         setApproveEnvs={setApproveEnvs}
       />
+      <Group justify="space-between" align="center" mt="sm" mb={4}>
+        <Text size="sm" fw={500}>
+          Temporary Password
+        </Text>
+        <Button
+          variant="subtle"
+          size="compact-xs"
+          leftSection={<IconWand size={13} />}
+          onClick={() => setPassword(generatePassword())}
+        >
+          Generate
+        </Button>
+      </Group>
       <PasswordInput
-        label="Temporary Password"
         placeholder="At least 8 characters"
+        description="You'll get a copyable message with these credentials after the user is created"
         value={password}
         onChange={(e) => setPassword(e.currentTarget.value)}
-        mt="sm"
         mb="lg"
       />
       <Group justify="flex-end">
@@ -1368,12 +1410,19 @@ function DeleteUserModal({
 function ResetPasswordModal({
   user,
   onClose,
+  onReset,
 }: {
   user: User | null;
   onClose: () => void;
+  onReset: (info: CredentialInfo) => void;
 }) {
   const [newPassword, setNewPassword] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Fresh password field each time a different user is selected.
+  useEffect(() => {
+    setNewPassword("");
+  }, [user?.id]);
 
   const handleReset = async () => {
     if (!user || newPassword.length < 8) {
@@ -1386,11 +1435,14 @@ function ResetPasswordModal({
     setSaving(true);
     try {
       await api.resetUserPassword(user.id, newPassword);
-      notifications.show({
-        message: `Password reset for ${user.displayName}`,
-        color: "green",
-      });
       onClose();
+      // Hand the plaintext to the credentials popup before clearing the field.
+      onReset({
+        mode: "reset",
+        email: user.email || user.username,
+        displayName: user.displayName,
+        password: newPassword,
+      });
       setNewPassword("");
     } catch (err: any) {
       notifications.show({ message: err.message, color: "red" });
@@ -1404,9 +1456,22 @@ function ResetPasswordModal({
       <Text size="sm" mb="sm">
         Set a new password for <strong>{user?.displayName}</strong>
       </Text>
+      <Group justify="space-between" align="center" mb={4}>
+        <Text size="sm" fw={500}>
+          New Password
+        </Text>
+        <Button
+          variant="subtle"
+          size="compact-xs"
+          leftSection={<IconWand size={13} />}
+          onClick={() => setNewPassword(generatePassword())}
+        >
+          Generate
+        </Button>
+      </Group>
       <PasswordInput
-        label="New Password"
         placeholder="At least 8 characters"
+        description="You'll get a copyable message with the new credentials after resetting"
         value={newPassword}
         onChange={(e) => setNewPassword(e.currentTarget.value)}
         mb="lg"
@@ -1422,6 +1487,177 @@ function ResetPasswordModal({
         >
           Reset Password
         </Button>
+      </Group>
+    </Modal>
+  );
+}
+
+// ═══════════════════════════════════════
+// ── Credentials handoff (create / reset) ──
+// ═══════════════════════════════════════
+
+/** Plaintext credentials to hand to a user — only lives in the admin's browser. */
+export interface CredentialInfo {
+  mode: "created" | "reset";
+  email: string;
+  displayName: string;
+  password: string;
+}
+
+/**
+ * Build the formal onboarding / reset message an admin can forward verbatim.
+ * The password is only ever knowable at create/reset time (the server stores a
+ * hash), so we compose the message client-side from the value just submitted.
+ */
+function buildCredentialMessage(
+  info: CredentialInfo,
+  appName: string,
+  loginUrl: string,
+): string {
+  const name = info.displayName?.trim() || info.email;
+  const greeting = `Hi ${name},`;
+  const intro =
+    info.mode === "created"
+      ? `You've been given access to ${appName}. Here are your sign-in details:`
+      : `Your ${appName} password has been reset. Here are your updated sign-in details:`;
+  const outro =
+    info.mode === "created"
+      ? `Please sign in and change your password from the Profile page after your first login. Let me know if you run into any trouble.`
+      : `You can sign in with these right away. Let me know if you run into any trouble.`;
+
+  return [
+    greeting,
+    "",
+    intro,
+    "",
+    `  URL:      ${loginUrl}`,
+    `  Username: ${info.email}`,
+    `  Password: ${info.password}`,
+    "",
+    outro,
+  ].join("\n");
+}
+
+/** A single labeled credential row with an inline copy button. */
+function CredentialRow({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <Group justify="space-between" wrap="nowrap" gap="sm">
+      <div style={{ minWidth: 0 }}>
+        <Text size="xs" c="dimmed" fw={600}>
+          {label}
+        </Text>
+        <Text size="sm" ff={mono ? "monospace" : undefined} truncate>
+          {value}
+        </Text>
+      </div>
+      <Tooltip label={`Copy ${label.toLowerCase()}`}>
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          onClick={() => copyToClipboard(value, label)}
+        >
+          <IconCopy size={16} />
+        </ActionIcon>
+      </Tooltip>
+    </Group>
+  );
+}
+
+/**
+ * Post-create / post-reset popup. Shows the login URL, username and the
+ * plaintext password with per-field copy buttons, plus a ready-to-forward
+ * message the admin can copy in one click.
+ */
+function CredentialsModal({
+  info,
+  onClose,
+}: {
+  info: CredentialInfo | null;
+  onClose: () => void;
+}) {
+  const appName = useStore((s) => s.config.appName);
+  const loginUrl =
+    typeof window !== "undefined" ? window.location.origin : "";
+
+  if (!info) return null;
+
+  const message = buildCredentialMessage(info, appName, loginUrl);
+  const title =
+    info.mode === "created" ? "User created — share credentials" : "Password reset — share new credentials";
+
+  return (
+    <Modal opened={!!info} onClose={onClose} title={title} size="lg">
+      <Text size="sm" c="dimmed" mb="md">
+        {info.mode === "created" ? (
+          <>
+            <strong>{info.displayName}</strong> is ready to sign in. The password
+            is shown only here — copy it now before closing.
+          </>
+        ) : (
+          <>
+            The password for <strong>{info.displayName}</strong> has been updated.
+            It is shown only here — copy it now before closing.
+          </>
+        )}
+      </Text>
+
+      <div
+        style={{
+          border: "1px solid var(--border)",
+          borderRadius: 10,
+          padding: "12px 14px",
+          background: "var(--surface-2, rgba(0,0,0,0.02))",
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+        }}
+      >
+        <CredentialRow label="Login URL" value={loginUrl} mono />
+        <Divider />
+        <CredentialRow label="Username" value={info.email} mono />
+        <Divider />
+        <CredentialRow label="Password" value={info.password} mono />
+      </div>
+
+      <Text size="xs" c="dimmed" fw={600} mt="lg" mb={6}>
+        Message to forward
+      </Text>
+      <Textarea
+        value={message}
+        readOnly
+        autosize
+        minRows={8}
+        styles={{ input: { fontFamily: "var(--mantine-font-family-monospace)" } }}
+      />
+
+      <Group justify="space-between" mt="lg">
+        <CopyButton value={message}>
+          {({ copied, copy }) => (
+            <Button
+              variant="light"
+              color={copied ? "teal" : "primary"}
+              leftSection={
+                copied ? (
+                  <IconClipboardCheck size={16} />
+                ) : (
+                  <IconMail size={16} />
+                )
+              }
+              onClick={copy}
+            >
+              {copied ? "Message copied" : "Copy message"}
+            </Button>
+          )}
+        </CopyButton>
+        <Button onClick={onClose}>Done</Button>
       </Group>
     </Modal>
   );
