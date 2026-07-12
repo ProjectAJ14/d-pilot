@@ -1,12 +1,10 @@
 import { useMemo, useCallback, useRef, useEffect, useState } from "react";
 import { Text, Badge, SegmentedControl } from "@mantine/core";
-import { notifications } from "@mantine/notifications";
 import {
   IconShieldLock,
   IconAlertTriangle,
   IconTable,
   IconBraces,
-  IconCopy,
   IconEye,
   IconClick,
   IconCopyCheck,
@@ -25,6 +23,7 @@ import type { QueryTab, ResultViewMode } from "../../types";
 import { ResultsJsonView } from "./results-json-view";
 import { CellDetailDrawer, type CellDetail } from "./cell-detail-drawer";
 import { GridCellTooltip } from "./grid-cell-tooltip";
+import { copyToClipboard } from "../../utils/clipboard";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -71,36 +70,6 @@ function PhiCellRenderer(props: any) {
       {props.value ?? ""}
     </span>
   );
-}
-
-function copyToClipboard(text: string, label: string) {
-  const showSuccess = () => {
-    const display = text.length > 60 ? text.slice(0, 60) + "…" : text;
-    notifications.show({
-      message: `Copied ${label}: ${display}`,
-      color: "teal",
-      icon: <IconCopy size={16} />,
-      autoClose: 2000,
-    });
-  };
-
-  const fallback = () => {
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand("copy");
-    document.body.removeChild(textarea);
-    showSuccess();
-  };
-
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(text).then(showSuccess).catch(fallback);
-  } else {
-    fallback();
-  }
 }
 
 export function ResultsGrid({ tab }: Props) {

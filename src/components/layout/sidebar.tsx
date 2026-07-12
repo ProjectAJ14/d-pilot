@@ -9,6 +9,7 @@ import {
   Loader,
   Divider,
   Select,
+  Menu,
 } from "@mantine/core";
 import {
   IconChevronDown,
@@ -22,10 +23,17 @@ import {
   IconKey as IconPK,
   IconHistory,
   IconClock,
+  IconDots,
+  IconEye,
+  IconBraces,
+  IconCode,
+  IconAlignLeft,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
+import { copyToClipboard } from "../../utils/clipboard";
+import { buildTableMetadata, supportsDdl, type MetadataFormat } from "../../utils/schema-metadata";
 import type { ConnectionInfo, TableInfo, ColumnInfo, Environment, DatabaseType } from "../../types";
 
 const ENV_COLORS: Record<Environment, string> = {
@@ -83,6 +91,10 @@ export function Sidebar() {
   const [loadingConn, setLoadingConn] = useState<string | null>(null);
   const [loadingTable, setLoadingTable] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
+  // Right-click context menu for a table row (position + target table).
+  const [tableMenu, setTableMenu] = useState<
+    { x: number; y: number; connId: string; table: TableInfo } | null
+  >(null);
 
   const grouped = groupByEnv(connections);
 
@@ -161,6 +173,29 @@ export function Sidebar() {
         .then((cols) => setColumns((prev) => ({ ...prev, [key]: cols })))
         .catch(() => setColumns((prev) => ({ ...prev, [key]: [] })))
         .finally(() => setLoadingTable(null));
+    }
+  };
+
+  // Copy a table's structure/metadata (columns, types, keys, PHI flags) in the
+  // requested format. Fetches columns on demand if the table isn't expanded yet.
+  const copyTableMetadata = async (connId: string, table: TableInfo, format: MetadataFormat) => {
+    const conn = connections.find((c) => c.id === connId);
+    if (!conn) return;
+    const schema = explorerSchema[connId] ?? "";
+    const key = keyFor(connId, schema, table.name);
+    try {
+      let cols = columns[key];
+      if (!cols) {
+        cols = await api.getColumns(connId, table.name, schema || undefined);
+        setColumns((prev) => ({ ...prev, [key]: cols! }));
+      }
+      const { text, label } = buildTableMetadata(format, conn, table, cols);
+      copyToClipboard(text, label);
+    } catch (err: any) {
+      notifications.show({
+        message: `Failed to copy metadata: ${err.message}`,
+        color: "red",
+      });
     }
   };
 
@@ -519,6 +554,10 @@ export function Sidebar() {
                                       <div
                                         onClick={() => toggleTable(conn.id, table.name)}
                                         onDoubleClick={() => doubleClickTable(conn.id, table.name)}
+                                        onContextMenu={(e) => {
+                                          e.preventDefault();
+                                          setTableMenu({ x: e.clientX, y: e.clientY, connId: conn.id, table });
+                                        }}
                                         onMouseEnter={() => setHovered(`table-${tableKey}`)}
                                         onMouseLeave={() => setHovered(null)}
                                         style={{
@@ -538,6 +577,24 @@ export function Sidebar() {
                                         </Text>
                                         {table.type === "VIEW" && (
                                           <Badge size="xs" variant="light" color="gray" styles={{ root: { fontSize: 8 } }}>VIEW</Badge>
+                                        )}
+                                        {(isTableHovered ||
+                                          (tableMenu?.connId === conn.id && tableMenu?.table.name === table.name)) && (
+                                          <Tooltip label="Actions" openDelay={400} withArrow>
+                                            <ActionIcon
+                                              size="xs"
+                                              variant="subtle"
+                                              color="gray"
+                                              style={{ flexShrink: 0 }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                const r = e.currentTarget.getBoundingClientRect();
+                                                setTableMenu({ x: r.left, y: r.bottom, connId: conn.id, table });
+                                              }}
+                                            >
+                                              <IconDots size={13} />
+                                            </ActionIcon>
+                                          </Tooltip>
                                         )}
                                       </div>
 
@@ -763,6 +820,75 @@ export function Sidebar() {
           PHI tokenized on {maskedEnvLabel}
         </div>
       </div>
+
+      {/* Right-click context menu for table objects */}
+      {tableMenu && (
+        <Menu
+          opened
+          onClose={() => setTableMenu(null)}
+          position="bottom-start"
+          shadow="md"
+          withinPortal
+        >
+          <Menu.Target>
+            <div
+              style={{
+                position: "fixed",
+                left: tableMenu.x,
+                top: tableMenu.y,
+                width: 0,
+                height: 0,
+              }}
+            />
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Label>{tableMenu.table.name}</Menu.Label>
+            <Menu.Item
+              leftSection={<IconEye size={14} />}
+              onClick={() => {
+                doubleClickTable(tableMenu.connId, tableMenu.table.name);
+                setTableMenu(null);
+              }}
+            >
+              View top 100 rows
+            </Menu.Item>
+            <Menu.Divider />
+            <Menu.Label>Copy metadata</Menu.Label>
+            <Menu.Item
+              leftSection={<IconBraces size={14} />}
+              onClick={() => {
+                copyTableMetadata(tableMenu.connId, tableMenu.table, "json");
+                setTableMenu(null);
+              }}
+            >
+              Copy as JSON
+            </Menu.Item>
+            {(() => {
+              const menuConn = connections.find((c) => c.id === tableMenu.connId);
+              return menuConn && supportsDdl(menuConn) ? (
+                <Menu.Item
+                  leftSection={<IconCode size={14} />}
+                  onClick={() => {
+                    copyTableMetadata(tableMenu.connId, tableMenu.table, "ddl");
+                    setTableMenu(null);
+                  }}
+                >
+                  Copy as DDL (CREATE TABLE)
+                </Menu.Item>
+              ) : null;
+            })()}
+            <Menu.Item
+              leftSection={<IconAlignLeft size={14} />}
+              onClick={() => {
+                copyTableMetadata(tableMenu.connId, tableMenu.table, "text");
+                setTableMenu(null);
+              }}
+            >
+              Copy as text
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
+      )}
     </div>
   );
 }
