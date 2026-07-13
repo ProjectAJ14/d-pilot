@@ -13,6 +13,7 @@
     "build": "vite build && tsc -p tsconfig.server.json",
     "start": "node dist/server/index.js",
     "lint": "eslint . --ext .ts,.tsx",
+    "test": "vitest run",
     "format": "prettier --write .",
     "prepare": "husky"
   },
@@ -64,7 +65,8 @@
     "tsx": "^4.19.3",
     "typescript": "^5.8.3",
     "vite": "^7.1.0",
-    "vite-tsconfig-paths": "^5.1.4"
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=20.0.0"

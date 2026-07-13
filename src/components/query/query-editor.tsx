@@ -1,10 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
-import type {
-  editor as MonacoEditor,
-  languages,
-  IDisposable,
-} from "monaco-editor";
+import type { editor as MonacoEditor, languages } from "monaco-editor";
 import { format as formatSql } from "sql-formatter";
 import {
   Button,
@@ -41,6 +37,12 @@ import type {
   TableInfo,
   ColumnInfo,
 } from "../../types";
+import { getSqlCursorContext } from "../../utils/sql-context";
+import {
+  buildSqlSuggestions,
+  pushKeywordItems,
+  type SqlDialect,
+} from "../../utils/sql-completions";
 
 interface Props {
   tab: QueryTab;
@@ -49,20 +51,24 @@ interface Props {
   onToggleHeight?: () => void;
 }
 
-// Cache schema data for autocomplete
-const schemaCache: Record<
-  string,
-  { tables: TableInfo[]; columns: Record<string, ColumnInfo[]> }
-> = {};
-let completionDisposables: IDisposable[] = [];
-
-function disposeCompletions() {
-  for (const d of completionDisposables) d.dispose();
-  completionDisposables = [];
+// Cache schema data for autocomplete. Entries older than the TTL are served
+// stale while a background refresh replaces them (stale-while-revalidate), so
+// schema changes propagate without a full page reload and without a
+// completions gap. The server's own 24h cache bounds actual DB load.
+interface CachedSchema {
+  tables: TableInfo[];
+  columns: Record<string, ColumnInfo[]>;
+  loadedAt: number;
+  /** True when loaded via the full-schema path (all columns present). */
+  full: boolean;
 }
+const schemaCache: Record<string, CachedSchema> = {};
+const CLIENT_SCHEMA_TTL_MS = 5 * 60_000;
 
-const TRIGGER_CHARS =
-  " .,(abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\"'{[}".split("");
+// Letters are intentionally absent: `quickSuggestions.other: true` already
+// opens the popup while typing words; explicit triggers only matter after
+// punctuation (dot-qualifiers, commas, paths, JSON bodies).
+const TRIGGER_CHARS = " .,(\"'[{/".split("");
 
 /** Monaco grammar: SQL for RDBMS; JavaScript for Mongo shell-style; plaintext for ES (GET + JSON body). */
 function monacoLanguageForDb(dbType: DatabaseType | null | undefined): string {
@@ -77,63 +83,6 @@ function monacoLanguageForDb(dbType: DatabaseType | null | undefined): string {
       return "sql";
   }
 }
-
-const SQL_KEYWORDS = [
-  "SELECT",
-  "FROM",
-  "WHERE",
-  "AND",
-  "OR",
-  "NOT",
-  "IN",
-  "LIKE",
-  "ILIKE",
-  "BETWEEN",
-  "JOIN",
-  "LEFT JOIN",
-  "RIGHT JOIN",
-  "INNER JOIN",
-  "OUTER JOIN",
-  "CROSS JOIN",
-  "ON",
-  "AS",
-  "ORDER BY",
-  "GROUP BY",
-  "HAVING",
-  "LIMIT",
-  "OFFSET",
-  "COUNT",
-  "SUM",
-  "AVG",
-  "MIN",
-  "MAX",
-  "DISTINCT",
-  "CASE",
-  "WHEN",
-  "THEN",
-  "ELSE",
-  "END",
-  "IS NULL",
-  "IS NOT NULL",
-  "EXISTS",
-  "UNION",
-  "UNION ALL",
-  "ASC",
-  "DESC",
-  "TOP",
-  "WITH",
-  "NULL",
-  "TRUE",
-  "FALSE",
-];
-
-const MSSQL_EXTRA_KEYWORDS = [
-  "FETCH NEXT",
-  "ROWS ONLY",
-  "ROW_NUMBER",
-  "OVER",
-  "PARTITION BY",
-];
 
 const MONGO_KEYWORDS = [
   "db",
@@ -195,40 +144,6 @@ const ELASTIC_KEYWORDS = [
   "prefix",
 ];
 
-function pushKeywordSuggestions(
-  monaco: {
-    languages: { CompletionItemKind: typeof languages.CompletionItemKind };
-  },
-  suggestions: languages.CompletionItem[],
-  keywords: string[],
-  range: languages.CompletionItem["range"],
-) {
-  for (const kw of keywords) {
-    const lower = kw.toLowerCase();
-    const insert = kw.endsWith("(") ? kw : kw + " ";
-    suggestions.push({
-      label: kw,
-      kind: monaco.languages.CompletionItemKind.Keyword,
-      insertText: insert,
-      filterText: lower,
-      range,
-      sortText: "!0_" + lower,
-      detail: "keyword",
-    });
-    if (lower !== kw) {
-      suggestions.push({
-        label: lower,
-        kind: monaco.languages.CompletionItemKind.Keyword,
-        insertText: insert,
-        filterText: lower,
-        range,
-        sortText: "!0_" + lower,
-        detail: "keyword",
-      });
-    }
-  }
-}
-
 /** Autocomplete cache key: connection + active schema (schema-scoped for SQL). */
 function schemaCacheKey(connectionId: string, schema?: string) {
   return schema ? `${connectionId}::${schema}` : connectionId;
@@ -243,20 +158,20 @@ function defaultSchemaOf(conn: { type: DatabaseType; schema?: string }): string 
 
 // De-dupe concurrent loads for the same key so multiple open tabs sharing a
 // connection/schema trigger only ONE full-schema fetch, not one per editor.
-const schemaInflight: Record<
-  string,
-  Promise<{ tables: TableInfo[]; columns: Record<string, ColumnInfo[]> }> | undefined
-> = {};
+const schemaInflight: Record<string, Promise<CachedSchema> | undefined> = {};
 
 async function loadSchemaForConnection(
   connectionId: string,
   schema?: string,
   dbType?: DatabaseType | null,
 ) {
-  const key = schemaCacheKey(connectionId, schema);
-  if (schemaCache[key]) return schemaCache[key];
-  const inflight = schemaInflight[key];
-  if (inflight) return inflight;
+  // On a fresh page load the editor can mount before the connections list
+  // resolves, leaving the DB type unknown. Loading now would take the wrong
+  // introspection path (tables-only) and poison the cache for the real type,
+  // so bail — the connection-change effect re-invokes once the type is known.
+  if (!dbType) {
+    return { tables: [], columns: {}, loadedAt: 0, full: false };
+  }
 
   // SQL engines return the full schema (all tables + columns) in ONE cheap,
   // server-cached call. Mongo/ES introspect a client connection per collection,
@@ -264,25 +179,44 @@ async function loadSchemaForConnection(
   // avoiding a large concurrent fan-out on the server for autocomplete.
   const useFull = dbType === "postgres" || dbType === "mssql";
 
+  const key = schemaCacheKey(connectionId, schema);
+  const cached = schemaCache[key];
+  const fresh =
+    cached &&
+    Date.now() - cached.loadedAt < CLIENT_SCHEMA_TTL_MS &&
+    // A tables-only entry never satisfies a full-schema engine: upgrade it.
+    (!useFull || cached.full);
+  if (fresh) return cached;
+  const inflight = schemaInflight[key];
+  // Stale entry: return it immediately and let the refresh land in the
+  // background so completions never go blank while refetching.
+  if (inflight) return cached ?? inflight;
+
   const pending = (async () => {
     try {
       if (useFull) {
         const full = await api.getFullSchema(connectionId, schema);
-        const entry = {
+        const entry: CachedSchema = {
           tables: full.tables.map((t) => ({
             schema: schema || "",
             name: t.name,
             type: t.type,
           })) as TableInfo[],
           columns: (full.columns || {}) as Record<string, ColumnInfo[]>,
+          loadedAt: Date.now(),
+          full: true,
         };
         schemaCache[key] = entry;
         return entry;
       }
 
       const tables = await api.getTables(connectionId, schema);
-      const entry: { tables: TableInfo[]; columns: Record<string, ColumnInfo[]> } =
-        { tables, columns: {} };
+      const entry: CachedSchema = {
+        tables,
+        columns: {},
+        loadedAt: Date.now(),
+        full: false,
+      };
       schemaCache[key] = entry;
       // Fields for the first 20 collections/indices, loaded in the background.
       for (const t of tables.slice(0, 20)) {
@@ -295,266 +229,227 @@ async function loadSchemaForConnection(
       }
       return entry;
     } catch {
-      return { tables: [], columns: {} };
+      // Keep any stale entry rather than caching an empty failure result.
+      return (
+        schemaCache[key] ?? { tables: [], columns: {}, loadedAt: 0, full: false }
+      );
     }
   })().finally(() => {
     delete schemaInflight[key];
   });
 
   schemaInflight[key] = pending;
-  return pending;
+  return cached ?? pending;
 }
 
-function addSqlSchemaSuggestions(
-  monaco: any,
-  suggestions: languages.CompletionItem[],
-  connectionId: string,
-  range: languages.CompletionItem["range"],
-  isTableContext: boolean,
+/**
+ * Per-model completion context. Providers are registered ONCE per Monaco
+ * language for the app lifetime and resolve the connection/schema for the
+ * specific model being edited at provide time — so multiple tabs (and other
+ * Monaco editors like the write composer) can never bleed suggestions into
+ * each other the way dispose-and-reregister-per-tab did.
+ */
+interface ModelCompletionContext {
+  cacheKey: string;
+  dbType: DatabaseType | null;
+}
+const modelContexts = new Map<string, ModelCompletionContext>();
+const modelDisposeHooked = new WeakSet<MonacoEditor.ITextModel>();
+
+function setModelCompletionContext(
+  model: MonacoEditor.ITextModel,
+  ctx: ModelCompletionContext,
 ) {
-  const schema = schemaCache[connectionId];
-  if (!schema) return;
-
-  for (const table of schema.tables) {
-    suggestions.push({
-      label: table.name,
-      kind: monaco.languages.CompletionItemKind.Struct,
-      insertText: table.name,
-      detail: `${table.type} · ${table.schema}`,
-      range,
-      sortText: isTableContext ? "0_" + table.name : "1_" + table.name,
-    });
-
-    const cols = schema.columns[table.name];
-    if (cols) {
-      for (const col of cols) {
-        suggestions.push({
-          label: `${table.name}.${col.name}`,
-          kind: monaco.languages.CompletionItemKind.Field,
-          insertText: col.name,
-          detail: `${col.dataType}${col.isPrimaryKey ? " PK" : ""}${col.isPhiField ? " 🔐 PHI" : ""}`,
-          range,
-          sortText: "1_" + col.name,
-        });
-        suggestions.push({
-          label: col.name,
-          kind: monaco.languages.CompletionItemKind.Field,
-          insertText: col.name,
-          detail: `${table.name}.${col.dataType}`,
-          range,
-          sortText: "1_" + col.name,
-        });
-      }
-    }
+  modelContexts.set(model.uri.toString(), ctx);
+  if (!modelDisposeHooked.has(model)) {
+    modelDisposeHooked.add(model);
+    model.onWillDispose(() => modelContexts.delete(model.uri.toString()));
   }
 }
 
-/** Registers the completion provider(s) for the active connection dialect. */
-function registerQueryCompletions(
-  monaco: any,
-  connectionId: string,
-  dbType: DatabaseType | null | undefined,
-) {
-  disposeCompletions();
+/** Idempotent: registers the SQL / Mongo / ES completion providers once. */
+function ensureCompletionProvidersRegistered(monaco: any) {
+  // The registered flag lives on the (page-global) monaco object, not in
+  // module state: a dev hot-reload re-evaluates this module but keeps the
+  // same Monaco instance, and a module-level flag would re-register the
+  // providers and duplicate every suggestion.
+  if (monaco.__dbPilotCompletionsRegistered) return;
+  monaco.__dbPilotCompletionsRegistered = true;
 
-  const eff: DatabaseType | "none" = dbType ?? "none";
+  const wordRange = (model: any, position: any) => {
+    const word = model.getWordUntilPosition(position);
+    return {
+      startLineNumber: position.lineNumber,
+      endLineNumber: position.lineNumber,
+      startColumn: word.startColumn,
+      endColumn: word.endColumn,
+    };
+  };
 
-  if (eff === "postgres" || eff === "mssql" || eff === "none") {
-    completionDisposables.push(
-      monaco.languages.registerCompletionItemProvider("sql", {
-        triggerCharacters: TRIGGER_CHARS,
-        provideCompletionItems: (model: any, position: any) => {
-          const word = model.getWordUntilPosition(position);
-          const range = {
-            startLineNumber: position.lineNumber,
-            endLineNumber: position.lineNumber,
-            startColumn: word.startColumn,
-            endColumn: word.endColumn,
-          };
+  // SQL (postgres / mssql / no connection): context-aware via sql-context.
+  monaco.languages.registerCompletionItemProvider("sql", {
+    triggerCharacters: TRIGGER_CHARS,
+    provideCompletionItems: (model: any, position: any) => {
+      const mctx = modelContexts.get(model.uri.toString());
+      const dialect: SqlDialect =
+        mctx?.dbType === "mssql"
+          ? "mssql"
+          : mctx?.dbType === "postgres"
+            ? "postgres"
+            : "none";
+      const schema = mctx ? schemaCache[mctx.cacheKey] : undefined;
+      const ctx = getSqlCursorContext(
+        model.getValue(),
+        model.getOffsetAt(position),
+      );
+      return {
+        suggestions: buildSqlSuggestions({
+          monaco,
+          ctx,
+          schema,
+          dialect,
+          range: wordRange(model, position),
+        }),
+      };
+    },
+  });
 
-          const suggestions: languages.CompletionItem[] = [];
-          const textUntilPosition = model.getValueInRange({
-            startLineNumber: 1,
-            startColumn: 1,
-            endLineNumber: position.lineNumber,
-            endColumn: position.column,
+  // MongoDB (javascript models). Models without a mongo context (e.g. other
+  // javascript editors in the app) get no suggestions from this provider.
+  monaco.languages.registerCompletionItemProvider("javascript", {
+    triggerCharacters: TRIGGER_CHARS,
+    provideCompletionItems: (model: any, position: any) => {
+      const mctx = modelContexts.get(model.uri.toString());
+      if (mctx?.dbType !== "mongodb") return { suggestions: [] };
+      const range = wordRange(model, position);
+      const suggestions: languages.CompletionItem[] = [];
+      pushKeywordItems(monaco, suggestions, MONGO_KEYWORDS, range, "!0_");
+
+      const lineUntil = model
+        .getLineContent(position.lineNumber)
+        .slice(0, position.column - 1);
+      const dbMatch = lineUntil.match(/db\.(\w*)$/);
+      const schema = schemaCache[mctx.cacheKey];
+      if (schema && dbMatch) {
+        const prefix = dbMatch[1].toLowerCase();
+        for (const coll of schema.tables) {
+          if (prefix && !coll.name.toLowerCase().startsWith(prefix)) continue;
+          suggestions.push({
+            label: coll.name,
+            kind: monaco.languages.CompletionItemKind.Struct,
+            insertText: `${coll.name}.find({})`,
+            filterText: coll.name,
+            sortText: "0_" + coll.name,
+            detail: `${coll.type} · ${coll.schema}`,
+            range,
           });
-          const lastClause = textUntilPosition.match(
-            /\b(FROM|JOIN|INTO|UPDATE|TABLE)\s+\w*$/i,
-          );
-          const isTableContext = !!lastClause;
+        }
+      }
 
-          const kws = [...SQL_KEYWORDS];
-          if (eff === "mssql") kws.push(...MSSQL_EXTRA_KEYWORDS);
-          pushKeywordSuggestions(monaco, suggestions, kws, range);
-          if (connectionId)
-            addSqlSchemaSuggestions(
-              monaco,
-              suggestions,
-              connectionId,
+      if (schema && /\.\s*$/.test(lineUntil)) {
+        suggestions.push(
+          {
+            label: "find({})",
+            kind: monaco.languages.CompletionItemKind.Method,
+            insertText: "find({})",
+            sortText: "0_find",
+            detail: "MongoDB read",
+            range,
+          },
+          {
+            label: "findOne({})",
+            kind: monaco.languages.CompletionItemKind.Method,
+            insertText: "findOne({})",
+            sortText: "0_findOne",
+            detail: "MongoDB read",
+            range,
+          },
+          {
+            label: "aggregate([])",
+            kind: monaco.languages.CompletionItemKind.Method,
+            insertText: "aggregate([])",
+            sortText: "0_agg",
+            detail: "MongoDB read",
+            range,
+          },
+          {
+            label: "countDocuments({})",
+            kind: monaco.languages.CompletionItemKind.Method,
+            insertText: "countDocuments({})",
+            sortText: "0_count",
+            detail: "MongoDB read",
+            range,
+          },
+          {
+            label: 'distinct("field", {})',
+            kind: monaco.languages.CompletionItemKind.Method,
+            insertText: 'distinct("field", {})',
+            sortText: "0_distinct",
+            detail: "MongoDB read",
+            range,
+          },
+        );
+      }
+
+      const collForFields = lineUntil.match(
+        /db\.(\w+)\.(?:find|findOne|aggregate|countDocuments|distinct)\(/,
+      );
+      if (schema && collForFields) {
+        const collName = collForFields[1];
+        const cols = schema.columns[collName];
+        if (cols) {
+          for (const col of cols) {
+            suggestions.push({
+              label: col.name,
+              kind: monaco.languages.CompletionItemKind.Field,
+              insertText: `"${col.name}"`,
+              filterText: col.name,
+              detail: col.dataType + (col.isPhiField ? " 🔐 PHI" : ""),
               range,
-              isTableContext,
-            );
-
-          return { suggestions };
-        },
-      }),
-    );
-  }
-
-  if (eff === "mongodb") {
-    completionDisposables.push(
-      monaco.languages.registerCompletionItemProvider("javascript", {
-        triggerCharacters: TRIGGER_CHARS,
-        provideCompletionItems: (model: any, position: any) => {
-          const word = model.getWordUntilPosition(position);
-          const range = {
-            startLineNumber: position.lineNumber,
-            endLineNumber: position.lineNumber,
-            startColumn: word.startColumn,
-            endColumn: word.endColumn,
-          };
-          const suggestions: languages.CompletionItem[] = [];
-          pushKeywordSuggestions(monaco, suggestions, MONGO_KEYWORDS, range);
-
-          const lineUntil = model
-            .getLineContent(position.lineNumber)
-            .slice(0, position.column - 1);
-          const dbMatch = lineUntil.match(/db\.(\w*)$/);
-          const schema = connectionId ? schemaCache[connectionId] : undefined;
-          if (schema && dbMatch) {
-            const prefix = dbMatch[1].toLowerCase();
-            for (const coll of schema.tables) {
-              if (prefix && !coll.name.toLowerCase().startsWith(prefix))
-                continue;
-              suggestions.push({
-                label: coll.name,
-                kind: monaco.languages.CompletionItemKind.Struct,
-                insertText: `${coll.name}.find({})`,
-                filterText: coll.name,
-                sortText: "0_" + coll.name,
-                detail: `${coll.type} · ${coll.schema}`,
-                range,
-              });
-            }
+              sortText: "1_" + col.name,
+            });
           }
+        }
+      }
 
-          if (schema && /\.\s*$/.test(lineUntil)) {
-            suggestions.push(
-              {
-                label: "find({})",
-                kind: monaco.languages.CompletionItemKind.Method,
-                insertText: "find({})",
-                sortText: "0_find",
-                detail: "MongoDB read",
-                range,
-              },
-              {
-                label: "findOne({})",
-                kind: monaco.languages.CompletionItemKind.Method,
-                insertText: "findOne({})",
-                sortText: "0_findOne",
-                detail: "MongoDB read",
-                range,
-              },
-              {
-                label: "aggregate([])",
-                kind: monaco.languages.CompletionItemKind.Method,
-                insertText: "aggregate([])",
-                sortText: "0_agg",
-                detail: "MongoDB read",
-                range,
-              },
-              {
-                label: "countDocuments({})",
-                kind: monaco.languages.CompletionItemKind.Method,
-                insertText: "countDocuments({})",
-                sortText: "0_count",
-                detail: "MongoDB read",
-                range,
-              },
-              {
-                label: 'distinct("field", {})',
-                kind: monaco.languages.CompletionItemKind.Method,
-                insertText: 'distinct("field", {})',
-                sortText: "0_distinct",
-                detail: "MongoDB read",
-                range,
-              },
-            );
-          }
+      return { suggestions };
+    },
+  });
 
-          const collForFields = lineUntil.match(
-            /db\.(\w+)\.(?:find|findOne|aggregate|countDocuments|distinct)\(/,
-          );
-          if (schema && collForFields) {
-            const collName = collForFields[1];
-            const cols = schema.columns[collName];
-            if (cols) {
-              for (const col of cols) {
-                suggestions.push({
-                  label: col.name,
-                  kind: monaco.languages.CompletionItemKind.Field,
-                  insertText: `"${col.name}"`,
-                  filterText: col.name,
-                  detail: col.dataType + (col.isPhiField ? " 🔐 PHI" : ""),
-                  range,
-                  sortText: "1_" + col.name,
-                });
-              }
-            }
-          }
+  // Elasticsearch (plaintext models): index-path suggestions.
+  monaco.languages.registerCompletionItemProvider("plaintext", {
+    triggerCharacters: TRIGGER_CHARS,
+    provideCompletionItems: (model: any, position: any) => {
+      const mctx = modelContexts.get(model.uri.toString());
+      if (mctx?.dbType !== "elasticsearch") return { suggestions: [] };
+      const range = wordRange(model, position);
+      const suggestions: languages.CompletionItem[] = [];
+      pushKeywordItems(monaco, suggestions, ELASTIC_KEYWORDS, range, "!0_");
 
-          return { suggestions };
-        },
-      }),
-    );
-  }
+      const lineUntil = model
+        .getLineContent(position.lineNumber)
+        .slice(0, position.column - 1);
+      const pathMatch = lineUntil.match(/^(?:GET|POST)?\s*\/?([\w\-.*]*)$/i);
+      const schema = schemaCache[mctx.cacheKey];
+      if (schema && pathMatch) {
+        const prefix = pathMatch[1].toLowerCase();
+        for (const idx of schema.tables) {
+          if (prefix && !idx.name.toLowerCase().startsWith(prefix)) continue;
+          suggestions.push({
+            label: idx.name + "/_search",
+            kind: monaco.languages.CompletionItemKind.Struct,
+            insertText: `${idx.name}/_search `,
+            filterText: idx.name,
+            sortText: "0_" + idx.name,
+            detail: `${idx.type} · open _search body`,
+            range,
+          });
+        }
+      }
 
-  if (eff === "elasticsearch") {
-    completionDisposables.push(
-      monaco.languages.registerCompletionItemProvider("plaintext", {
-        triggerCharacters: TRIGGER_CHARS,
-        provideCompletionItems: (model: any, position: any) => {
-          const word = model.getWordUntilPosition(position);
-          const range = {
-            startLineNumber: position.lineNumber,
-            endLineNumber: position.lineNumber,
-            startColumn: word.startColumn,
-            endColumn: word.endColumn,
-          };
-          const suggestions: languages.CompletionItem[] = [];
-          pushKeywordSuggestions(monaco, suggestions, ELASTIC_KEYWORDS, range);
-
-          const lineUntil = model
-            .getLineContent(position.lineNumber)
-            .slice(0, position.column - 1);
-          const pathMatch = lineUntil.match(
-            /^(?:GET|POST)?\s*\/?([\w\-.*]*)$/i,
-          );
-          const schema = connectionId ? schemaCache[connectionId] : undefined;
-          if (schema && pathMatch) {
-            const prefix = pathMatch[1].toLowerCase();
-            for (const idx of schema.tables) {
-              if (prefix && !idx.name.toLowerCase().startsWith(prefix))
-                continue;
-              suggestions.push({
-                label: idx.name + "/_search",
-                kind: monaco.languages.CompletionItemKind.Struct,
-                insertText: `${idx.name}/_search `,
-                filterText: idx.name,
-                sortText: "0_" + idx.name,
-                detail: `${idx.type} · open _search body`,
-                range,
-              });
-            }
-          }
-
-          return { suggestions };
-        },
-      }),
-    );
-  }
+      return { suggestions };
+    },
+  });
 }
 
 // Toolbar + padding takes roughly 56px; subtract from total height for the editor area
@@ -637,14 +532,14 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
 
     const tryApply = () => {
       if (!monacoRef.current) return false;
-      registerQueryCompletions(monacoRef.current, cacheKey, dbType);
+      ensureCompletionProvidersRegistered(monacoRef.current);
       const model = editorRef.current?.getModel();
-      if (model) {
-        monacoRef.current.editor.setModelLanguage(
-          model,
-          monacoLanguageForDb(dbType),
-        );
-      }
+      if (!model) return false;
+      setModelCompletionContext(model, { cacheKey, dbType });
+      monacoRef.current.editor.setModelLanguage(
+        model,
+        monacoLanguageForDb(dbType),
+      );
       return true;
     };
 
@@ -885,12 +780,12 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
     const effectiveSchema =
       tab.schema ?? (conn ? defaultSchemaOf(conn) : undefined);
     const cacheKey = schemaCacheKey(connId, effectiveSchema);
-    registerQueryCompletions(monaco, cacheKey, dbType);
-    if (connId) {
-      loadSchemaForConnection(connId, effectiveSchema, dbType).then(() => {
-        registerQueryCompletions(monaco, cacheKey, dbType);
-      });
-    }
+    ensureCompletionProvidersRegistered(monaco);
+    const model = editor.getModel();
+    if (model) setModelCompletionContext(model, { cacheKey, dbType });
+    // Providers read schemaCache at provide time, so no re-registration is
+    // needed once the fetch lands.
+    if (connId) void loadSchemaForConnection(connId, effectiveSchema, dbType);
   };
 
   return (
