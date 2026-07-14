@@ -13,3 +13,4 @@ data/
 .claude/settings.local.json
 *.log
 public/logo/
+.playwright-mcp/

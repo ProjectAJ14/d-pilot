@@ -29,7 +29,13 @@ export function Footer() {
       .then((res) => (res.ok ? res.json() : []))
       .then((data: Contributor[]) => {
         if (Array.isArray(data)) {
-          setContributors(data.filter((c) => c.type !== "Bot"));
+          // Some bot accounts (e.g. semantic-release-bot) report type "User",
+          // so also exclude bot-suffixed logins.
+          setContributors(
+            data.filter(
+              (c) => c.type !== "Bot" && !/(\[bot\]|-bot)$/i.test(c.login),
+            ),
+          );
         }
       })
       .catch(() => {
@@ -70,8 +76,7 @@ export function Footer() {
             fontWeight: 600,
           }}
         >
-          <IconHistory size={13} />
-          v{APP_VERSION}
+          <IconHistory size={13} />v{APP_VERSION}
         </a>
       </Tooltip>
 
@@ -102,11 +107,11 @@ export function Footer() {
 
       {/* Contributors */}
       {contributors.length > 0 && (
-        <Group gap={8} align="center">
+        <Group gap={8} align="center" wrap="nowrap" style={{ maxWidth: "50%" }}>
           <Text size="xs" c="var(--muted2)">
             Built by
           </Text>
-          <Avatar.Group spacing="sm">
+          <Group gap={6} align="center" wrap="nowrap">
             {contributors.slice(0, 8).map((c) => (
               <Tooltip key={c.login} label={c.login} withArrow>
                 <Avatar
@@ -118,11 +123,14 @@ export function Footer() {
                   alt={c.login}
                   size={22}
                   radius="xl"
-                  style={{ cursor: "pointer", border: "1px solid var(--border)" }}
+                  style={{
+                    cursor: "pointer",
+                    border: "1px solid var(--border)",
+                  }}
                 />
               </Tooltip>
             ))}
-          </Avatar.Group>
+          </Group>
         </Group>
       )}
     </footer>
