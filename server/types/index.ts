@@ -2,6 +2,14 @@ export type DatabaseType = "postgres" | "mssql" | "mongodb" | "elasticsearch";
 export type Environment = "DEV" | "QA" | "UAT" | "STG" | "PROD";
 export type MaskingType = "FULL" | "PARTIAL" | "HASH" | "REDACT";
 
+// Machine-readable error codes returned by the API (body: { error, code? }).
+export type ApiErrorCode = "CONNECTION_FAILED";
+
+export interface ApiErrorBody {
+  error: string;
+  code?: ApiErrorCode;
+}
+
 export interface ConnectionConfig {
   id: string;
   name: string;

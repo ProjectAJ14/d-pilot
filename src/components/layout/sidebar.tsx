@@ -10,6 +10,8 @@ import {
   Divider,
   Select,
   Menu,
+  Alert,
+  Button,
 } from "@mantine/core";
 import {
   IconChevronDown,
@@ -29,10 +31,11 @@ import {
   IconBraces,
   IconCode,
   IconAlignLeft,
+  IconPlugConnectedX,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useStore } from "../../store";
-import { api } from "../../utils/api-client";
+import { api, ApiError } from "../../utils/api-client";
 import { copyToClipboard } from "../../utils/clipboard";
 import { copySavedQueryShareLink } from "../../utils/share-links";
 import { buildTableMetadata, supportsDdl, type MetadataFormat } from "../../utils/schema-metadata";
@@ -73,6 +76,8 @@ export function Sidebar() {
   const updateTab = useStore((s) => s.updateTab);
   const activeTabId = useStore((s) => s.activeTabId);
   const addTab = useStore((s) => s.addTab);
+  const schemaByConnection = useStore((s) => s.schemaByConnection);
+  const setSchemaForConnection = useStore((s) => s.setSchemaForConnection);
   const phiMaskedEnvironments = useStore((s) => s.config.phiMaskedEnvironments);
   const maskedEnvLabel = (phiMaskedEnvironments || ["PROD"]).join(" + ");
 
@@ -84,9 +89,13 @@ export function Sidebar() {
   const [tables, setTables] = useState<Record<string, TableInfo[]>>({});
   const [columns, setColumns] = useState<Record<string, ColumnInfo[]>>({});
   const [expandedTable, setExpandedTable] = useState<string | null>(null);
-  // Per-connection schema discovery + the schema currently browsed in the tree.
+  // Per-connection schema discovery (the browsed schema itself lives in the
+  // store as `schemaByConnection`, shared with the editor toolbar).
   const [connSchemas, setConnSchemas] = useState<Record<string, string[]>>({});
-  const [explorerSchema, setExplorerSchema] = useState<Record<string, string>>({});
+  // Per-connection load failure shown as a persistent inline alert.
+  const [explorerErrors, setExplorerErrors] = useState<
+    Record<string, { message: string; code?: string } | null>
+  >({});
   const [explorerSearch, setExplorerSearch] = useState("");
   const [savedSearch, setSavedSearch] = useState("");
   const [historySearch, setHistorySearch] = useState("");
@@ -108,21 +117,49 @@ export function Sidebar() {
     });
   };
 
-  // Loads the table list for a connection/schema into the tree cache.
-  const loadTablesForSchema = (connId: string, schema: string) => {
+  // Loads the table list for a connection/schema into the tree cache. Failures
+  // are NOT cached (retry refetches); they surface as an inline alert instead.
+  const loadTablesForSchema = (
+    connId: string,
+    schema: string,
+    opts?: { force?: boolean },
+  ) => {
     const tKey = keyFor(connId, schema);
-    if (tables[tKey]) return;
+    if (!opts?.force && tables[tKey]) return;
+    setExplorerErrors((prev) => ({ ...prev, [connId]: null }));
     setLoadingConn(connId);
     api.getTables(connId, schema || undefined)
       .then((t) => setTables((prev) => ({ ...prev, [tKey]: t })))
       .catch((err) => {
-        setTables((prev) => ({ ...prev, [tKey]: [] }));
-        notifications.show({
-          message: `Failed to load tables: ${err.message}`,
-          color: "red",
-        });
+        setExplorerErrors((prev) => ({
+          ...prev,
+          [connId]: {
+            message: err.message,
+            code: err instanceof ApiError ? err.code : undefined,
+          },
+        }));
       })
       .finally(() => setLoadingConn(null));
+  };
+
+  // Discover the schema list for the picker. A table-load error takes
+  // precedence in the alert slot — both share the same root cause.
+  const loadSchemasForConn = (connId: string) => {
+    api.getSchemas(connId)
+      .then((r) => setConnSchemas((prev) => ({ ...prev, [connId]: r.schemas })))
+      .catch((err) => {
+        setExplorerErrors((prev) =>
+          prev[connId]
+            ? prev
+            : {
+                ...prev,
+                [connId]: {
+                  message: err.message,
+                  code: err instanceof ApiError ? err.code : undefined,
+                },
+              },
+        );
+      });
   };
 
   const selectConn = (connId: string) => {
@@ -139,30 +176,37 @@ export function Sidebar() {
     // Load tables for the (client-known) default schema immediately so the tree
     // and its loading indicator show right away — no waiting on schema discovery.
     const sch =
-      explorerSchema[connId] ??
+      schemaByConnection[connId] ??
       (supportsSchemas && conn ? defaultSchemaOf(conn) : "");
-    if (explorerSchema[connId] == null) {
-      setExplorerSchema((prev) => ({ ...prev, [connId]: sch }));
+    if (schemaByConnection[connId] == null && sch) {
+      setSchemaForConnection(connId, sch);
     }
     loadTablesForSchema(connId, sch);
 
     // Discover the full schema list in the background, only to populate the picker.
     if (supportsSchemas && !connSchemas[connId]) {
-      api.getSchemas(connId)
-        .then((r) => setConnSchemas((prev) => ({ ...prev, [connId]: r.schemas })))
-        .catch(() => {});
+      loadSchemasForConn(connId);
     }
   };
 
-  // Switch the schema browsed for a connection in the explorer tree.
+  // Switch the schema browsed for a connection (shared with the editor toolbar).
   const changeExplorerSchema = (connId: string, schema: string) => {
-    setExplorerSchema((prev) => ({ ...prev, [connId]: schema }));
+    setSchemaForConnection(connId, schema);
     setExpandedTable(null);
     loadTablesForSchema(connId, schema);
   };
 
+  // Re-attempt everything that can have failed for a connection.
+  const retryConnection = (connId: string) => {
+    const conn = connections.find((c) => c.id === connId);
+    loadTablesForSchema(connId, schemaByConnection[connId] ?? "", { force: true });
+    if (conn && SCHEMA_DB_TYPES.includes(conn.type) && !connSchemas[connId]) {
+      loadSchemasForConn(connId);
+    }
+  };
+
   const toggleTable = (connId: string, tableName: string) => {
-    const schema = explorerSchema[connId] ?? "";
+    const schema = schemaByConnection[connId] ?? "";
     const key = keyFor(connId, schema, tableName);
     if (expandedTable === key) {
       setExpandedTable(null);
@@ -172,8 +216,21 @@ export function Sidebar() {
     if (!columns[key]) {
       setLoadingTable(key);
       api.getColumns(connId, tableName, schema || undefined)
-        .then((cols) => setColumns((prev) => ({ ...prev, [key]: cols })))
-        .catch(() => setColumns((prev) => ({ ...prev, [key]: [] })))
+        // Don't cache on failure — re-clicking the table retries.
+        .catch((err) => {
+          notifications.show({
+            id: `columns-failed-${key}`,
+            color: "red",
+            message:
+              err instanceof ApiError && err.code === "CONNECTION_FAILED"
+                ? "Unable to connect to the database. Check your network connection."
+                : `Failed to load columns: ${err.message}`,
+          });
+          return null;
+        })
+        .then((cols) => {
+          if (cols) setColumns((prev) => ({ ...prev, [key]: cols }));
+        })
         .finally(() => setLoadingTable(null));
     }
   };
@@ -183,7 +240,7 @@ export function Sidebar() {
   const copyTableMetadata = async (connId: string, table: TableInfo, format: MetadataFormat) => {
     const conn = connections.find((c) => c.id === connId);
     if (!conn) return;
-    const schema = explorerSchema[connId] ?? "";
+    const schema = schemaByConnection[connId] ?? "";
     const key = keyFor(connId, schema, table.name);
     try {
       let cols = columns[key];
@@ -203,7 +260,7 @@ export function Sidebar() {
 
   const doubleClickTable = (connId: string, tableName: string) => {
     const conn = connections.find((c) => c.id === connId);
-    const schema = explorerSchema[connId] ?? "";
+    const schema = schemaByConnection[connId] ?? "";
     // Schema-qualify the name for SQL engines so it resolves regardless of the
     // session's default schema (matters for MSSQL, which has no search_path).
     const qualified =
@@ -399,7 +456,7 @@ export function Sidebar() {
                     {conns.map((conn) => {
                       const isActive = conn.id === activeConnectionId;
                       const isHovered = hovered === `conn-${conn.id}`;
-                      const sch = explorerSchema[conn.id] ?? "";
+                      const sch = schemaByConnection[conn.id] ?? "";
                       const tKey = keyFor(conn.id, sch);
                       const connSchemaList = connSchemas[conn.id];
                       const showSchemaPicker =
@@ -542,6 +599,42 @@ export function Sidebar() {
                               <Text size="xs" c="dimmed" style={{ fontSize: 11 }}>Loading tables...</Text>
                             </div>
                           )}
+
+                          {/* Load failure (connection unreachable, etc.) */}
+                          {expandedConn === conn.id &&
+                            loadingConn !== conn.id &&
+                            explorerErrors[conn.id] && (
+                              <Alert
+                                color="red"
+                                variant="light"
+                                icon={<IconPlugConnectedX size={14} />}
+                                title={
+                                  explorerErrors[conn.id]!.code === "CONNECTION_FAILED"
+                                    ? "Unable to connect to database"
+                                    : "Failed to load tables"
+                                }
+                                styles={{
+                                  root: { margin: "4px 12px 6px 20px", padding: 8 },
+                                  title: { fontSize: 11, marginBottom: 2 },
+                                  message: { fontSize: 10 },
+                                  icon: { marginTop: 2 },
+                                }}
+                              >
+                                {explorerErrors[conn.id]!.code === "CONNECTION_FAILED"
+                                  ? "The database host could not be reached. Check your network connection."
+                                  : explorerErrors[conn.id]!.message}
+                                <Button
+                                  size="compact-xs"
+                                  variant="light"
+                                  color="red"
+                                  mt={6}
+                                  display="block"
+                                  onClick={() => retryConnection(conn.id)}
+                                >
+                                  Retry
+                                </Button>
+                              </Alert>
+                            )}
 
                           {/* Tables tree */}
                           {expandedConn === conn.id && tables[tKey] && (

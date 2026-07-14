@@ -48,6 +48,12 @@ interface AppState {
   setConnections: (connections: ConnectionInfo[]) => void;
   setActiveConnection: (id: string) => void;
 
+  // Selected schema per connection — single source of truth shared by the
+  // sidebar explorer and the editor-toolbar schema dropdowns. Tabs on the
+  // connection mirror it in `tab.schema`.
+  schemaByConnection: Record<string, string>;
+  setSchemaForConnection: (connectionId: string, schema: string) => void;
+
   // Tabs
   tabs: QueryTab[];
   activeTabId: string;
@@ -163,6 +169,14 @@ const initialTabs: QueryTab[] = persistedTabs
     }))
   : [createTab()];
 
+// Seed the per-connection schema selection from persisted tabs so restored
+// sessions keep their last-used schema on both dropdowns.
+const initialSchemaByConnection: Record<string, string> = {};
+for (const t of initialTabs) {
+  if (t.connectionId && t.schema)
+    initialSchemaByConnection[t.connectionId] = t.schema;
+}
+
 const initialActiveTabId = persistedTabs?.activeTabId ?? initialTabs[0].id;
 const initialActiveConnectionId = persistedTabs?.activeConnectionId ?? null;
 const initialSidebarOpen = persistedTabs?.sidebarOpen ?? true;
@@ -213,13 +227,31 @@ export const useStore = create<AppState>((set, get) => ({
   setConnections: (connections) => set({ connections }),
   setActiveConnection: (id) => {
     set({ activeConnectionId: id });
-    const { activeTabId, tabs } = get();
+    const { activeTabId, tabs, schemaByConnection } = get();
     set({
-      // Reset the tab's schema — schemas are connection-specific.
+      // Carry the connection's remembered schema (undefined if never browsed —
+      // the editor's default-seeding fills it in).
       tabs: tabs.map((t) =>
-        t.id === activeTabId ? { ...t, connectionId: id, schema: undefined } : t,
+        t.id === activeTabId
+          ? { ...t, connectionId: id, schema: schemaByConnection[id] }
+          : t,
       ),
     });
+    persistAfterSet();
+  },
+
+  schemaByConnection: initialSchemaByConnection,
+  setSchemaForConnection: (connectionId, schema) => {
+    set((s) => ({
+      schemaByConnection: { ...s.schemaByConnection, [connectionId]: schema },
+      // Keep every tab on this connection in sync so the editor-toolbar
+      // dropdown always mirrors the sidebar (and vice versa).
+      tabs: s.tabs.map((t) =>
+        t.connectionId === connectionId && t.schema !== schema
+          ? { ...t, schema }
+          : t,
+      ),
+    }));
     persistAfterSet();
   },
 

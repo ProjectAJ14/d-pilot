@@ -6,8 +6,22 @@ import {
   getSchemas,
   getCachedFullSchema,
 } from "../services/schema-introspector.js";
+import { isConnectionError } from "../services/connection-errors.js";
 
 const router = Router();
+
+// Connectivity failures (DNS, refused/timed-out connects) get a 503 with a
+// stable code so the client can show a targeted "check your network" message.
+function sendSchemaError(res: Response, err: any, fallback: string): void {
+  if (isConnectionError(err)) {
+    res.status(503).json({
+      error: "Unable to connect to the database. Check your network connection.",
+      code: "CONNECTION_FAILED",
+    });
+    return;
+  }
+  res.status(500).json({ error: err.message || fallback });
+}
 
 // Full schema (all tables + their columns) in one cached, de-duplicated call.
 // Used by the editor's autocomplete instead of N per-table column requests.
@@ -23,7 +37,7 @@ router.get("/:connectionId/full", async (req: Request, res: Response) => {
     const full = await getCachedFullSchema(conn, { schema });
     res.json(full.schema);
   } catch (err: any) {
-    res.status(500).json({ error: err.message || "Failed to fetch schema" });
+    sendSchemaError(res, err, "Failed to fetch schema");
   }
 });
 
@@ -39,7 +53,7 @@ router.get("/:connectionId/schemas", async (req: Request, res: Response) => {
     const result = await getSchemas(conn);
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ error: err.message || "Failed to fetch schemas" });
+    sendSchemaError(res, err, "Failed to fetch schemas");
   }
 });
 
@@ -55,7 +69,7 @@ router.get("/:connectionId/tables", async (req: Request, res: Response) => {
     const tables = await getTables(conn, schema);
     res.json(tables);
   } catch (err: any) {
-    res.status(500).json({ error: err.message || "Failed to fetch tables" });
+    sendSchemaError(res, err, "Failed to fetch tables");
   }
 });
 
@@ -71,7 +85,7 @@ router.get("/:connectionId/tables/:tableName/columns", async (req: Request, res:
     const columns = await getColumns(conn, req.params.tableName as string, schema);
     res.json(columns);
   } catch (err: any) {
-    res.status(500).json({ error: err.message || "Failed to fetch columns" });
+    sendSchemaError(res, err, "Failed to fetch columns");
   }
 });
 

@@ -142,6 +142,7 @@ async function getPostgresTables(
     user: conn.username,
     password: conn.password,
     max: 2,
+    connectionTimeoutMillis: 10000,
   });
 
   try {
@@ -175,6 +176,7 @@ async function getPostgresColumns(
     user: conn.username,
     password: conn.password,
     max: 2,
+    connectionTimeoutMillis: 10000,
   });
 
   try {
@@ -227,6 +229,7 @@ async function getMssqlTables(
     user: conn.username,
     password: conn.password,
     options: { encrypt: false, trustServerCertificate: true },
+    connectionTimeout: 10000,
   });
 
   try {
@@ -263,6 +266,7 @@ async function getMssqlColumns(
     user: conn.username,
     password: conn.password,
     options: { encrypt: false, trustServerCertificate: true },
+    connectionTimeout: 10000,
   });
 
   try {
@@ -599,6 +603,7 @@ async function getPostgresFullSchema(
     user: conn.username,
     password: conn.password,
     max: 2,
+    connectionTimeoutMillis: 10000,
   });
 
   try {
@@ -666,6 +671,7 @@ async function getMssqlFullSchema(
     user: conn.username,
     password: conn.password,
     options: { encrypt: false, trustServerCertificate: true },
+    connectionTimeout: 10000,
   });
 
   try {

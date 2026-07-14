@@ -18,4 +18,7 @@ docs {
   Columns for a specific table.
 
   Requires a valid Bearer JWT ({{token}}).
+
+  Errors: 503 { error, code: "CONNECTION_FAILED" } when the database host is
+  unreachable (network); 500 { error } for other introspection failures.
 }

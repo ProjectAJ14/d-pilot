@@ -3,6 +3,7 @@ import mssql from "mssql";
 import { MongoClient } from "mongodb";
 import { Client as EsClient } from "@elastic/elasticsearch";
 import type { ConnectionConfig } from "../types/index.js";
+import { CONNECTION_ERROR_PATTERN } from "./connection-errors.js";
 
 const MAX_ROWS = parseInt(process.env.MAX_ROWS || "10000", 10);
 const QUERY_TIMEOUT = parseInt(process.env.QUERY_TIMEOUT_MS || "90000", 10);
@@ -82,9 +83,6 @@ export function isReadQuery(
   return true;
 }
 
-const CONNECTION_ERROR =
-  /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EHOSTUNREACH|getaddrinfo|ELOGIN|socket hang up|Failed to connect|Connection (?:lost|closed|timeout)|timeout: /i;
-
 /**
  * Best-effort syntax/schema validation without executing the statement. Uses
  * PostgreSQL `EXPLAIN` (plans, never runs — safe for writes too) and SQL Server
@@ -130,7 +128,7 @@ export async function validateSqlSyntax(
     return { checked: false };
   } catch (err: any) {
     const msg = String(err?.message || err);
-    if (CONNECTION_ERROR.test(msg)) return { checked: false };
+    if (CONNECTION_ERROR_PATTERN.test(msg)) return { checked: false };
     return { checked: true, error: msg };
   }
 }

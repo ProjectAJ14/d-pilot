@@ -3,6 +3,14 @@ export type Environment = "DEV" | "QA" | "UAT" | "STG" | "PROD";
 export type MaskingType = "FULL" | "PARTIAL" | "HASH" | "REDACT";
 export type ResultViewMode = "table" | "json";
 
+// Machine-readable error codes returned by the API (body: { error, code? }).
+export type ApiErrorCode = "CONNECTION_FAILED";
+
+export interface ApiErrorBody {
+  error: string;
+  code?: ApiErrorCode;
+}
+
 export interface ConnectionInfo {
   id: string;
   name: string;

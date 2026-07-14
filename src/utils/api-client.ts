@@ -1,11 +1,26 @@
 import type {
   AiChatLogEntry,
+  ApiErrorCode,
   WriteRequest,
   WriteAiReview,
   QueryResult,
 } from "../types";
 
 const BASE_URL = "/api";
+
+// Error thrown for non-OK API responses. Carries the HTTP status and the
+// server's machine-readable code (e.g. CONNECTION_FAILED) when present.
+export class ApiError extends Error {
+  status: number;
+  code?: ApiErrorCode;
+
+  constructor(message: string, status: number, code?: ApiErrorCode) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem("dbpilot_token");
@@ -44,7 +59,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       throw new Error("Session expired");
     }
 
-    throw new Error(body.error || `Request failed: ${res.status}`);
+    throw new ApiError(
+      body.error || `Request failed: ${res.status}`,
+      res.status,
+      body.code,
+    );
   }
 
   // For blob responses (CSV export)

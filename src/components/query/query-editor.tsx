@@ -31,7 +31,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../../store";
-import { api } from "../../utils/api-client";
+import { api, ApiError } from "../../utils/api-client";
 import { copySavedQueryShareLink } from "../../utils/share-links";
 import { downloadTextFile } from "../../utils/download-file";
 import type {
@@ -468,6 +468,7 @@ const TOOLBAR_HEIGHT = 56;
 
 export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
   const updateTab = useStore((s) => s.updateTab);
+  const setSchemaForConnection = useStore((s) => s.setSchemaForConnection);
   const connections = useStore((s) => s.connections);
   const toggleAiAssistant = useStore((s) => s.toggleAiAssistant);
   const aiAssistantOpen = useStore((s) => s.aiAssistantOpen);
@@ -513,8 +514,13 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
       return;
     }
     if (!tab.schema && activeConn) {
-      const def = defaultSchemaOf(activeConn);
-      if (def) updateTab(tab.id, { schema: def });
+      // Prefer the schema already selected for this connection (shared with the
+      // sidebar); fall back to the connection default. Route the write through
+      // the store so both dropdowns learn it.
+      const def =
+        useStore.getState().schemaByConnection[connId] ??
+        defaultSchemaOf(activeConn);
+      if (def) setSchemaForConnection(connId, def);
     }
     let cancelled = false;
     api
@@ -522,8 +528,18 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
       .then((r) => {
         if (!cancelled) setSchemas(r.schemas);
       })
-      .catch(() => {
-        if (!cancelled) setSchemas([]);
+      .catch((err) => {
+        if (cancelled) return;
+        setSchemas([]);
+        notifications.show({
+          id: `schemas-failed-${connId}`,
+          color: "red",
+          title: "Unable to load schemas",
+          message:
+            err instanceof ApiError && err.code === "CONNECTION_FAILED"
+              ? "The database host could not be reached. Check your network connection."
+              : err.message,
+        });
       });
     return () => {
       cancelled = true;
@@ -978,7 +994,8 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
                 data={schemas}
                 value={tab.schema ?? null}
                 onChange={(val) => {
-                  if (val) updateTab(tab.id, { schema: val });
+                  if (val && tab.connectionId)
+                    setSchemaForConnection(tab.connectionId, val);
                 }}
                 allowDeselect={false}
                 checkIconPosition="right"
