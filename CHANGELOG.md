@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to **CEP DB Pilot** are documented in this file. Releases
+All notable changes to **D-Pilot** are documented in this file. Releases
 below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
@@ -22,7 +22,7 @@ by hand.
 
 ## [1.0.0] - 2026-07-12
 
-Initial release of CEP DB Pilot — an internal, read-first SQL explorer with
+Initial release of D-Pilot — an internal, read-first SQL explorer with
 built-in PHI masking for your organization's databases.
 
 ### Added

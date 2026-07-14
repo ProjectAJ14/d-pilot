@@ -5,7 +5,7 @@ import { ObjectView, SearchComponent, extendTheme, themeGitHubLight } from "reac
 import type { ObjectViewHandle } from "react-obj-view";
 import "react-obj-view/dist/react-obj-view.css";
 
-const cepTheme = extendTheme(themeGitHubLight, {
+const jsonViewTheme = extendTheme(themeGitHubLight, {
   "--bigobjview-color": "#0c2340",
   "--bigobjview-bg-color": "#fafbfc",
   "--bigobjview-fontsize": "12px",
@@ -128,7 +128,7 @@ export function ResultsJsonView({ rows }: Props) {
           showLineNumbers
           lineHeight={20}
           overscan={150}
-          style={cepTheme}
+          style={jsonViewTheme}
         />
         <SearchComponent
           active={searchActive}

@@ -217,7 +217,7 @@ describe("getSqlCursorContext", () => {
   it("does not bleed tables across blank-line-separated statements", () => {
     // Real-world scratchpad: queries stacked with a blank line, no ';'.
     const ctx = ctxAt(
-      'SELECT order_id, hospital_code from cep_core."order" where hospital_code is null ORDER BY updated_at\n\nSELECT job_id from id_mapping_log where |',
+      'SELECT order_id, region_code from app_core."order" where region_code is null ORDER BY updated_at\n\nSELECT job_id from id_mapping_log where |',
     );
     expect(ctx.tables).toEqual([
       { table: "id_mapping_log", schema: undefined, alias: undefined },

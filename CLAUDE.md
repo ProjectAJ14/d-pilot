@@ -39,6 +39,13 @@ Detailed guidance lives with the code — read these when working in each area:
 
 ### Cross-cutting rules (apply everywhere)
 
+- **This is an open-source project — keep it company-agnostic.** Never put a company,
+  employer, or internal-project name (or internal schema/table names) in code, tests,
+  docs, commit messages, or `CHANGELOG.md`. The product name is **D-Pilot**; anything
+  company- or deployment-specific (app name, logos, email domain, DB connections) comes
+  from `.env` (`APP_NAME`, `LOGO_URL`, `EMAIL_DOMAIN`, `DBFORGE_CONNECTIONS`, …). Where
+  code needs a hardcoded fallback, use the neutral `D-Pilot` / `d-pilot`. Test fixtures
+  must use generic names (`app_core`, `orders`, `customers`), never real internal ones.
 - **Capability-based access, scoped per environment** (`DEV`/`QA`/`UAT`/`STG`/`PROD`).
   A user has `isAdmin` plus four env lists: read (`allowedEnvironments`), unmask PHI
   (`unmaskEnvironments`), write (`writeEnvironments`), approve (`approveEnvironments`).

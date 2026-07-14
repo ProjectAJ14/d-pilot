@@ -29,7 +29,7 @@ app.use(express.json({ limit: "1mb" }));
 
 // Health check (no auth)
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", version: "1.0.0", service: "cep-db-pilot" });
+  res.json({ status: "ok", version: "1.0.0", service: "d-pilot" });
 });
 
 // Public config (no auth) — non-sensitive settings for frontend

@@ -7,7 +7,7 @@
       "@semantic-release/changelog",
       {
         "changelogFile": "CHANGELOG.md",
-        "changelogTitle": "# Changelog\n\nAll notable changes to **CEP DB Pilot** are documented in this file. Releases\nbelow v1.0.0's successors are generated automatically by semantic-release from\n[Conventional Commits](https://www.conventionalcommits.org/); do not edit them\nby hand."
+        "changelogTitle": "# Changelog\n\nAll notable changes to **D-Pilot** are documented in this file. Releases\nbelow v1.0.0's successors are generated automatically by semantic-release from\n[Conventional Commits](https://www.conventionalcommits.org/); do not edit them\nby hand."
       }
     ],
     [

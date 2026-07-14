@@ -1,7 +1,7 @@
 {
-  "name": "cep-db-pilot",
+  "name": "d-pilot",
   "version": "1.2.0",
-  "description": "CEP DB Pilot — Internal SQL Explorer with PHI Masking",
+  "description": "D-Pilot — Internal SQL Explorer with PHI Masking",
   "private": true,
   "type": "module",
   "scripts": {

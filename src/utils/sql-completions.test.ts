@@ -113,11 +113,11 @@ describe("buildSqlSuggestions decision table", () => {
     const reservedSchema: SchemaEntry = {
       tables: [table("order"), table("customers")],
       columns: {
-        order: [col("hospital_code")],
+        order: [col("region_code")],
         customers: [col("name")],
       },
     };
-    const sql = 'SELECT  FROM cep_core."order" JOIN customers ON 1=1';
+    const sql = 'SELECT  FROM app_core."order" JOIN customers ON 1=1';
     const items = buildSqlSuggestions({
       monaco,
       ctx: getSqlCursorContext(sql, "SELECT ".length),
@@ -125,8 +125,8 @@ describe("buildSqlSuggestions decision table", () => {
       dialect: "postgres",
       range,
     });
-    const hospital = items.find((s) => s.label === "hospital_code")!;
-    expect(hospital.insertText).toBe('"order".hospital_code');
+    const region = items.find((s) => s.label === "region_code")!;
+    expect(region.insertText).toBe('"order".region_code');
     const name = items.find((s) => s.label === "name")!;
     expect(name.insertText).toBe("customers.name");
   });
