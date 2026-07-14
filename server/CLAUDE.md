@@ -32,7 +32,7 @@ submission/rejection when write mode is off.
 | `/connections` | `connections.ts` | list / `writable` / `grouped` / `:id/test` |
 | `/schema` | `schema.ts` | `:connectionId` full / schemas / tables / columns |
 | `/saved-queries` | `saved-queries.ts` | CRUD; shared-by-default; `GET /:id` backs share links |
-| `/phi-config` | `phi-config.ts` | masked-envs, `POST /unmask` (audited), rule CRUD (admin) |
+| `/phi-config` | `phi-config.ts` | masked-envs, `POST /unmask` (audited), rule CRUD (admin), CSV `GET /export` / `POST /import` + `DELETE /` bulk delete (admin, audited) |
 | `/audit` | `audit.ts` | log + archive read, manual archive (admin) |
 | `/export` | `export.ts` | `POST /csv`, `POST /json` (masking enforced + audited) |
 | `/users` | `users.ts` | user CRUD + reset-password (admin) |

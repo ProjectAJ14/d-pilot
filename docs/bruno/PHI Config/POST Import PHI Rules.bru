@@ -1,0 +1,28 @@
+meta {
+  name: Import PHI Rules
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/phi-config/import
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "csv": "pattern,maskingType,alwaysMasked,database,table\n*ssn*,FULL,true,,\n*email*,PARTIAL,false,,"
+  }
+}
+
+docs {
+  Import PHI masking rules from CSV content (`csv` = raw file text). Header row is required with at least `pattern` and `maskingType` columns; column order is free, `maskingType` is FULL | PARTIAL | HASH | REDACT, `alwaysMasked` accepts true/false/1/0/yes/no (default false), max 1000 data rows. Any validation error rejects the whole file (400 with per-line `errors`). Rows are matched to existing rules on pattern + database + table (case-insensitive): identical rows are skipped (never duplicated), rows with a different maskingType/alwaysMasked update the existing rule, new rows are inserted — all in one transaction. Returns `{ imported, updated, skipped, total }` and writes a PHI_RULES_IMPORT audit entry.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

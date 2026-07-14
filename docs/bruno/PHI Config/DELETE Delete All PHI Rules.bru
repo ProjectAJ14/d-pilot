@@ -1,0 +1,22 @@
+meta {
+  name: Delete All PHI Rules
+  type: http
+  seq: 10
+}
+
+delete {
+  url: {{baseUrl}}/api/phi-config?includeLocked=false
+  body: none
+  auth: inherit
+}
+
+params:query {
+  includeLocked: false
+}
+
+docs {
+  Delete all PHI masking rules. Locked (`alwaysMasked`) rules are kept unless `includeLocked=true`. Returns `{ deleted, kept }` and writes a PHI_RULES_DELETE_ALL audit entry.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

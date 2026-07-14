@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
   Text,
   Table,
@@ -22,6 +22,8 @@ import {
   Textarea,
   CopyButton,
   Divider,
+  FileButton,
+  Checkbox,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
@@ -53,12 +55,15 @@ import {
   IconWand,
   IconClipboardCheck,
   IconMail,
+  IconDownload,
+  IconUpload,
 } from "@tabler/icons-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
 import { copyToClipboard } from "../../utils/clipboard";
 import { generatePassword } from "../../utils/password";
+import { downloadTextFile } from "../../utils/download-file";
 import type {
   User,
   PhiFieldRule,
@@ -1584,27 +1589,28 @@ function CredentialsModal({
   onClose: () => void;
 }) {
   const appName = useStore((s) => s.config.appName);
-  const loginUrl =
-    typeof window !== "undefined" ? window.location.origin : "";
+  const loginUrl = typeof window !== "undefined" ? window.location.origin : "";
 
   if (!info) return null;
 
   const message = buildCredentialMessage(info, appName, loginUrl);
   const title =
-    info.mode === "created" ? "User created — share credentials" : "Password reset — share new credentials";
+    info.mode === "created"
+      ? "User created — share credentials"
+      : "Password reset — share new credentials";
 
   return (
     <Modal opened={!!info} onClose={onClose} title={title} size="lg">
       <Text size="sm" c="dimmed" mb="md">
         {info.mode === "created" ? (
           <>
-            <strong>{info.displayName}</strong> is ready to sign in. The password
-            is shown only here — copy it now before closing.
+            <strong>{info.displayName}</strong> is ready to sign in. The
+            password is shown only here — copy it now before closing.
           </>
         ) : (
           <>
-            The password for <strong>{info.displayName}</strong> has been updated.
-            It is shown only here — copy it now before closing.
+            The password for <strong>{info.displayName}</strong> has been
+            updated. It is shown only here — copy it now before closing.
           </>
         )}
       </Text>
@@ -1635,7 +1641,9 @@ function CredentialsModal({
         readOnly
         autosize
         minRows={8}
-        styles={{ input: { fontFamily: "var(--mantine-font-family-monospace)" } }}
+        styles={{
+          input: { fontFamily: "var(--mantine-font-family-monospace)" },
+        }}
       />
 
       <Group justify="space-between" mt="lg">
@@ -1859,6 +1867,11 @@ function PhiManagementTab() {
   const [loading, setLoading] = useState(true);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [deleteRule, setDeleteRule] = useState<PhiFieldRule | null>(null);
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  const [deleteAllLocked, setDeleteAllLocked] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const importResetRef = useRef<() => void>(null);
   const [maskedEnvs, setMaskedEnvs] = useState<string[]>([]);
   const [envSaving, setEnvSaving] = useState(false);
   const setConfig = useStore((s) => s.setConfig);
@@ -1932,6 +1945,80 @@ function PhiManagementTab() {
       notifications.show({ message: err.message, color: "red" });
     }
   };
+
+  const handleExport = async () => {
+    try {
+      const csv = await api.exportPhiRules();
+      downloadTextFile(
+        `phi-rules-${new Date().toISOString().slice(0, 10)}.csv`,
+        csv,
+      );
+    } catch (err: any) {
+      notifications.show({ message: err.message, color: "red" });
+    }
+  };
+
+  const handleImport = async (file: File | null) => {
+    if (!file) return;
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const result = await api.importPhiRules(text);
+      const applied = result.imported + result.updated;
+      const parts = [
+        `${result.imported} added`,
+        ...(result.updated > 0 ? [`${result.updated} updated`] : []),
+        ...(result.skipped > 0 ? [`${result.skipped} identical skipped`] : []),
+      ];
+      notifications.show({
+        color: applied > 0 ? "green" : "blue",
+        title: applied > 0 ? "Rules imported" : "No changes",
+        message: parts.join(", "),
+      });
+      loadRules();
+    } catch (err: any) {
+      notifications.show({
+        color: "red",
+        title: "Import failed",
+        message: err.message,
+        autoClose: 10000,
+      });
+    } finally {
+      setImporting(false);
+      importResetRef.current?.();
+    }
+  };
+
+  const closeDeleteAllModal = () => {
+    setDeleteAllOpen(false);
+    setDeleteAllLocked(false);
+  };
+
+  const handleDeleteAll = async () => {
+    setDeletingAll(true);
+    try {
+      const result = await api.deleteAllPhiRules(deleteAllLocked);
+      notifications.show({
+        color: "green",
+        title: `${result.deleted} rule${result.deleted !== 1 ? "s" : ""} deleted`,
+        message:
+          result.kept > 0
+            ? `${result.kept} locked rule${result.kept !== 1 ? "s" : ""} kept`
+            : undefined,
+      });
+      closeDeleteAllModal();
+      loadRules();
+    } catch (err: any) {
+      notifications.show({ message: err.message, color: "red" });
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
+  const lockedCount = rules.filter((r) => r.alwaysMasked).length;
+  const deleteCount = deleteAllLocked
+    ? rules.length
+    : rules.length - lockedCount;
 
   return (
     <>
@@ -2024,13 +2111,54 @@ function PhiManagementTab() {
         <Text fw={600} size="sm" c="secondary.9">
           {rules.length} tokenization rule{rules.length !== 1 ? "s" : ""}
         </Text>
-        <Button
-          size="xs"
-          leftSection={<IconPlus size={14} />}
-          onClick={() => setAddModalOpen(true)}
-        >
-          Add Rule
-        </Button>
+        <Group gap={8}>
+          <Tooltip label="Download all rules as CSV — also serves as the import template">
+            <Button
+              size="xs"
+              variant="default"
+              leftSection={<IconDownload size={14} />}
+              onClick={handleExport}
+            >
+              Export CSV
+            </Button>
+          </Tooltip>
+          <FileButton
+            resetRef={importResetRef}
+            onChange={handleImport}
+            accept=".csv,text/csv"
+          >
+            {(props) => (
+              <Tooltip label="Columns: pattern, maskingType, alwaysMasked, database, table. Existing rules are never duplicated.">
+                <Button
+                  {...props}
+                  size="xs"
+                  variant="default"
+                  leftSection={<IconUpload size={14} />}
+                  loading={importing}
+                >
+                  Import CSV
+                </Button>
+              </Tooltip>
+            )}
+          </FileButton>
+          <Button
+            size="xs"
+            variant="outline"
+            color="red"
+            leftSection={<IconTrash size={14} />}
+            onClick={() => setDeleteAllOpen(true)}
+            disabled={rules.length === 0}
+          >
+            Delete All
+          </Button>
+          <Button
+            size="xs"
+            leftSection={<IconPlus size={14} />}
+            onClick={() => setAddModalOpen(true)}
+          >
+            Add Rule
+          </Button>
+        </Group>
       </Group>
 
       <div
@@ -2157,6 +2285,51 @@ function PhiManagementTab() {
           </Button>
           <Button color="red" onClick={handleDelete}>
             Delete Rule
+          </Button>
+        </Group>
+      </Modal>
+
+      {/* Delete All Confirmation */}
+      <Modal
+        opened={deleteAllOpen}
+        onClose={closeDeleteAllModal}
+        title="Delete All PHI Rules"
+        size="sm"
+      >
+        <Text size="sm" mb="sm">
+          Delete <strong>{deleteCount}</strong> of {rules.length} tokenization
+          rule{rules.length !== 1 ? "s" : ""}? Columns matching these patterns
+          will no longer be masked. This cannot be undone — consider exporting a
+          CSV backup first.
+        </Text>
+        {deleteCount === rules.length && (
+          <Text size="sm" c="red" fw={600} mb="sm">
+            No rules will remain: query results will not be tokenized in any
+            environment — including PROD — until new rules are added or
+            imported.
+          </Text>
+        )}
+        {lockedCount > 0 && (
+          <Checkbox
+            color="red"
+            size="sm"
+            mb="sm"
+            label={`Also delete ${lockedCount} locked (always-masked) rule${lockedCount !== 1 ? "s" : ""}`}
+            checked={deleteAllLocked}
+            onChange={(e) => setDeleteAllLocked(e.currentTarget.checked)}
+          />
+        )}
+        <Group justify="flex-end" mt="lg">
+          <Button variant="subtle" color="gray" onClick={closeDeleteAllModal}>
+            Cancel
+          </Button>
+          <Button
+            color="red"
+            onClick={handleDeleteAll}
+            loading={deletingAll}
+            disabled={deleteCount === 0}
+          >
+            Delete All Rules
           </Button>
         </Group>
       </Modal>
@@ -2288,6 +2461,9 @@ const ACTION_COLORS: Record<string, string> = {
   EXPORT_JSON: "teal",
   PHI_UNMASK: "orange",
   PHI_UNMASK_DENIED: "red",
+  PHI_RULES_IMPORT: "teal",
+  PHI_RULES_EXPORT: "teal",
+  PHI_RULES_DELETE_ALL: "red",
   WRITE_SUBMIT: "grape",
   WRITE_RESUBMIT: "grape",
   WRITE_APPROVE: "green",
@@ -2305,6 +2481,9 @@ const ACTION_LABELS: Record<string, string> = {
   EXPORT_JSON: "JSON Export",
   PHI_UNMASK: "PHI Unmasked",
   PHI_UNMASK_DENIED: "Unmask Denied",
+  PHI_RULES_IMPORT: "PHI Rules Import",
+  PHI_RULES_EXPORT: "PHI Rules Export",
+  PHI_RULES_DELETE_ALL: "PHI Rules Purge",
   WRITE_SUBMIT: "Write Submitted",
   WRITE_RESUBMIT: "Write Resubmitted",
   WRITE_APPROVE: "Write Approved",

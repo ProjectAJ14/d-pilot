@@ -33,6 +33,7 @@ import { useNavigate } from "react-router-dom";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
 import { copySavedQueryShareLink } from "../../utils/share-links";
+import { downloadTextFile } from "../../utils/download-file";
 import type {
   DatabaseType,
   QueryTab,
@@ -152,7 +153,10 @@ function schemaCacheKey(connectionId: string, schema?: string) {
 }
 
 /** The default schema for a connection, known client-side without a round-trip. */
-function defaultSchemaOf(conn: { type: DatabaseType; schema?: string }): string {
+function defaultSchemaOf(conn: {
+  type: DatabaseType;
+  schema?: string;
+}): string {
   if (conn.type === "postgres") return conn.schema || "public";
   if (conn.type === "mssql") return conn.schema || "dbo";
   return "";
@@ -233,7 +237,12 @@ async function loadSchemaForConnection(
     } catch {
       // Keep any stale entry rather than caching an empty failure result.
       return (
-        schemaCache[key] ?? { tables: [], columns: {}, loadedAt: 0, full: false }
+        schemaCache[key] ?? {
+          tables: [],
+          columns: {},
+          loadedAt: 0,
+          full: false,
+        }
       );
     }
   })().finally(() => {
@@ -546,7 +555,8 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
     };
 
     const run = async () => {
-      if (connId) await loadSchemaForConnection(connId, effectiveSchema, dbType);
+      if (connId)
+        await loadSchemaForConnection(connId, effectiveSchema, dbType);
       if (tryApply()) return;
       const interval = window.setInterval(() => {
         if (tryApply()) window.clearInterval(interval);
@@ -705,13 +715,7 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
     if (!tab.connectionId || !tab.sql) return;
     try {
       const csv = await api.exportCsv(tab.connectionId, tab.sql);
-      const blob = new Blob([csv], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "query-export.csv";
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadTextFile("query-export.csv", csv);
     } catch (err: any) {
       notifications.show({ message: err.message, color: "red" });
     }

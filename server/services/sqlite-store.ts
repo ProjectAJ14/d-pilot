@@ -201,33 +201,45 @@ export function initDatabase(): void {
 }
 
 function seedPhiRules(): void {
-  const existing = db.prepare("SELECT pattern FROM phi_field_rules").all() as {
-    pattern: string;
-  }[];
-  const existingPatterns = new Set(existing.map((r) => r.pattern));
-
-  const missing = DEFAULT_PHI_RULES.filter(
-    (r) => !existingPatterns.has(r.pattern),
+  // Each default pattern is offered exactly once per install (tracked in
+  // phi_seeded_patterns): defaults added in a future release still reach
+  // existing installs, but rules an admin deleted or bulk-replaced (CSV
+  // import) are never resurrected on restart.
+  const offered = new Set<string>(
+    JSON.parse(getSetting("phi_seeded_patterns") ?? "[]"),
   );
-  if (missing.length === 0) return;
+  const toOffer = DEFAULT_PHI_RULES.filter((r) => !offered.has(r.pattern));
+  if (toOffer.length === 0) return;
 
-  const insert = db.prepare(
-    "INSERT INTO phi_field_rules (id, pattern, masking_type, always_masked) VALUES (?, ?, ?, ?)",
+  const existing = new Set(
+    (
+      db.prepare("SELECT pattern FROM phi_field_rules").all() as {
+        pattern: string;
+      }[]
+    ).map((r) => r.pattern),
   );
+  const toInsert = toOffer.filter((r) => !existing.has(r.pattern));
 
-  const insertMany = db.transaction(() => {
-    for (const rule of missing) {
-      insert.run(
-        randomUUID(),
-        rule.pattern,
-        rule.maskingType,
-        rule.alwaysMasked ? 1 : 0,
-      );
-    }
-  });
+  if (toInsert.length > 0) {
+    const insert = db.prepare(
+      "INSERT INTO phi_field_rules (id, pattern, masking_type, always_masked) VALUES (?, ?, ?, ?)",
+    );
+    const insertMany = db.transaction(() => {
+      for (const rule of toInsert) {
+        insert.run(
+          randomUUID(),
+          rule.pattern,
+          rule.maskingType,
+          rule.alwaysMasked ? 1 : 0,
+        );
+      }
+    });
+    insertMany();
+    console.log(`Seeded ${toInsert.length} PHI masking rules`);
+  }
 
-  insertMany();
-  console.log(`Seeded ${missing.length} PHI masking rules`);
+  for (const rule of toOffer) offered.add(rule.pattern);
+  setSetting("phi_seeded_patterns", JSON.stringify([...offered]));
 }
 
 // --- Saved Queries ---
@@ -390,6 +402,62 @@ export function deletePhiRule(id: string): boolean {
   return result.changes > 0;
 }
 
+export function applyPhiRuleImport(
+  inserts: Omit<PhiFieldRule, "id">[],
+  updates: PhiFieldRule[],
+): void {
+  const insertStmt = db.prepare(
+    `INSERT INTO phi_field_rules (id, pattern, masking_type, always_masked, database_name, table_name)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  );
+  const updateStmt = db.prepare(
+    `UPDATE phi_field_rules
+     SET pattern = ?, masking_type = ?, always_masked = ?, database_name = ?, table_name = ?
+     WHERE id = ?`,
+  );
+  db.transaction(() => {
+    for (const r of inserts) {
+      insertStmt.run(
+        randomUUID(),
+        r.pattern,
+        r.maskingType,
+        r.alwaysMasked ? 1 : 0,
+        r.database ?? null,
+        r.table ?? null,
+      );
+    }
+    for (const r of updates) {
+      updateStmt.run(
+        r.pattern,
+        r.maskingType,
+        r.alwaysMasked ? 1 : 0,
+        r.database ?? null,
+        r.table ?? null,
+        r.id,
+      );
+    }
+  })();
+}
+
+export function deleteAllPhiRules(includeLocked: boolean): {
+  deleted: number;
+  kept: number;
+} {
+  if (includeLocked) {
+    const result = db.prepare("DELETE FROM phi_field_rules").run();
+    return { deleted: result.changes, kept: 0 };
+  }
+  const result = db
+    .prepare("DELETE FROM phi_field_rules WHERE always_masked = 0")
+    .run();
+  const kept = (
+    db.prepare("SELECT COUNT(*) AS c FROM phi_field_rules").get() as {
+      c: number;
+    }
+  ).c;
+  return { deleted: result.changes, kept };
+}
+
 // --- App Settings ---
 
 export function getSetting(key: string): string | null {
@@ -546,11 +614,34 @@ export function getAnalytics(): any {
   );
   // Capability distribution (a user can appear in more than one bucket).
   const capabilityDistribution = [
-    { capability: "admin", count: scalar("SELECT COUNT(*) v FROM users WHERE is_admin = 1") },
-    { capability: "unmask_phi", count: scalar("SELECT COUNT(*) v FROM users WHERE is_admin = 1 OR (unmask_environments IS NOT NULL AND unmask_environments != '[]')") },
-    { capability: "write", count: scalar("SELECT COUNT(*) v FROM users WHERE is_admin = 1 OR (write_environments IS NOT NULL AND write_environments != '[]')") },
-    { capability: "approve", count: scalar("SELECT COUNT(*) v FROM users WHERE is_admin = 1 OR (approve_environments IS NOT NULL AND approve_environments != '[]')") },
-    { capability: "read", count: scalar("SELECT COUNT(*) v FROM users WHERE is_admin = 1 OR (allowed_environments IS NOT NULL AND allowed_environments != '[]')") },
+    {
+      capability: "admin",
+      count: scalar("SELECT COUNT(*) v FROM users WHERE is_admin = 1"),
+    },
+    {
+      capability: "unmask_phi",
+      count: scalar(
+        "SELECT COUNT(*) v FROM users WHERE is_admin = 1 OR (unmask_environments IS NOT NULL AND unmask_environments != '[]')",
+      ),
+    },
+    {
+      capability: "write",
+      count: scalar(
+        "SELECT COUNT(*) v FROM users WHERE is_admin = 1 OR (write_environments IS NOT NULL AND write_environments != '[]')",
+      ),
+    },
+    {
+      capability: "approve",
+      count: scalar(
+        "SELECT COUNT(*) v FROM users WHERE is_admin = 1 OR (approve_environments IS NOT NULL AND approve_environments != '[]')",
+      ),
+    },
+    {
+      capability: "read",
+      count: scalar(
+        "SELECT COUNT(*) v FROM users WHERE is_admin = 1 OR (allowed_environments IS NOT NULL AND allowed_environments != '[]')",
+      ),
+    },
   ];
 
   // ── Query activity ──

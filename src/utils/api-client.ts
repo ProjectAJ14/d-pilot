@@ -256,6 +256,19 @@ export const api = {
     }),
   deletePhiRule: (id: string) =>
     request<any>(`/phi-config/${id}`, { method: "DELETE" }),
+  exportPhiRules: () => request<string>("/phi-config/export"),
+  importPhiRules: (csv: string) =>
+    request<{
+      imported: number;
+      updated: number;
+      skipped: number;
+      total: number;
+    }>("/phi-config/import", { method: "POST", body: JSON.stringify({ csv }) }),
+  deleteAllPhiRules: (includeLocked: boolean) =>
+    request<{ deleted: number; kept: number }>(
+      `/phi-config?includeLocked=${includeLocked}`,
+      { method: "DELETE" },
+    ),
 
   // PHI Masked Environments
   getMaskedEnvironments: () =>

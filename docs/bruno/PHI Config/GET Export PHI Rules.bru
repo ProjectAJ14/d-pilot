@@ -1,0 +1,17 @@
+meta {
+  name: Export PHI Rules
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/phi-config/export
+  body: none
+  auth: inherit
+}
+
+docs {
+  Export all PHI masking rules as CSV (columns: pattern, maskingType, alwaysMasked, database, table). Doubles as the template for Import PHI Rules. Cells starting with a formula trigger (= + - @) are prefixed with a single quote against spreadsheet formula injection; import strips it. Writes a PHI_RULES_EXPORT audit entry.
+
+  Requires a valid Bearer JWT ({{token}}).
+}
