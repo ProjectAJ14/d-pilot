@@ -5,6 +5,19 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.3.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.2.0...v1.3.0) (2026-07-14)
+
+
+### Bug Fixes
+
+* show full contributor avatars and add footer to login screen ([f48f7be](https://github.com/ProjectAJ14/d-pilot/commit/f48f7be99191761adf99bd27dc840213c314d766))
+
+
+### Features
+
+* add CSV import/export and bulk delete for PHI tokenization rules ([1b1d7ba](https://github.com/ProjectAJ14/d-pilot/commit/1b1d7ba5d3cd7fe3c2279220db23caeadb5df639))
+* surface database connection failures and sync schema dropdowns ([cbb4fd7](https://github.com/ProjectAJ14/d-pilot/commit/cbb4fd7ca2a7ea28c66601093342c1e94ed70471))
+
 # [1.2.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.1.0...v1.2.0) (2026-07-14)
 
 
