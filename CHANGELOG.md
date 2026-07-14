@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.4.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.3.0...v1.4.0) (2026-07-14)
+
+
+### Features
+
+* add rotating open-source callouts to footer and create SKILL.md for local verification ([4b24e4a](https://github.com/ProjectAJ14/d-pilot/commit/4b24e4ae6300256c09c7bd31e35dd4453fc89a04))
+
 # [1.3.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.2.0...v1.3.0) (2026-07-14)
 
 
