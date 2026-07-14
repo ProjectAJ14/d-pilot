@@ -10,6 +10,15 @@ const CHANGELOG_URL = `${REPO_URL}/blob/main/CHANGELOG.md`;
 const APP_VERSION =
   typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "0.0.0";
 
+const CALLOUTS = [
+  { text: "Open source — issues & PRs welcome", url: `${REPO_URL}/issues` },
+  { text: "Found a bug or missing a feature? Tell us", url: `${REPO_URL}/issues/new` },
+  { text: "Built in the open — come build with us", url: REPO_URL },
+  { text: "Enjoying it? Leave a ⭐ on GitHub", url: REPO_URL },
+];
+const CALLOUT_INTERVAL_MS = 9000;
+const CALLOUT_FADE_MS = 400;
+
 interface Contributor {
   login: string;
   html_url: string;
@@ -19,6 +28,19 @@ interface Contributor {
 
 export function Footer() {
   const [contributors, setContributors] = useState<Contributor[]>([]);
+  const [calloutIndex, setCalloutIndex] = useState(0);
+  const [calloutVisible, setCalloutVisible] = useState(true);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCalloutVisible(false);
+      setTimeout(() => {
+        setCalloutIndex((i) => (i + 1) % CALLOUTS.length);
+        setCalloutVisible(true);
+      }, CALLOUT_FADE_MS);
+    }, CALLOUT_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -103,7 +125,32 @@ export function Footer() {
         </a>
       </Tooltip>
 
-      <div style={{ flex: 1 }} />
+      {/* Rotating open-source callout */}
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          justifyContent: "center",
+          overflow: "hidden",
+        }}
+      >
+        <a
+          href={CALLOUTS[calloutIndex].url}
+          target="_blank"
+          rel="noreferrer noopener"
+          style={{
+            color: "inherit",
+            textDecoration: "none",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            opacity: calloutVisible ? 1 : 0,
+            transition: `opacity ${CALLOUT_FADE_MS}ms ease`,
+          }}
+        >
+          {CALLOUTS[calloutIndex].text}
+        </a>
+      </div>
 
       {/* Contributors */}
       {contributors.length > 0 && (
