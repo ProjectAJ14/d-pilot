@@ -201,6 +201,7 @@ export const api = {
 
   // Saved Queries
   getSavedQueries: () => request<any[]>("/saved-queries"),
+  getSavedQuery: (id: string) => request<any>(`/saved-queries/${id}`),
   createSavedQuery: (data: any) =>
     request<any>("/saved-queries", {
       method: "POST",

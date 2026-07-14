@@ -1,0 +1,18 @@
+meta {
+  name: Get Saved Query
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/saved-queries/{{savedQueryId}}
+  body: none
+  auth: inherit
+}
+
+docs {
+  Fetch a single saved query by id — the share-link target. Returns the query
+  only if it is shared or you own it; otherwise 404.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

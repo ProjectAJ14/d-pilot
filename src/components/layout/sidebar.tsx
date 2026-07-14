@@ -25,6 +25,7 @@ import {
   IconClock,
   IconDots,
   IconEye,
+  IconLink,
   IconBraces,
   IconCode,
   IconAlignLeft,
@@ -33,6 +34,7 @@ import { notifications } from "@mantine/notifications";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
 import { copyToClipboard } from "../../utils/clipboard";
+import { copySavedQueryShareLink } from "../../utils/share-links";
 import { buildTableMetadata, supportsDdl, type MetadataFormat } from "../../utils/schema-metadata";
 import type { ConnectionInfo, TableInfo, ColumnInfo, Environment, DatabaseType } from "../../types";
 
@@ -704,6 +706,20 @@ export function Sidebar() {
                         {query.sql.trim()}
                       </Text>
                     </div>
+                    <Tooltip label="Copy share link" position="right">
+                      <ActionIcon
+                        size="xs"
+                        variant="subtle"
+                        color="gray"
+                        style={{
+                          opacity: isQueryHovered ? 1 : 0,
+                          transition: "opacity 150ms ease",
+                        }}
+                        onClick={(e) => { e.stopPropagation(); copySavedQueryShareLink(query); }}
+                      >
+                        <IconLink size={12} />
+                      </ActionIcon>
+                    </Tooltip>
                     <Tooltip label="Delete" position="right">
                       <ActionIcon
                         size="xs"

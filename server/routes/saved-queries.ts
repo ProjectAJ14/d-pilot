@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import {
   getSavedQueries,
+  getSavedQueryById,
   createSavedQuery,
   updateSavedQuery,
   deleteSavedQuery,
@@ -11,6 +12,16 @@ const router = Router();
 router.get("/", (req: Request, res: Response) => {
   const queries = getSavedQueries(req.user!.sub);
   res.json(queries);
+});
+
+// Share-link target: a query is visible if it is shared or owned by the requester.
+router.get("/:id", (req: Request, res: Response) => {
+  const query = getSavedQueryById(req.params.id as string, req.user!.sub);
+  if (!query) {
+    res.status(404).json({ error: "Query not found or not shared with you" });
+    return;
+  }
+  res.json(query);
 });
 
 router.post("/", (req: Request, res: Response) => {

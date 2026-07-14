@@ -241,6 +241,18 @@ export function getSavedQueries(userId: string): SavedQuery[] {
   return rows.map(mapSavedQuery);
 }
 
+export function getSavedQueryById(
+  id: string,
+  userId: string,
+): SavedQuery | null {
+  const row = db
+    .prepare(
+      "SELECT * FROM saved_queries WHERE id = ? AND (is_shared = 1 OR created_by = ?)",
+    )
+    .get(id, userId);
+  return row ? mapSavedQuery(row as any) : null;
+}
+
 export function createSavedQuery(
   query: Omit<SavedQuery, "id" | "createdAt" | "updatedAt">,
 ): SavedQuery {

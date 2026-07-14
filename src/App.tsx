@@ -17,6 +17,7 @@ import {
   countActionRequired,
 } from "./components/write/requests-page";
 import { WriteRequestDetail } from "./components/write/write-request-detail";
+import { SavedQueryLink } from "./components/query/saved-query-link";
 
 function AuthenticatedApp() {
   const setConnections = useStore((s) => s.setConnections);
@@ -99,6 +100,7 @@ function AuthenticatedApp() {
             }
           />
           <Route path="/write-requests/:id" element={<WriteRequestDetail />} />
+          <Route path="/saved-queries/:id" element={<SavedQueryLink />} />
           <Route
             path="/settings"
             element={

@@ -26,11 +26,13 @@ import {
   IconSparkles,
   IconPencilBolt,
   IconDatabase,
+  IconLink,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
+import { copySavedQueryShareLink } from "../../utils/share-links";
 import type {
   DatabaseType,
   QueryTab,
@@ -683,6 +685,10 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
     setSaveModalOpen(true);
   };
 
+  // The saved query backing this tab, if any (tabs opened from / saved to the
+  // library carry the query name as their title).
+  const savedMatch = savedQueries.find((q) => q.name === tab.title);
+
   const openUpdateExisting = () => {
     const match = savedQueries.find((q) => q.name === tab.title);
     if (match) {
@@ -900,6 +906,18 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
               <IconDeviceFloppy size={16} />
             </ActionIcon>
           </Tooltip>
+
+          {savedMatch && (
+            <Tooltip label="Copy share link">
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                onClick={() => copySavedQueryShareLink(savedMatch)}
+              >
+                <IconLink size={16} />
+              </ActionIcon>
+            </Tooltip>
+          )}
 
           <Tooltip label="Export CSV">
             <ActionIcon variant="subtle" color="gray" onClick={handleExportCsv}>

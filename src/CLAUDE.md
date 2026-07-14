@@ -22,6 +22,7 @@ queries**, **UI** (`sidebarOpen`, `phiPanelOpen`, `aiAssistantOpen`), **write ha
 | `/write` | Write composer workspace (`write/write-workspace.tsx`) |
 | `/requests` | Write requests list (`write/requests-page.tsx`) |
 | `/write-requests/:id` | Write request detail + timeline (`write/write-request-detail.tsx`) |
+| `/saved-queries/:id` | Saved-query share link — opens the query in a new editor tab (`query/saved-query-link.tsx`) |
 | `/profile` | Profile / password (`pages/profile-page.tsx`) |
 | `/settings` | Admin settings, sidebar-nav (`pages/settings-page.tsx`) |
 
