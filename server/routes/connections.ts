@@ -1,8 +1,37 @@
 import { Router, Request, Response } from "express";
 import { loadConnections, getConnectionsByEnv, getConnection } from "../config/connections.js";
-import { testConnection } from "../services/query-executor.js";
+import {
+  testConnection,
+  getPoolStatus,
+  closeConnectionPool,
+} from "../services/query-executor.js";
+import { requireAdmin } from "../middleware/auth.js";
 
 const router = Router();
+
+// Live pool status per configured connection (admin — powers the analytics card).
+router.get("/status", requireAdmin, (_req: Request, res: Response) => {
+  const statuses = loadConnections().map((c) => ({
+    id: c.id,
+    name: c.name,
+    env: c.env,
+    type: c.type,
+    database: c.database,
+    ...getPoolStatus(c.id),
+  }));
+  res.json(statuses);
+});
+
+// Force-close a connection's pool; it reconnects lazily on next use.
+router.post("/:id/disconnect", requireAdmin, async (req: Request, res: Response) => {
+  const conn = getConnection(req.params.id as string);
+  if (!conn) {
+    res.status(404).json({ error: "Connection not found" });
+    return;
+  }
+  const closed = await closeConnectionPool(conn.id);
+  res.json({ connectionId: conn.id, closed });
+});
 
 router.get("/", (req: Request, res: Response) => {
   const allowed = req.user?.allowedEnvironments || [];

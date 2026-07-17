@@ -291,6 +291,18 @@ interface Analytics {
   byConnection: { connectionId: string; count: number }[];
 }
 
+interface ConnectionStatusRow {
+  id: string;
+  name: string;
+  env: string;
+  type: string;
+  database: string;
+  live: boolean;
+  totalSockets?: number;
+  idleSockets?: number;
+  lastUsedAt?: string;
+}
+
 function fmtNum(n: number): string {
   return (n ?? 0).toLocaleString();
 }
@@ -461,17 +473,39 @@ function Panel({ children }: { children: ReactNode }) {
 
 function AnalyticsTab() {
   const [data, setData] = useState<Analytics | null>(null);
+  const [connStatus, setConnStatus] = useState<ConnectionStatusRow[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const loadConnStatus = async () => {
+    try {
+      setConnStatus(await api.getConnectionStatus());
+    } catch {
+      // Non-fatal — the rest of the analytics still renders.
+    }
+  };
 
   const load = async () => {
     setLoading(true);
     try {
-      const d = await api.getAnalytics();
+      const [d] = await Promise.all([api.getAnalytics(), loadConnStatus()]);
       setData(d);
     } catch (err: any) {
       notifications.show({ message: err.message, color: "red" });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const disconnect = async (row: ConnectionStatusRow) => {
+    try {
+      await api.disconnectConnection(row.id);
+      notifications.show({
+        message: `Disconnected ${row.name}`,
+        color: "teal",
+      });
+      await loadConnStatus();
+    } catch (err: any) {
+      notifications.show({ message: err.message, color: "red" });
     }
   };
 
@@ -749,6 +783,110 @@ function AnalyticsTab() {
           </div>
         </Panel>
       </SimpleGrid>
+
+      {/* Live database connections */}
+      <Panel>
+        <Group justify="space-between" mb={12}>
+          <Text size="sm" fw={600} c="secondary.9">
+            Database connections
+          </Text>
+          <Text size="xs" c="dimmed">
+            {connStatus.filter((c) => c.live).length} live ·{" "}
+            {connStatus.length} configured
+          </Text>
+        </Group>
+        <Text size="xs" c="dimmed" mb={12}>
+          Pools open on first use and idle sockets close after 60s. Disconnect
+          force-closes a pool; it reconnects automatically on the next query.
+        </Text>
+        <ScrollArea.Autosize mah={360}>
+          <Table verticalSpacing={6} horizontalSpacing="sm">
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Connection</Table.Th>
+                <Table.Th>Env</Table.Th>
+                <Table.Th>Type</Table.Th>
+                <Table.Th>Sockets</Table.Th>
+                <Table.Th>Last used</Table.Th>
+                <Table.Th />
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {[...connStatus]
+                .sort(
+                  (a, b) =>
+                    Number(b.live) - Number(a.live) ||
+                    a.name.localeCompare(b.name),
+                )
+                .map((c) => (
+                  <Table.Tr key={c.id}>
+                    <Table.Td>
+                      <Group gap={8} wrap="nowrap">
+                        <div
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            flexShrink: 0,
+                            background: c.live
+                              ? "var(--mantine-color-teal-5)"
+                              : "var(--mantine-color-gray-4)",
+                          }}
+                        />
+                        <Text size="xs" fw={600} truncate>
+                          {c.name}
+                        </Text>
+                      </Group>
+                    </Table.Td>
+                    <Table.Td>
+                      <Badge
+                        size="xs"
+                        radius="sm"
+                        variant="light"
+                        color={ENV_COLORS[c.env] || "gray"}
+                      >
+                        {c.env}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="xs" c="dimmed">
+                        {c.type}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="xs" c="dimmed">
+                        {c.live
+                          ? c.totalSockets != null
+                            ? `${c.totalSockets} open · ${c.idleSockets ?? 0} idle`
+                            : "connected"
+                          : "—"}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="xs" c="dimmed">
+                        {c.lastUsedAt
+                          ? new Date(c.lastUsedAt).toLocaleString()
+                          : "—"}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td align="right">
+                      {c.live && (
+                        <Button
+                          size="compact-xs"
+                          variant="light"
+                          color="red"
+                          onClick={() => disconnect(c)}
+                        >
+                          Disconnect
+                        </Button>
+                      )}
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+            </Table.Tbody>
+          </Table>
+        </ScrollArea.Autosize>
+      </Panel>
     </div>
   );
 }

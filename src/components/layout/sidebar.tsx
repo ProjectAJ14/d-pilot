@@ -912,18 +912,6 @@ export function Sidebar() {
           gap: 6,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--muted2)" }}>
-          <div
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: "var(--success)",
-              flexShrink: 0,
-            }}
-          />
-          {connections.length} connection{connections.length !== 1 ? "s" : ""} configured
-        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--accent)" }}>
           <IconShieldLock size={10} style={{ flexShrink: 0 }} />
           PHI tokenized on {maskedEnvLabel}

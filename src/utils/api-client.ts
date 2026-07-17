@@ -101,6 +101,24 @@ export const api = {
     request<Record<string, any[]>>("/connections/grouped"),
   testConnection: (id: string) =>
     request<{ connected: boolean }>(`/connections/${id}/test`),
+  getConnectionStatus: () =>
+    request<
+      {
+        id: string;
+        name: string;
+        env: string;
+        type: string;
+        database: string;
+        live: boolean;
+        totalSockets?: number;
+        idleSockets?: number;
+        lastUsedAt?: string;
+      }[]
+    >("/connections/status"),
+  disconnectConnection: (id: string) =>
+    request<{ closed: boolean }>(`/connections/${id}/disconnect`, {
+      method: "POST",
+    }),
 
   // Write requests / approval workflow
   getWritePolicy: () =>

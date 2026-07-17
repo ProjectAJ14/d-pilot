@@ -14,6 +14,13 @@ const mssqlPools = new Map<string, mssql.ConnectionPool>();
 const mongClients = new Map<string, MongoClient>();
 const esClients = new Map<string, EsClient>();
 
+// Last time each connection's pool was handed out (i.e. last query/schema/test).
+const poolLastUsed = new Map<string, number>();
+
+function touchPool(id: string): void {
+  poolLastUsed.set(id, Date.now());
+}
+
 // DML/DDL patterns that should be blocked
 const BLOCKED_PATTERNS = [
   /^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE|EXEC|EXECUTE)\b/i,
@@ -159,6 +166,7 @@ export function applyDefaultLimit(
 }
 
 export async function getPgPool(conn: ConnectionConfig): Promise<pg.Pool> {
+  touchPool(conn.id);
   const existing = pgPools.get(conn.id);
   if (existing) return existing;
 
@@ -181,6 +189,7 @@ export async function getPgPool(conn: ConnectionConfig): Promise<pg.Pool> {
 export async function getMssqlPool(
   conn: ConnectionConfig,
 ): Promise<mssql.ConnectionPool> {
+  touchPool(conn.id);
   const existing = mssqlPools.get(conn.id);
   if (existing?.connected) return existing;
 
@@ -207,6 +216,7 @@ export async function getMssqlPool(
 export async function getMongoClient(
   conn: ConnectionConfig,
 ): Promise<MongoClient> {
+  touchPool(conn.id);
   const existing = mongClients.get(conn.id);
   if (existing) return existing;
 
@@ -216,6 +226,11 @@ export async function getMongoClient(
   const client = new MongoClient(uri, {
     serverSelectionTimeoutMS: 10000,
     socketTimeoutMS: QUERY_TIMEOUT,
+    // Match the pg/mssql pools: small cap, drop idle sockets. Without these the
+    // driver defaults to maxPoolSize 100 and holds sockets indefinitely.
+    maxPoolSize: 5,
+    minPoolSize: 0,
+    maxIdleTimeMS: 60000,
   });
 
   await client.connect();
@@ -522,6 +537,7 @@ async function executeMongo(
 // --- Elasticsearch ---
 
 export function getEsClient(conn: ConnectionConfig): EsClient {
+  touchPool(conn.id);
   const existing = esClients.get(conn.id);
   if (existing) return existing;
 
@@ -687,6 +703,72 @@ export async function testConnection(conn: ConnectionConfig): Promise<boolean> {
   }
 }
 
+export interface PoolStatus {
+  live: boolean;
+  /** Open sockets, where the driver exposes it (pg/mssql). */
+  totalSockets?: number;
+  idleSockets?: number;
+  lastUsedAt?: string; // ISO
+}
+
+/** Live-pool status for a connection ID — no I/O, just reads pool state. */
+export function getPoolStatus(id: string): PoolStatus {
+  const lastUsed = poolLastUsed.get(id);
+  const lastUsedAt = lastUsed ? new Date(lastUsed).toISOString() : undefined;
+
+  const pgPool = pgPools.get(id);
+  if (pgPool) {
+    return {
+      live: true,
+      totalSockets: pgPool.totalCount,
+      idleSockets: pgPool.idleCount,
+      lastUsedAt,
+    };
+  }
+  const msPool = mssqlPools.get(id);
+  if (msPool) {
+    return {
+      live: true,
+      totalSockets: msPool.size,
+      idleSockets: msPool.available,
+      lastUsedAt,
+    };
+  }
+  if (mongClients.has(id) || esClients.has(id)) return { live: true, lastUsedAt };
+  return { live: false, lastUsedAt };
+}
+
+/** Closes and evicts the pool for one connection; it reconnects lazily on next use. */
+export async function closeConnectionPool(id: string): Promise<boolean> {
+  let closed = false;
+  const pgPool = pgPools.get(id);
+  if (pgPool) {
+    pgPools.delete(id);
+    await pgPool.end();
+    closed = true;
+  }
+  const msPool = mssqlPools.get(id);
+  if (msPool) {
+    mssqlPools.delete(id);
+    await msPool.close();
+    closed = true;
+  }
+  const mongo = mongClients.get(id);
+  if (mongo) {
+    mongClients.delete(id);
+    await mongo.close();
+    closed = true;
+  }
+  const es = esClients.get(id);
+  if (es) {
+    esClients.delete(id);
+    await es.close();
+    closed = true;
+  }
+  poolLastUsed.delete(id);
+  return closed;
+}
+
 export async function closeAllConnections(): Promise<void> {
   for (const pool of pgPools.values()) await pool.end();
   for (const pool of mssqlPools.values()) await pool.close();
@@ -696,4 +778,5 @@ export async function closeAllConnections(): Promise<void> {
   mssqlPools.clear();
   mongClients.clear();
   esClients.clear();
+  poolLastUsed.clear();
 }

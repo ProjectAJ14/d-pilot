@@ -1,0 +1,20 @@
+meta {
+  name: Disconnect Connection
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/connections/{{connectionId}}/disconnect
+  body: none
+  auth: inherit
+}
+
+docs {
+  Force-close the server-side pool for one connection (all engines: pg pool,
+  MSSQL pool, Mongo client, ES client). The pool is recreated lazily on the
+  next query/schema fetch, so this is always safe. Returns { closed } —
+  false when no pool was open.
+
+  Admin only.
+}

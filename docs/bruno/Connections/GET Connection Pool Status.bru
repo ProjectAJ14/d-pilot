@@ -1,0 +1,20 @@
+meta {
+  name: Connection Pool Status
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/connections/status
+  body: none
+  auth: inherit
+}
+
+docs {
+  Live pool status for every configured connection: whether a pool is open
+  (live), open/idle socket counts where the driver exposes them (Postgres,
+  MSSQL), and when the pool was last used. No I/O against target databases —
+  reads in-memory pool state only.
+
+  Admin only.
+}
