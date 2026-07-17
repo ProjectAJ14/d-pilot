@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.5.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.4.0...v1.5.0) (2026-07-17)
+
+
+### Features
+
+* add live connection pool status and disconnect ([85da7c4](https://github.com/ProjectAJ14/d-pilot/commit/85da7c410db8045787d53665c4a4b5278bd67005))
+
 # [1.4.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.3.0...v1.4.0) (2026-07-14)
 
 
