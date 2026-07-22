@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.7.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.6.0...v1.7.0) (2026-07-22)
+
+
+### Features
+
+* **write-review:** layered voice — plain summary, technical risk bullets ([7a1c608](https://github.com/ProjectAJ14/d-pilot/commit/7a1c608a7946bef5bc445204dc0de6f9c1ab14d0))
+
 # [1.6.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.5.0...v1.6.0) (2026-07-22)
 
 
