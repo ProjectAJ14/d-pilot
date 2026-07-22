@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.6.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.5.0...v1.6.0) (2026-07-22)
+
+
+### Features
+
+* **write-review:** senior-architect AI review persona; fix empty verdict on reasoning models ([36259df](https://github.com/ProjectAJ14/d-pilot/commit/36259dfcd962b47ff7bda4568c75784f39b89c2d))
+
 # [1.5.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.4.0...v1.5.0) (2026-07-17)
 
 
