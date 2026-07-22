@@ -976,7 +976,7 @@ async function computeWriteAiReview(
 ): Promise<WriteAiReview> {
   const schemaText = await buildWriteSchemaText(conn, [selectSql, writeSql]);
   const systemPrompt = [
-    "You are a database change-safety reviewer embedded in an approval workflow.",
+    "You are a senior database architect reviewing a proposed change in an approval workflow — review it the way a seasoned engineer reviews a pull request. Judge not just whether it is SAFE to run, but whether it is the RIGHT way to express the intent. A statement can be perfectly safe and still be a poor solution.",
     "The WRITE statement expresses the user's intent and is authoritative. The verify SELECT should preview EXACTLY the rows the WRITE affects (same table, same WHERE/filter) so a reviewer can eyeball them before approving.",
     "Assess correctness and risk. Key checks:",
     "- Does the verify SELECT return exactly the rows the WRITE will change (same table, same filter, no more, no fewer)?",
@@ -984,8 +984,15 @@ async function computeWriteAiReview(
     "- Wrong table/column, type mismatches, touching [PHI] columns, and whether the change is irreversible on this engine.",
     `Database type: ${conn.type}. Elasticsearch and multi-document MongoDB writes cannot be rolled back.`,
     "",
-    "ALSO produce corrected statements the user can apply with one click:",
-    "- suggestedWriteSql: a corrected WRITE only if the current WRITE is unsafe or wrong (e.g. add a missing WHERE, fix a wrong column/type). If the WRITE is already correct and safe, set it to null.",
+    "ALSO apply a senior-architect design review. Even when the statement is safe, call out weaker approaches and name the better one. Look specifically for:",
+    "- Partial or asymmetric operations that only half-solve the intent. E.g. RTRIM(x) removes only trailing whitespace — a leading space survives; if the intent is to clean the value, TRIM(x) handles both sides. Same idea for LTRIM, one-sided REPLACE, or a fix applied to one column but not its siblings.",
+    "- Incomplete or brittle filters: hardcoded exclusion lists that will drift, magic literals that should be derived, WHERE clauses that will silently skip edge cases (NULLs, mixed case, differing collation).",
+    "- Simpler or more idiomatic ways to achieve the same result correctly on this engine.",
+    "- Re-running risk: would running this a second time change more rows or behave differently (non-idempotent)?",
+    "Put each such observation in `risks` (state the concrete downside, not just the label) and reflect the most important one in `summary`. These design concerns raise the verdict to CAUTION even if the change is technically safe.",
+    "",
+    "Produce corrected statements the user can apply with one click:",
+    "- suggestedWriteSql: an improved WRITE whenever the current one is unsafe, wrong, OR a clearly better approach exists (e.g. TRIM instead of RTRIM). Keep the same intent and the same target rows. Set to null only if the current WRITE is both safe and already the right approach.",
     "- suggestedSelectSql: a CONCISE read-only SELECT that previews EXACTLY the rows the effective WRITE (suggestedWriteSql if present, otherwise the current WRITE) affects — same table and WHERE. Choose columns by verb: DELETE → `SELECT *`; UPDATE → primary key plus only the column(s) being set; INSERT → rows that would conflict on a key. NEVER enumerate every column — prefer `SELECT *` over a long column list. Set to null only if the current verify SELECT is already correct and concise.",
     "CRITICAL: the two suggestions MUST be mutually consistent — if the user applies them, a fresh review of that pair MUST yield verdict SAFE and selectMatchesWrite=true. Never suggest an unsafe statement (e.g. never a WHERE-less UPDATE/DELETE).",
     'Respond ONLY with JSON of the form: {"verdict":"SAFE|CAUTION|DANGEROUS","selectMatchesWrite":true|false,"estimatedBlastRadius":"single row|bounded|UNBOUNDED","risks":["..."],"summary":"...","recommendation":"approve|review carefully|reject","suggestedWriteSql":"..."|null,"suggestedSelectSql":"..."|null}.',
@@ -1013,7 +1020,10 @@ async function computeWriteAiReview(
       { role: "system", content: systemPrompt },
       { role: "user", content: userMessage },
     ],
-    { maxTokens: 1400, jsonMode: true, timeoutMs: 60000 },
+    // gpt-5.x reasoning tokens count against max_completion_tokens, so the budget
+    // must cover the model's reasoning AND the JSON payload — 1400 was consumed
+    // entirely by reasoning, leaving empty content. ponytail: bump the cap.
+    { maxTokens: 6000, jsonMode: true, timeoutMs: 90000 },
   );
   const parsed = parseAiReview(result.content);
   return {
