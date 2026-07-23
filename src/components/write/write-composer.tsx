@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, type CSSProperties } from "react";
 import Editor from "@monaco-editor/react";
 import {
   Text,
@@ -29,6 +29,7 @@ import type {
   DatabaseType,
 } from "../../types";
 import { EnvBadge, PreviewTable, AiReviewCard, StepBadge } from "./shared";
+import { baseSqlEditorOptions } from "../../utils/monaco-editor-options";
 
 function monacoLang(dbType?: DatabaseType): string {
   if (dbType === "mongodb") return "javascript";
@@ -53,20 +54,17 @@ const SELECT_PLACEHOLDERS: Record<DatabaseType, string> = {
 };
 
 function editorOptions(placeholder: string) {
-  return {
-    minimap: { enabled: false },
-    fontSize: 13,
-    fontFamily: "IBM Plex Mono, monospace",
-    lineNumbers: "on" as const,
-    scrollBeyondLastLine: false,
-    padding: { top: 8, bottom: 8 },
-    automaticLayout: true,
-    tabSize: 2,
-    wordWrap: "on" as const,
-    placeholder,
-    overviewRulerBorder: false,
-  };
+  // Same config as the main read editor (keeps them in sync) plus a placeholder.
+  return { ...baseSqlEditorOptions, placeholder };
 }
+
+// Drag-to-resize wrapper: the browser draws a grip at the bottom-right corner
+// and Monaco's automaticLayout follows the height change.
+const RESIZE_WRAPPER: CSSProperties = {
+  minHeight: 80,
+  resize: "vertical",
+  overflow: "hidden",
+};
 
 // Draft persistence — keeps an in-progress *new* request alive across navigation.
 const DRAFT_KEY = "dbpilot_write_draft";
@@ -533,10 +531,12 @@ export function WriteComposer({
           borderRadius: 12,
           overflow: "hidden",
           marginBottom: 20,
+          height: 132,
+          ...RESIZE_WRAPPER,
         }}
       >
         <Editor
-          height="132px"
+          height="100%"
           language={monacoLang(dbType)}
           theme="vs"
           value={writeSql}
@@ -607,17 +607,19 @@ export function WriteComposer({
             Generate from write
           </Button>
         </div>
-        <Editor
-          height="104px"
-          language={monacoLang(dbType)}
-          theme="vs"
-          value={selectSql}
-          onChange={(v) => {
-            setSelectSql(v || "");
-            setPreview(null);
-          }}
-          options={editorOptions(SELECT_PLACEHOLDERS[dbType || "postgres"])}
-        />
+        <div style={{ height: 104, ...RESIZE_WRAPPER }}>
+          <Editor
+            height="100%"
+            language={monacoLang(dbType)}
+            theme="vs"
+            value={selectSql}
+            onChange={(v) => {
+              setSelectSql(v || "");
+              setPreview(null);
+            }}
+            options={editorOptions(SELECT_PLACEHOLDERS[dbType || "postgres"])}
+          />
+        </div>
         {/* footer bar */}
         <div
           style={{

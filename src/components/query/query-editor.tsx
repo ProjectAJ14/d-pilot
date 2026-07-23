@@ -46,6 +46,7 @@ import {
   pushKeywordItems,
   type SqlDialect,
 } from "../../utils/sql-completions";
+import { baseSqlEditorOptions } from "../../utils/monaco-editor-options";
 
 interface Props {
   tab: QueryTab;
@@ -1064,38 +1065,7 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
             onChange={(value) => updateTab(tab.id, { sql: value || "" })}
             onMount={handleEditorMount}
             loading={null}
-            options={{
-              minimap: { enabled: false },
-              fontSize: 13,
-              fontFamily: "IBM Plex Mono, monospace",
-              lineNumbers: "on",
-              scrollBeyondLastLine: false,
-              padding: { top: 10, bottom: 10 },
-              renderLineHighlight: "gutter",
-              automaticLayout: true,
-              tabSize: 2,
-              wordWrap: "on",
-              overviewRulerBorder: false,
-              hideCursorInOverviewRuler: true,
-              quickSuggestions: {
-                other: true,
-                comments: false,
-                strings: true,
-              },
-              suggestOnTriggerCharacters: true,
-              wordBasedSuggestions: "off",
-              acceptSuggestionOnEnter: "on",
-              suggest: {
-                // Must be true: our SQL keyword completions use CompletionItemKind.Keyword;
-                // when false, Monaco hides them and only schema (table/column) items appear.
-                showKeywords: true,
-                showWords: false,
-                preview: true,
-                showIcons: true,
-                filterGraceful: true,
-                snippetsPreventQuickSuggestions: false,
-              },
-            }}
+            options={baseSqlEditorOptions}
           />
         </div>
       </div>
