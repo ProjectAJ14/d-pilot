@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.8.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.7.0...v1.8.0) (2026-07-23)
+
+
+### Features
+
+* **write-composer:** drag-resizable SQL editors, shared config with read editor ([4d80423](https://github.com/ProjectAJ14/d-pilot/commit/4d80423c804e708c656623797787e804ac640214))
+
 # [1.7.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.6.0...v1.7.0) (2026-07-22)
 
 
