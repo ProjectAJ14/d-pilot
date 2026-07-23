@@ -1,4 +1,10 @@
-import { useState, useEffect, useMemo, useRef, type CSSProperties } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  type CSSProperties,
+} from "react";
 import Editor from "@monaco-editor/react";
 import {
   Text,
@@ -8,6 +14,7 @@ import {
   TextInput,
   Textarea,
   Alert,
+  Checkbox,
 } from "@mantine/core";
 import {
   IconPlayerPlay,
@@ -17,6 +24,8 @@ import {
   IconWand,
   IconInfoCircle,
   IconEye,
+  IconStack2,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useStore } from "../../store";
@@ -100,6 +109,15 @@ export interface ComposerSubmit {
   selectSql: string;
   writeSql: string;
   note?: string;
+  noTransaction?: boolean;
+}
+
+interface WriteAnalysis {
+  statementCount: number;
+  isMigration: boolean;
+  hasDdl: boolean;
+  requiresNoTransaction: boolean;
+  blocked?: string;
 }
 
 interface WriteComposerProps {
@@ -159,6 +177,8 @@ export function WriteComposer({
     seed?.writeSql ?? initial?.writeSql ?? "",
   );
   const [note, setNote] = useState("");
+  const [analysis, setAnalysis] = useState<WriteAnalysis | null>(null);
+  const [noTransaction, setNoTransaction] = useState(false);
 
   const [preview, setPreview] = useState<QueryResult | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -201,6 +221,37 @@ export function WriteComposer({
     );
     return () => clearTimeout(t);
   }, [isCreate, title, description, connectionId, selectSql, writeSql]);
+
+  // Classify the write (single-DML vs migration) as it's typed. The server is
+  // authoritative — it decides migration mode, so the verify SELECT and the
+  // no-rollback toggle stay in sync with how it will actually run.
+  useEffect(() => {
+    const sql = writeSql.trim();
+    if (!connectionId || !sql) {
+      setAnalysis(null);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const a = await api.analyzeWrite({ connectionId, writeSql: sql });
+        if (!cancelled) setAnalysis(a);
+      } catch {
+        if (!cancelled) setAnalysis(null);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [connectionId, writeSql]);
+
+  const isMigration = analysis?.isMigration ?? false;
+  const requiresNoTransaction = analysis?.requiresNoTransaction ?? false;
+  // Drop a stale no-rollback opt-in once it's no longer needed.
+  useEffect(() => {
+    if (!requiresNoTransaction && noTransaction) setNoTransaction(false);
+  }, [requiresNoTransaction, noTransaction]);
 
   // Consume a handoff (create only): from the read section / AI assistant (write
   // only) or from "Duplicate request" (all fields).
@@ -324,11 +375,24 @@ export function WriteComposer({
       !title.trim() ||
       !connectionId ||
       !writeSql.trim() ||
-      !selectSql.trim()
+      (!isMigration && !selectSql.trim())
     ) {
       notifications.show({
+        message: isMigration
+          ? "Title, connection and the migration script are required"
+          : "Title, connection, write statement and a verify SELECT are all required",
+        color: "orange",
+      });
+      return;
+    }
+    if (analysis?.blocked) {
+      notifications.show({ message: analysis.blocked, color: "red" });
+      return;
+    }
+    if (requiresNoTransaction && !noTransaction) {
+      notifications.show({
         message:
-          "Title, connection, write statement and a verify SELECT are all required",
+          'This script can\'t run in a transaction — tick "Run without rollback" to submit it.',
         color: "orange",
       });
       return;
@@ -339,9 +403,10 @@ export function WriteComposer({
         title: title.trim(),
         description: description.trim() || undefined,
         connectionId,
-        selectSql: selectSql.trim(),
+        selectSql: isMigration ? "" : selectSql.trim(),
         writeSql: writeSql.trim(),
         note: note.trim() || undefined,
+        noTransaction: isMigration ? noTransaction : undefined,
       });
       const verb = isCreate ? "Submitted" : "Resubmitted";
       if (wr.status === "EXECUTED") {
@@ -402,16 +467,31 @@ export function WriteComposer({
         halo: "rgba(224,160,32,0.18)",
       };
 
-  // A light hint mirroring the current (unchanged) required-field gating.
+  // A light hint mirroring the required-field gating.
   const runHint = !title.trim()
     ? "Add a title"
     : !connectionId
       ? "Pick a connection"
       : !writeSql.trim()
         ? "Write a statement first"
-        : !selectSql.trim()
-          ? "Add a verify SELECT"
-          : "";
+        : analysis?.blocked
+          ? analysis.blocked
+          : isMigration
+            ? requiresNoTransaction && !noTransaction
+              ? 'Enable "Run without rollback"'
+              : ""
+            : !selectSql.trim()
+              ? "Add a verify SELECT"
+              : "";
+
+  const submitDisabled =
+    !writeModeEnabled ||
+    !title.trim() ||
+    !connectionId ||
+    !writeSql.trim() ||
+    (!isMigration && !selectSql.trim()) ||
+    !!analysis?.blocked ||
+    (requiresNoTransaction && !noTransaction);
 
   const previewNote = preview
     ? `Preview ran · ${preview.totalRows} row(s) returned`
@@ -478,9 +558,7 @@ export function WriteComposer({
           }}
         >
           <EnvBadge env={conn.env} />
-          <span
-            style={{ width: 1, height: 16, background: "var(--border)" }}
-          />
+          <span style={{ width: 1, height: 16, background: "var(--border)" }} />
           <span
             style={{
               display: "inline-flex",
@@ -519,11 +597,34 @@ export function WriteComposer({
       <Group gap={8} mb={9} align="center">
         <StepBadge n={1} />
         <Text size="sm" fw={600} c="secondary.9">
-          Write statement
+          {isMigration ? "Migration script" : "Write statement"}
         </Text>
         <Text size="xs" c="dimmed">
-          single INSERT / UPDATE / DELETE
+          {isMigration
+            ? "runs as one transaction"
+            : "single statement, or paste a migration script"}
         </Text>
+        {isMigration && analysis && (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--accent)",
+              background: "rgba(31,145,150,0.12)",
+              border: "1px solid rgba(31,145,150,0.35)",
+              borderRadius: 999,
+              padding: "1px 9px",
+            }}
+          >
+            <IconStack2 size={12} />
+            {analysis.statementCount} statement
+            {analysis.statementCount === 1 ? "" : "s"}
+            {analysis.hasDdl ? " · DDL" : ""}
+          </span>
+        )}
       </Group>
       <div
         style={{
@@ -548,105 +649,161 @@ export function WriteComposer({
         />
       </div>
 
-      {/* 2 · Verify SELECT */}
-      <Group gap={8} mb={9} align="center">
-        <StepBadge n={2} />
-        <Text size="sm" fw={600} c="secondary.9">
-          Verify SELECT
-        </Text>
-        <Text size="xs" c="red" fw={600}>
-          required
-        </Text>
-        <Text size="xs" c="dimmed">
-          a read-only query that previews the rows the write will affect
-        </Text>
-      </Group>
-      <div
-        style={{
-          border: "1px solid var(--border)",
-          borderRadius: 12,
-          overflow: "hidden",
-          background: "var(--surface)",
-        }}
-      >
-        {/* header bar */}
+      {/* Migration mode: no verify SELECT (there is no single row-set to preview). */}
+      {isMigration && (
+        <Alert
+          color="teal"
+          variant="light"
+          mb="md"
+          icon={<IconStack2 size={16} />}
+        >
+          Migration mode — multiple statements or DDL detected. The verify
+          SELECT is disabled because there's no single set of rows to preview;
+          the whole script runs as one change and the AI review checks it
+          end-to-end.
+        </Alert>
+      )}
+
+      {isMigration && analysis?.blocked && (
+        <Alert
+          color="red"
+          variant="light"
+          mb="md"
+          icon={<IconAlertTriangle size={16} />}
+        >
+          {analysis.blocked}
+        </Alert>
+      )}
+
+      {isMigration && requiresNoTransaction && (
         <div
           style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 10,
-            padding: "8px 10px 8px 14px",
-            borderBottom: "1px solid var(--border)",
-            background: "var(--surface2)",
+            border: "1px solid rgba(224,160,32,0.5)",
+            background: "rgba(224,160,32,0.08)",
+            borderRadius: 11,
+            padding: "12px 14px",
+            marginBottom: 16,
           }}
         >
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 7,
-              fontSize: 11.5,
-              fontWeight: 600,
-              letterSpacing: "0.02em",
-              color: "var(--muted)",
-            }}
-          >
-            <IconEye size={13} />
-            READ-ONLY PREVIEW QUERY
-          </span>
-          <Button
-            size="compact-xs"
-            variant="light"
-            color="teal"
-            leftSection={<IconWand size={13} />}
-            onClick={handleGenerateSelect}
-            loading={genSelecting}
-            disabled={!writeSql.trim() || !connectionId}
-          >
-            Generate from write
-          </Button>
-        </div>
-        <div style={{ height: 104, ...RESIZE_WRAPPER }}>
-          <Editor
-            height="100%"
-            language={monacoLang(dbType)}
-            theme="vs"
-            value={selectSql}
-            onChange={(v) => {
-              setSelectSql(v || "");
-              setPreview(null);
-            }}
-            options={editorOptions(SELECT_PLACEHOLDERS[dbType || "postgres"])}
+          <Checkbox
+            checked={noTransaction}
+            onChange={(e) => setNoTransaction(e.currentTarget.checked)}
+            color="yellow"
+            label={
+              <Text size="sm" fw={600} c="#8a5a00">
+                Run without rollback
+              </Text>
+            }
+            description="This script contains a statement that can't run inside a transaction (e.g. CREATE INDEX CONCURRENTLY, VACUUM). Statements will be committed one by one — if it fails partway, earlier statements stay applied and can't be undone."
           />
         </div>
-        {/* footer bar */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 12,
-            padding: "9px 12px",
-            borderTop: "1px solid var(--border)",
-            background: "var(--surface2)",
-          }}
-        >
-          <Button
-            size="xs"
-            variant="light"
-            color="blue"
-            leftSection={<IconPlayerPlay size={14} />}
-            onClick={handlePreview}
-            loading={previewLoading}
-            disabled={!selectSql.trim() || !connectionId}
+      )}
+
+      {/* 2 · Verify SELECT (single-statement DML only) */}
+      {!isMigration && (
+        <>
+          <Group gap={8} mb={9} align="center">
+            <StepBadge n={2} />
+            <Text size="sm" fw={600} c="secondary.9">
+              Verify SELECT
+            </Text>
+            <Text size="xs" c="red" fw={600}>
+              required
+            </Text>
+            <Text size="xs" c="dimmed">
+              a read-only query that previews the rows the write will affect
+            </Text>
+          </Group>
+          <div
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 12,
+              overflow: "hidden",
+              background: "var(--surface)",
+            }}
           >
-            Run this SELECT
-          </Button>
-          <Text size="xs" c="dimmed">
-            {previewNote}
-          </Text>
-        </div>
-      </div>
+            {/* header bar */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+                padding: "8px 10px 8px 14px",
+                borderBottom: "1px solid var(--border)",
+                background: "var(--surface2)",
+              }}
+            >
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 7,
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  letterSpacing: "0.02em",
+                  color: "var(--muted)",
+                }}
+              >
+                <IconEye size={13} />
+                READ-ONLY PREVIEW QUERY
+              </span>
+              <Button
+                size="compact-xs"
+                variant="light"
+                color="teal"
+                leftSection={<IconWand size={13} />}
+                onClick={handleGenerateSelect}
+                loading={genSelecting}
+                disabled={!writeSql.trim() || !connectionId}
+              >
+                Generate from write
+              </Button>
+            </div>
+            <div style={{ height: 104, ...RESIZE_WRAPPER }}>
+              <Editor
+                height="100%"
+                language={monacoLang(dbType)}
+                theme="vs"
+                value={selectSql}
+                onChange={(v) => {
+                  setSelectSql(v || "");
+                  setPreview(null);
+                }}
+                options={editorOptions(
+                  SELECT_PLACEHOLDERS[dbType || "postgres"],
+                )}
+              />
+            </div>
+            {/* footer bar */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "9px 12px",
+                borderTop: "1px solid var(--border)",
+                background: "var(--surface2)",
+              }}
+            >
+              <Button
+                size="xs"
+                variant="light"
+                color="blue"
+                leftSection={<IconPlayerPlay size={14} />}
+                onClick={handlePreview}
+                loading={previewLoading}
+                disabled={!selectSql.trim() || !connectionId}
+              >
+                Run this SELECT
+              </Button>
+              <Text size="xs" c="dimmed">
+                {previewNote}
+              </Text>
+            </div>
+          </div>
+        </>
+      )}
       {previewError && (
         <Alert color="red" mt="md" variant="light">
           {previewError}
@@ -729,13 +886,7 @@ export function WriteComposer({
             }
             onClick={handleSubmit}
             loading={submitting}
-            disabled={
-              !writeModeEnabled ||
-              !title.trim() ||
-              !connectionId ||
-              !writeSql.trim() ||
-              !selectSql.trim()
-            }
+            disabled={submitDisabled}
           >
             {submitLabel}
           </Button>

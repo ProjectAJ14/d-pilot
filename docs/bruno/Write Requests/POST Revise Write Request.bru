@@ -20,12 +20,13 @@ body:json {
     "description": "Narrowed the WHERE",
     "selectSql": "SELECT id, active FROM patients WHERE id = 42",
     "writeSql": "UPDATE patients SET active = true WHERE id = 42",
-    "note": "Addressed reviewer feedback"
+    "note": "Addressed reviewer feedback",
+    "noTransaction": false
   }
 }
 
 docs {
-  Edit and resubmit a REJECTED/CANCELLED/FAILED request (keeps the same id and history).
+  Edit and resubmit a REJECTED/CANCELLED/FAILED request (keeps the same id and history). Migration vs single-DML is re-classified from the new `writeSql` (see Create Write Request); `noTransaction` applies only to migrations.
 
   Requires a valid Bearer JWT ({{token}}).
   Requires **write mode** to be enabled.

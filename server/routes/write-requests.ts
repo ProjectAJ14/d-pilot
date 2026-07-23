@@ -9,6 +9,9 @@ import {
 import {
   executeWrite,
   validateWriteQuery,
+  executeMigration,
+  validateMigration,
+  classifyWrite,
 } from "../services/write-executor.js";
 import { maskQueryResults } from "../services/phi-masking.js";
 import {
@@ -95,7 +98,19 @@ async function validateRequestQueries(
   conn: NonNullable<ReturnType<typeof getConnection>>,
   selectSql: string | undefined,
   writeSql: string,
+  opts: { isMigration: boolean; noTransaction?: boolean } = {
+    isMigration: false,
+  },
 ): Promise<string | null> {
+  // Migration: a multi-statement / DDL script. No verify SELECT (there is no
+  // single row-set to preview); the transaction wrapper is the safety net.
+  if (opts.isMigration) {
+    const v = validateMigration(writeSql, conn.type, {
+      noTransaction: opts.noTransaction,
+    });
+    return v.valid ? null : v.error || "Invalid migration script";
+  }
+
   // The write must be a single, permitted DML statement.
   const writeValidation = validateWriteQuery(writeSql, conn.type);
   if (!writeValidation.valid)
@@ -135,6 +150,9 @@ async function runDirectExecution(
   conn: NonNullable<ReturnType<typeof getConnection>>,
   writeSql: string,
   user: AuthUser,
+  opts: { isMigration: boolean; noTransaction?: boolean } = {
+    isMigration: false,
+  },
 ): Promise<void> {
   const now = new Date().toISOString();
   addWriteRequestEvent(
@@ -145,7 +163,11 @@ async function runDirectExecution(
     `Direct write (${conn.env})`,
   );
   try {
-    const result = await executeWrite(conn, writeSql);
+    const result = opts.isMigration
+      ? await executeMigration(conn, writeSql, {
+          noTransaction: opts.noTransaction,
+        })
+      : await executeWrite(conn, writeSql);
     updateWriteRequest(id, {
       status: "EXECUTED",
       executedAt: now,
@@ -236,14 +258,21 @@ router.put("/policy", requireAdmin, (req: Request, res: Response) => {
 
 router.post("/", requireWriteMode, async (req: Request, res: Response) => {
   const user = req.user!;
-  const { title, description, connectionId, selectSql, writeSql } =
-    req.body as {
-      title?: string;
-      description?: string;
-      connectionId?: string;
-      selectSql?: string;
-      writeSql?: string;
-    };
+  const {
+    title,
+    description,
+    connectionId,
+    selectSql,
+    writeSql,
+    noTransaction,
+  } = req.body as {
+    title?: string;
+    description?: string;
+    connectionId?: string;
+    selectSql?: string;
+    writeSql?: string;
+    noTransaction?: boolean;
+  };
 
   if (!title?.trim() || !connectionId || !writeSql?.trim()) {
     res
@@ -265,7 +294,15 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
     return;
   }
 
-  const queryError = await validateRequestQueries(conn, selectSql, writeSql);
+  // Server decides migration vs single-DML from the SQL itself — never trust
+  // the client. Migrations carry no verify SELECT and may opt out of rollback.
+  const { isMigration } = classifyWrite(writeSql, conn.type);
+  const noTx = isMigration ? !!noTransaction : false;
+
+  const queryError = await validateRequestQueries(conn, selectSql, writeSql, {
+    isMigration,
+    noTransaction: noTx,
+  });
   if (queryError) {
     res.status(400).json({ error: queryError });
     return;
@@ -280,11 +317,13 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
     connectionName: conn.name,
     env: conn.env,
     dbType: conn.type,
-    selectSql: selectSql?.trim() || undefined,
+    selectSql: isMigration ? undefined : selectSql?.trim() || undefined,
     writeSql: writeSql.trim(),
     status: "PENDING",
     requestedBy: user.sub,
     requestedByEmail: user.email,
+    isMigration,
+    noTransaction: noTx,
   });
 
   addWriteRequestEvent(wr.id, user.sub, user.email, "SUBMITTED");
@@ -299,7 +338,10 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
 
   // DIRECT-policy environments: an authorized author executes immediately.
   if (direct) {
-    await runDirectExecution(wr.id, conn, writeSql.trim(), user);
+    await runDirectExecution(wr.id, conn, writeSql.trim(), user, {
+      isMigration,
+      noTransaction: noTx,
+    });
   }
 
   res.status(201).json(getWriteRequest(wr.id));
@@ -326,6 +368,51 @@ router.get("/", (req: Request, res: Response) => {
 // ═══════════════════════════════════════════════════════════════
 // Stateless AI helpers for the composer (used before a request exists)
 // ═══════════════════════════════════════════════════════════════
+
+// Classify a draft write for the composer: single-DML vs migration, statement
+// count, and whether it needs the no-rollback escape hatch. Read-only, no DB
+// mutation — powers live composer feedback (disable verify SELECT, show the
+// no-rollback toggle).
+router.post("/analyze", (req: Request, res: Response) => {
+  const user = req.user!;
+  const { connectionId, writeSql } = req.body as {
+    connectionId?: string;
+    writeSql?: string;
+  };
+  if (!connectionId || !writeSql?.trim()) {
+    res.status(400).json({ error: "connectionId and writeSql are required" });
+    return;
+  }
+  const conn = getConnection(connectionId);
+  if (!conn) {
+    res.status(404).json({ error: "Connection not found" });
+    return;
+  }
+  if (!canAuthorEnv(user, conn.env)) {
+    res
+      .status(403)
+      .json({ error: `You are not allowed to author writes in ${conn.env}` });
+    return;
+  }
+
+  const cls = classifyWrite(writeSql, conn.type);
+  let requiresNoTransaction = false;
+  let blocked: string | undefined;
+  if (cls.isMigration) {
+    // noTransaction:true surfaces hard blocks (denylist) while treating a
+    // non-transactional statement as allowed — so we can report both flags.
+    const v = validateMigration(writeSql, conn.type, { noTransaction: true });
+    requiresNoTransaction = !!v.requiresNoTransaction;
+    if (!v.valid) blocked = v.error;
+  }
+  res.json({
+    statementCount: cls.statementCount,
+    isMigration: cls.isMigration,
+    hasDdl: cls.hasDdl,
+    requiresNoTransaction,
+    blocked,
+  });
+});
 
 // AI safety review of an ad-hoc SELECT + WRITE pair (not yet persisted).
 router.post("/ai-review", async (req: Request, res: Response) => {
@@ -690,7 +777,11 @@ router.post(
     }
 
     // Defensive re-validation at execution time.
-    const validation = validateWriteQuery(wr.writeSql, conn.type);
+    const validation = wr.isMigration
+      ? validateMigration(wr.writeSql, conn.type, {
+          noTransaction: wr.noTransaction,
+        })
+      : validateWriteQuery(wr.writeSql, conn.type);
     if (!validation.valid) {
       res
         .status(400)
@@ -719,7 +810,11 @@ router.post(
     });
 
     try {
-      const result = await executeWrite(conn, wr.writeSql);
+      const result = wr.isMigration
+        ? await executeMigration(conn, wr.writeSql, {
+            noTransaction: wr.noTransaction,
+          })
+        : await executeWrite(conn, wr.writeSql);
       const updated = updateWriteRequest(wr.id, {
         status: "EXECUTED",
         reviewedBy: user.sub,
@@ -870,13 +965,15 @@ router.post(
       return;
     }
 
-    const { title, description, selectSql, writeSql, note } = req.body as {
-      title?: string;
-      description?: string;
-      selectSql?: string;
-      writeSql?: string;
-      note?: string;
-    };
+    const { title, description, selectSql, writeSql, note, noTransaction } =
+      req.body as {
+        title?: string;
+        description?: string;
+        selectSql?: string;
+        writeSql?: string;
+        note?: string;
+        noTransaction?: boolean;
+      };
 
     const conn = getConnection(wr.connectionId);
     if (!conn) {
@@ -903,7 +1000,13 @@ router.post(
       return;
     }
 
-    const queryError = await validateRequestQueries(conn, newSelect, newWrite);
+    const { isMigration } = classifyWrite(newWrite, conn.type);
+    const noTx = isMigration ? !!noTransaction : false;
+
+    const queryError = await validateRequestQueries(conn, newSelect, newWrite, {
+      isMigration,
+      noTransaction: noTx,
+    });
     if (queryError) {
       res.status(400).json({ error: queryError });
       return;
@@ -912,8 +1015,10 @@ router.post(
     reviseWriteRequest(wr.id, {
       title: newTitle,
       description: newDescription,
-      selectSql: newSelect,
+      selectSql: isMigration ? undefined : newSelect,
       writeSql: newWrite,
+      isMigration,
+      noTransaction: noTx,
     });
     addWriteRequestEvent(
       wr.id,
@@ -933,7 +1038,10 @@ router.post(
 
     // A DIRECT-policy environment re-runs immediately on resubmit.
     if (getWriteDirectEnvs().includes(conn.env as Environment)) {
-      await runDirectExecution(wr.id, conn, newWrite, user);
+      await runDirectExecution(wr.id, conn, newWrite, user, {
+        isMigration,
+        noTransaction: noTx,
+      });
     }
 
     res.json(getWriteRequest(wr.id));
@@ -974,6 +1082,13 @@ async function computeWriteAiReview(
   selectSql: string,
   writeSql: string,
 ): Promise<WriteAiReview> {
+  // A migration (multi-statement or DDL) is reviewed as a whole script — there
+  // is no verify SELECT to compare against.
+  const cls = classifyWrite(writeSql, conn.type);
+  if (cls.isMigration) {
+    return computeMigrationAiReview(config, conn, writeSql, cls.hasDdl);
+  }
+
   const schemaText = await buildWriteSchemaText(conn, [selectSql, writeSql]);
   const systemPrompt = [
     "You are a senior database architect reviewing a proposed change in an approval workflow — review it the way a seasoned engineer reviews a pull request. Judge not just whether it is SAFE to run, but whether it is the RIGHT way to express the intent. A statement can be perfectly safe and still be a poor solution.",
@@ -1032,6 +1147,68 @@ async function computeWriteAiReview(
   const parsed = parseAiReview(result.content);
   return {
     ...parsed,
+    model: result.model || config.model,
+    reviewedAt: new Date().toISOString(),
+  };
+}
+
+/** Runs the AI review over a whole migration script (multi-statement / DDL). */
+async function computeMigrationAiReview(
+  config: Parameters<typeof azureChat>[0],
+  conn: NonNullable<ReturnType<typeof getConnection>>,
+  script: string,
+  hasDdl: boolean,
+): Promise<WriteAiReview> {
+  const schemaText = await buildWriteSchemaText(conn, [script]);
+  const systemPrompt = [
+    "You are a senior database architect reviewing a MIGRATION SCRIPT in an approval workflow — multiple SQL statements that run together as one change (like a Liquibase changeset). Review it the way a seasoned engineer reviews a schema/data migration.",
+    `Database type: ${conn.type}. On this engine the whole script runs inside ONE transaction and rolls back atomically if any statement fails — UNLESS it was submitted in no-rollback mode, in which case each statement commits individually and a mid-script failure leaves partial state.`,
+    "Assess the script as a whole. Key checks:",
+    "- IDEMPOTENCY / re-run safety: if this ran twice, would the second run error or change more data? Prefer guards (IF [NOT] EXISTS, WHERE NOT EXISTS, IS NULL). Call out any statement that is not safe to re-run.",
+    "- STATEMENT ORDER: does each statement depend on an earlier one? Are objects created before use and dropped only after nothing references them?",
+    "- REVERSIBILITY: which statements are destructive or irreversible once committed (DROP TABLE/COLUMN, TRUNCATE, RENAME, lossy type changes)? The transaction only protects you BEFORE commit; after commit there is no undo.",
+    hasDdl
+      ? "- LOCKING / TABLE REWRITE: flag DDL that rewrites or exclusively locks a table on this engine (ADD COLUMN ... NOT NULL DEFAULT, column type changes, a non-concurrent index on a large table) — it can block the table for the duration. You see only the schema, not row counts, so warn about the pattern, not a specific size."
+      : "- BOUNDED WRITES: any UPDATE/DELETE without a WHERE affects the whole table — call it out as UNBOUNDED.",
+    "- Wrong table/column, type mismatches, and writes touching [PHI] columns.",
+    "",
+    "VOICE — the approver may not be the author and may not be a DBA:",
+    "- `summary`: ONE plain-English sentence — what the migration does and the single most important thing to check before approving. No unexplained jargon.",
+    "- `risks`: precise and technical, one concrete downside each (e.g. 'ADD COLUMN NOT NULL DEFAULT rewrites and locks the table', 'DROP COLUMN is irreversible once committed', 'unguarded INSERT duplicates rows on re-run').",
+    "",
+    "Optionally produce a corrected script:",
+    "- suggestedWriteSql: an improved version ONLY if the current script is unsafe, non-idempotent, or clearly wrong. Keep the same intent. null if it is already sound.",
+    "- suggestedSelectSql: always null for a migration.",
+    'Respond ONLY with JSON of the form: {"verdict":"SAFE|CAUTION|DANGEROUS","risks":["..."],"summary":"...","recommendation":"approve|review carefully|reject","suggestedWriteSql":"..."|null,"suggestedSelectSql":null}.',
+    "Do not wrap the JSON in markdown fences.",
+  ].join("\n");
+  const userMessage = [
+    `Database type: ${conn.type}`,
+    conn.database ? `Database: ${conn.database}` : "",
+    "",
+    "Schema (relevant tables):",
+    schemaText || "(no schema)",
+    "",
+    "MIGRATION SCRIPT (multiple statements, runs as one change):",
+    script,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const result = await azureChat(
+    config,
+    [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMessage },
+    ],
+    { maxTokens: 6000, jsonMode: true, timeoutMs: 90000 },
+  );
+  const parsed = parseAiReview(result.content);
+  // Row-preview fields don't apply to a migration.
+  return {
+    ...parsed,
+    selectMatchesWrite: undefined,
+    estimatedBlastRadius: undefined,
     model: result.model || config.model,
     reviewedAt: new Date().toISOString(),
   };

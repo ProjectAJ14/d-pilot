@@ -1,0 +1,27 @@
+# Local Postgres for experimenting with the write / migration workflow.
+# Isolated from any production target DB — the .env.dev DBFORGE_CONNECTIONS
+# points only here. Start with:  npm run dev:db   (stop: npm run dev:db:down)
+#
+# Host port 5433 (not 5432) so it never clashes with a Postgres you already run.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dpilot-dev-pg
+    environment:
+      POSTGRES_USER: dpilot
+      POSTGRES_PASSWORD: dpilot
+      POSTGRES_DB: dpilot_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - dpilot_dev_pg:/var/lib/postgresql/data
+      # Seeds a baseline schema on first boot (only when the volume is empty).
+      - ./scripts/dev-seed.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dpilot -d dpilot_dev"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  dpilot_dev_pg:

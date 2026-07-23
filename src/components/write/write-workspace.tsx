@@ -37,18 +37,25 @@ export function WriteWorkspace() {
         background: "var(--bg)",
       }}
     >
-      <div style={{ maxWidth: 940, margin: "0 auto", padding: "34px 24px 72px" }}>
+      <div
+        style={{ maxWidth: 940, margin: "0 auto", padding: "34px 24px 72px" }}
+      >
         <Group gap={10} mb={6}>
           <IconPencilBolt size={22} color="var(--accent)" />
-          <Text fw={700} size="xl" c="secondary.9" style={{ letterSpacing: "-0.02em" }}>
+          <Text
+            fw={700}
+            size="xl"
+            c="secondary.9"
+            style={{ letterSpacing: "-0.02em" }}
+          >
             Write &amp; Request
           </Text>
         </Group>
         <Text size="sm" c="dimmed" mb="lg" style={{ lineHeight: 1.55 }}>
           Draft the statement you want to run, then generate an editable verify
-          SELECT so a reviewer can see exactly which rows it affects. On approval
-          environments it is submitted for a second person to review; on direct
-          environments it runs immediately. Track it under{" "}
+          SELECT so a reviewer can see exactly which rows it affects. On
+          approval environments it is submitted for a second person to review;
+          on direct environments it runs immediately. Track it under{" "}
           <Text component="span" fw={600} c="secondary.9">
             Requests
           </Text>
@@ -84,6 +91,7 @@ export function WriteWorkspace() {
                 connectionId: p.connectionId,
                 selectSql: p.selectSql,
                 writeSql: p.writeSql,
+                noTransaction: p.noTransaction,
               })
             }
             onSubmitted={(wr) => navigate(`/write-requests/${wr.id}`)}

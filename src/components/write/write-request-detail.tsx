@@ -270,7 +270,9 @@ export function WriteRequestDetail() {
         background: "var(--bg)",
       }}
     >
-      <div style={{ maxWidth: 940, margin: "0 auto", padding: "24px 28px 60px" }}>
+      <div
+        style={{ maxWidth: 940, margin: "0 auto", padding: "24px 28px 60px" }}
+      >
         <Group justify="space-between" mb="lg">
           <Button
             variant="subtle"
@@ -452,13 +454,17 @@ export function WriteRequestDetail() {
           }}
         >
           {/* Queries — write first, verify second */}
-          <div
-            style={{ display: "flex", flexDirection: "column", gap: 22 }}
-          >
+          <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
             <SqlBlock
               step={1}
-              label="Write statement"
-              hint="the change this request will apply · single INSERT / UPDATE / DELETE"
+              label={wr.isMigration ? "Migration script" : "Write statement"}
+              hint={
+                wr.isMigration
+                  ? wr.noTransaction
+                    ? "multiple statements · RUNS WITHOUT ROLLBACK — a mid-script failure leaves partial changes"
+                    : "multiple statements · runs as one transaction (rolls back atomically on failure)"
+                  : "the change this request will apply · single INSERT / UPDATE / DELETE"
+              }
               code={wr.writeSql}
               dbType={wr.dbType}
               accent="orange"
@@ -466,39 +472,43 @@ export function WriteRequestDetail() {
               barLabel="WRITES DATA — RUNS ON APPROVAL"
               barIcon={<IconArrowBarToUp size={13} />}
             />
-            <SqlBlock
-              step={2}
-              label="Verify SELECT"
-              hint="a read-only query that previews the rows the write will affect"
-              code={wr.selectSql}
-              dbType={wr.dbType}
-              accent="gray"
-              barTone="neutral"
-              barLabel="READ-ONLY PREVIEW QUERY"
-              barIcon={<IconEye size={13} />}
-              footer={
-                <Group gap={12} align="center" wrap="nowrap">
-                  <Tooltip
-                    label={`You need read access to ${wr.env} to preview rows`}
-                    disabled={wr.viewerCanPreview !== false}
-                  >
-                    <Button
-                      size="xs"
-                      variant="default"
-                      leftSection={<IconPlayerPlay size={14} />}
-                      onClick={runPreview}
-                      loading={previewLoading}
-                      disabled={!wr.selectSql || wr.viewerCanPreview === false}
+            {!wr.isMigration && (
+              <SqlBlock
+                step={2}
+                label="Verify SELECT"
+                hint="a read-only query that previews the rows the write will affect"
+                code={wr.selectSql}
+                dbType={wr.dbType}
+                accent="gray"
+                barTone="neutral"
+                barLabel="READ-ONLY PREVIEW QUERY"
+                barIcon={<IconEye size={13} />}
+                footer={
+                  <Group gap={12} align="center" wrap="nowrap">
+                    <Tooltip
+                      label={`You need read access to ${wr.env} to preview rows`}
+                      disabled={wr.viewerCanPreview !== false}
                     >
-                      Run this SELECT
-                    </Button>
-                  </Tooltip>
-                  <Text size="xs" c="dimmed">
-                    {previewNote}
-                  </Text>
-                </Group>
-              }
-            />
+                      <Button
+                        size="xs"
+                        variant="default"
+                        leftSection={<IconPlayerPlay size={14} />}
+                        onClick={runPreview}
+                        loading={previewLoading}
+                        disabled={
+                          !wr.selectSql || wr.viewerCanPreview === false
+                        }
+                      >
+                        Run this SELECT
+                      </Button>
+                    </Tooltip>
+                    <Text size="xs" c="dimmed">
+                      {previewNote}
+                    </Text>
+                  </Group>
+                }
+              />
+            )}
           </div>
 
           {previewError && (
@@ -553,7 +563,12 @@ export function WriteRequestDetail() {
                   blast radius carefully before approving.
                 </Alert>
               )}
-              <Group justify="space-between" align="center" wrap="wrap" gap={12}>
+              <Group
+                justify="space-between"
+                align="center"
+                wrap="wrap"
+                gap={12}
+              >
                 <div>
                   {showAiButton && (
                     <Button
@@ -739,10 +754,15 @@ export function WriteRequestDetail() {
             mb="md"
             icon={<IconAlertTriangle size={16} />}
           >
-            This will execute the write statement against{" "}
+            This will execute the{" "}
+            {wr.isMigration ? "migration script" : "write statement"} against{" "}
             <strong>{wr.connectionName || wr.connectionId}</strong> ({wr.env})
             immediately.
-            {wr.transactional === false ? " This engine cannot roll back." : ""}
+            {wr.isMigration
+              ? wr.noTransaction
+                ? " It runs WITHOUT rollback — a mid-script failure leaves earlier statements applied and they can't be undone."
+                : " The whole script runs as one transaction and rolls back atomically if any statement fails."
+              : ""}
           </Alert>
         )}
         <Textarea
@@ -806,6 +826,7 @@ export function WriteRequestDetail() {
               selectSql: p.selectSql,
               writeSql: p.writeSql,
               note: p.note,
+              noTransaction: p.noTransaction,
             })
           }
           onSubmitted={() => {

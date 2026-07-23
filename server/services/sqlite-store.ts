@@ -19,7 +19,7 @@ import type {
 let db: Database.Database;
 
 export function initDatabase(): void {
-  const dataDir = path.resolve(process.cwd(), "data");
+  const dataDir = path.resolve(process.cwd(), process.env.DATA_DIR || "data");
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
   }
@@ -161,6 +161,20 @@ export function initDatabase(): void {
   }
   if (!auditColNames.has("phi_unmask_notes")) {
     db.exec("ALTER TABLE audit_log ADD COLUMN phi_unmask_notes TEXT");
+  }
+
+  // Migrate write_requests: add migration-mode columns if missing
+  const wrCols = db.pragma("table_info(write_requests)") as { name: string }[];
+  const wrColNames = new Set(wrCols.map((c) => c.name));
+  if (!wrColNames.has("is_migration")) {
+    db.exec(
+      "ALTER TABLE write_requests ADD COLUMN is_migration INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+  if (!wrColNames.has("no_transaction")) {
+    db.exec(
+      "ALTER TABLE write_requests ADD COLUMN no_transaction INTEGER NOT NULL DEFAULT 0",
+    );
   }
 
   // Seed default masked environments setting
@@ -966,7 +980,7 @@ export function archiveOldAuditEntries(daysToKeep = 30): { archived: number } {
 
   archiveLock = true;
   try {
-    const dataDir = path.resolve(process.cwd(), "data");
+    const dataDir = path.resolve(process.cwd(), process.env.DATA_DIR || "data");
     const archivePath = path.join(dataDir, "audit_archive.sqlite");
 
     // Ensure archive DB exists with correct schema
@@ -1045,7 +1059,7 @@ export function queryArchive(
     to?: string;
   } = {},
 ): AuditEntry[] {
-  const dataDir = path.resolve(process.cwd(), "data");
+  const dataDir = path.resolve(process.cwd(), process.env.DATA_DIR || "data");
   const archivePath = path.join(dataDir, "audit_archive.sqlite");
 
   if (!fs.existsSync(archivePath)) return [];
@@ -1094,6 +1108,8 @@ export interface NewWriteRequest {
   status: WriteRequestStatus;
   requestedBy: string;
   requestedByEmail: string;
+  isMigration?: boolean;
+  noTransaction?: boolean;
 }
 
 export function createWriteRequest(req: NewWriteRequest): WriteRequest {
@@ -1103,8 +1119,9 @@ export function createWriteRequest(req: NewWriteRequest): WriteRequest {
     `INSERT INTO write_requests
       (id, title, description, connection_id, connection_name, env, db_type,
        select_sql, write_sql, status, requested_by, requested_by_email,
+       is_migration, no_transaction,
        requested_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     req.title,
@@ -1118,6 +1135,8 @@ export function createWriteRequest(req: NewWriteRequest): WriteRequest {
     req.status,
     req.requestedBy,
     req.requestedByEmail,
+    req.isMigration ? 1 : 0,
+    req.noTransaction ? 1 : 0,
     now,
     now,
     now,
@@ -1268,12 +1287,15 @@ export function reviseWriteRequest(
     description?: string;
     selectSql?: string;
     writeSql: string;
+    isMigration?: boolean;
+    noTransaction?: boolean;
   },
 ): WriteRequest | null {
   const now = new Date().toISOString();
   db.prepare(
     `UPDATE write_requests SET
        title = ?, description = ?, select_sql = ?, write_sql = ?,
+       is_migration = ?, no_transaction = ?,
        status = 'PENDING',
        reviewed_by = NULL, reviewed_by_email = NULL, reviewed_at = NULL, review_notes = NULL,
        executed_at = NULL, executed_by = NULL, executed_by_email = NULL,
@@ -1286,6 +1308,8 @@ export function reviseWriteRequest(
     fields.description ?? null,
     fields.selectSql ?? null,
     fields.writeSql,
+    fields.isMigration ? 1 : 0,
+    fields.noTransaction ? 1 : 0,
     now,
     id,
   );
@@ -1358,6 +1382,8 @@ function mapWriteRequest(r: any): WriteRequest {
     executionMs: r.execution_ms ?? undefined,
     executionError: r.execution_error ?? undefined,
     transactional: r.transactional == null ? undefined : r.transactional === 1,
+    isMigration: r.is_migration === 1,
+    noTransaction: r.no_transaction === 1,
     aiVerdict: r.ai_verdict ?? undefined,
     aiReview,
     createdAt: r.created_at,

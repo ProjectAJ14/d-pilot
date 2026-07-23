@@ -20,12 +20,18 @@ body:json {
     "description": "Correct a mis-set flag",
     "connectionId": "{{connectionId}}",
     "selectSql": "SELECT id, active FROM patients WHERE id = 42",
-    "writeSql": "UPDATE patients SET active = true WHERE id = 42"
+    "writeSql": "UPDATE patients SET active = true WHERE id = 42",
+    "noTransaction": false
   }
 }
 
 docs {
-  Submit a write request (verify SELECT + WRITE pair). On DIRECT-policy envs an authorized author executes immediately; otherwise it goes PENDING for approval.
+  Submit a write request. The server classifies `writeSql` itself:
+
+  - **Single DML** (one INSERT/UPDATE/DELETE) — send a `selectSql` verify SELECT; it previews the affected rows.
+  - **Migration** (multiple statements or any DDL, PostgreSQL/SQL Server only) — `selectSql` is ignored; the whole script runs as one transaction and rolls back atomically on failure. Set `noTransaction: true` only when the script contains a statement that can't run in a transaction (e.g. CREATE INDEX CONCURRENTLY, VACUUM) — it then commits statement-by-statement with NO rollback.
+
+  On DIRECT-policy envs an authorized author executes immediately; otherwise it goes PENDING for approval.
 
   Requires a valid Bearer JWT ({{token}}).
   Requires **write mode** to be enabled.
