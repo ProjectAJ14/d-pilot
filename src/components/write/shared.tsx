@@ -309,7 +309,7 @@ export function AiReviewCard({
   onApply?: (suggested: { writeSql?: string; selectSql?: string }) => void;
 }) {
   const meta = VERDICT_META[review.verdict] || VERDICT_META.CAUTION;
-  const unbounded = /unbounded/i.test(review.estimatedBlastRadius);
+  const unbounded = /unbounded/i.test(review.estimatedBlastRadius ?? "");
   const hasSuggestion = !!(
     review.suggestedWriteSql || review.suggestedSelectSql
   );
@@ -325,18 +325,22 @@ export function AiReviewCard({
       <Group justify="space-between" mb={8}>
         <Group gap={8}>
           <VerdictBadge verdict={review.verdict} />
-          <Badge size="xs" variant="light" color={unbounded ? "red" : "gray"}>
-            Blast radius: {review.estimatedBlastRadius}
-          </Badge>
-          <Badge
-            size="xs"
-            variant="light"
-            color={review.selectMatchesWrite ? "green" : "orange"}
-          >
-            {review.selectMatchesWrite
-              ? "SELECT matches WRITE"
-              : "SELECT may not match WRITE"}
-          </Badge>
+          {review.estimatedBlastRadius && (
+            <Badge size="xs" variant="light" color={unbounded ? "red" : "gray"}>
+              Blast radius: {review.estimatedBlastRadius}
+            </Badge>
+          )}
+          {review.selectMatchesWrite !== undefined && (
+            <Badge
+              size="xs"
+              variant="light"
+              color={review.selectMatchesWrite ? "green" : "orange"}
+            >
+              {review.selectMatchesWrite
+                ? "SELECT matches WRITE"
+                : "SELECT may not match WRITE"}
+            </Badge>
+          )}
         </Group>
         {review.model && (
           <Text size="10px" c="dimmed" ff="monospace">

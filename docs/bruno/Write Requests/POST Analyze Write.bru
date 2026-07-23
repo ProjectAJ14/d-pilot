@@ -1,0 +1,30 @@
+meta {
+  name: Analyze Write
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/api/write-requests/analyze
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "connectionId": "{{connectionId}}",
+    "writeSql": "ALTER TABLE orders ADD COLUMN note text;\nCREATE INDEX idx_orders_note ON orders(note);"
+  }
+}
+
+docs {
+  Classify a draft write without touching the database: whether it's a single-statement DML or a multi-statement / DDL migration, the statement count, whether it contains DDL, whether it needs the no-rollback escape hatch (a statement that can't run in a transaction, e.g. CREATE INDEX CONCURRENTLY / VACUUM), and any hard block. Powers the composer's live feedback (disabling the verify SELECT and showing the "Run without rollback" toggle).
+
+  Read-only; no DB mutation. Returns { statementCount, isMigration, hasDdl, requiresNoTransaction, blocked? }.
+
+  Requires a valid Bearer JWT ({{token}}) and write access to the connection's environment.
+}

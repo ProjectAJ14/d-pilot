@@ -145,8 +145,22 @@ export const api = {
     connectionId: string;
     selectSql?: string;
     writeSql: string;
+    noTransaction?: boolean;
   }) =>
     request<WriteRequest>("/write-requests", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  // Classify a draft write: single-DML vs migration, statement count, whether
+  // it needs the no-rollback escape hatch. Powers live composer feedback.
+  analyzeWrite: (data: { connectionId: string; writeSql: string }) =>
+    request<{
+      statementCount: number;
+      isMigration: boolean;
+      hasDdl: boolean;
+      requiresNoTransaction: boolean;
+      blocked?: string;
+    }>("/write-requests/analyze", {
       method: "POST",
       body: JSON.stringify(data),
     }),
@@ -215,6 +229,7 @@ export const api = {
       selectSql?: string;
       writeSql?: string;
       note?: string;
+      noTransaction?: boolean;
     },
   ) =>
     request<WriteRequest>(`/write-requests/${id}/revise`, {

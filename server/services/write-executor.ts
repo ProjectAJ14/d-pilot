@@ -12,6 +12,7 @@ import {
   getMongoClient,
   getEsClient,
 } from "./query-executor.js";
+import { scanSql } from "./sql-scan.js";
 import type { ConnectionConfig, DatabaseType } from "../types/index.js";
 
 // DML verbs permitted for SQL engines. DDL and everything else is blocked.
@@ -139,6 +140,232 @@ export function validateWriteQuery(
   }
 
   return { valid: false, error: `Unsupported database type: ${dbType}` };
+}
+
+// ── Migration mode (multi-statement scripts, incl. DDL) ──
+//
+// A migration is a whole script — many statements, DDL allowed — run as ONE
+// transaction so a mid-script failure rolls the entire thing back (PostgreSQL
+// and SQL Server DDL is transactional). We never split it: the driver hands the
+// full text to the engine, which is the authoritative SQL parser.
+//
+// The narrow denylist blocks only what would break that model or is
+// catastrophic; ordinary DDL (CREATE/ALTER/RENAME/DROP TABLE|COLUMN|INDEX) is
+// allowed — the AI review flags the risky ones. Statements that CANNOT run in a
+// transaction (CREATE INDEX CONCURRENTLY, VACUUM, …) are rejected unless the
+// author opts into the no-rollback escape hatch.
+
+const MIGRATION_BLOCKED =
+  /\bDROP\s+DATABASE\b|\bSHUTDOWN\b|\bUSE\s+\w|\\connect\b|\\c\b/i;
+const NON_TX_PG =
+  /\b(?:CREATE|DROP)\s+INDEX\s+CONCURRENTLY\b|\bVACUUM\b|\bREINDEX\b|\bCREATE\s+DATABASE\b|\bALTER\s+SYSTEM\b/i;
+const NON_TX_MSSQL =
+  /\bCREATE\s+DATABASE\b|\bALTER\s+DATABASE\b|\bBACKUP\b|\bRESTORE\b|\bCREATE\s+FULLTEXT\b/i;
+const DDL_KEYWORDS =
+  /\b(CREATE|ALTER|DROP|TRUNCATE|RENAME|GRANT|REVOKE|COMMENT\s+ON)\b/i;
+
+export interface MigrationValidation {
+  valid: boolean;
+  error?: string;
+  statementCount?: number;
+  /** true when the script contains a statement that can't run inside a transaction. */
+  requiresNoTransaction?: boolean;
+  /** true when the script contains any DDL (drives migration AI-review mode). */
+  hasDdl?: boolean;
+}
+
+/**
+ * Validates a multi-statement migration script. Allows DDL and stacked
+ * statements (unlike `validateWriteQuery`); blocks only DB/connection-level and
+ * transaction-breaking statements. `opts.noTransaction` lets the caller opt into
+ * running non-transactional statements without rollback.
+ */
+export function validateMigration(
+  script: string,
+  dbType: DatabaseType,
+  opts: { noTransaction?: boolean } = {},
+): MigrationValidation {
+  const trimmed = script.trim();
+  if (!trimmed)
+    return { valid: false, error: "Migration script cannot be empty" };
+  if (dbType !== "postgres" && dbType !== "mssql") {
+    return {
+      valid: false,
+      error:
+        "Multi-statement migrations are supported on PostgreSQL and SQL Server only.",
+    };
+  }
+
+  const { statementCount, masked } = scanSql(trimmed);
+  if (statementCount === 0)
+    return { valid: false, error: "Migration script has no statements" };
+
+  if (MIGRATION_BLOCKED.test(masked)) {
+    return {
+      valid: false,
+      error:
+        "Database/connection-level statements (DROP DATABASE, SHUTDOWN, USE, \\connect) are not allowed in a migration.",
+    };
+  }
+
+  const requiresNoTransaction = (
+    dbType === "postgres" ? NON_TX_PG : NON_TX_MSSQL
+  ).test(masked);
+  const hasDdl = DDL_KEYWORDS.test(masked);
+
+  if (requiresNoTransaction && !opts.noTransaction) {
+    return {
+      valid: false,
+      statementCount,
+      requiresNoTransaction,
+      hasDdl,
+      error:
+        'This script contains a statement that cannot run inside a transaction (e.g. CREATE INDEX CONCURRENTLY, VACUUM). Enable "Run without rollback" to submit it — statements are then committed individually and a mid-script failure will NOT be undone.',
+    };
+  }
+
+  return { valid: true, statementCount, requiresNoTransaction, hasDdl };
+}
+
+/**
+ * Classifies a write as single-DML vs. a migration (multiple statements or any
+ * DDL). Mongo/ES are always single-op. Server-authoritative — never trust the
+ * client to say whether something is a migration.
+ */
+export function classifyWrite(
+  sql: string,
+  dbType: DatabaseType,
+): { isMigration: boolean; statementCount: number; hasDdl: boolean } {
+  if (dbType !== "postgres" && dbType !== "mssql") {
+    return { isMigration: false, statementCount: 1, hasDdl: false };
+  }
+  const { statementCount, masked } = scanSql(sql);
+  const hasDdl = DDL_KEYWORDS.test(masked);
+  return { isMigration: statementCount > 1 || hasDdl, statementCount, hasDdl };
+}
+
+/** Executes a validated migration script. Transactional unless opting out. */
+export async function executeMigration(
+  conn: ConnectionConfig,
+  script: string,
+  opts: { noTransaction?: boolean } = {},
+): Promise<WriteResult> {
+  const validation = validateMigration(script, conn.type, opts);
+  if (!validation.valid)
+    throw new Error(validation.error || "Invalid migration script");
+
+  const start = performance.now();
+  let result: { rowsAffected: number; transactional: boolean };
+  switch (conn.type) {
+    case "postgres":
+      result = await executePgMigration(conn, script, !!opts.noTransaction);
+      break;
+    case "mssql":
+      result = await executeMssqlMigration(conn, script, !!opts.noTransaction);
+      break;
+    default:
+      throw new Error(`Migrations are not supported for ${conn.type}`);
+  }
+  return {
+    ...result,
+    executionMs: Math.round(performance.now() - start),
+  };
+}
+
+/** Sums affected rows across a multi-statement pg result (array or single). */
+function sumPgRowCount(result: any): number {
+  if (Array.isArray(result))
+    return result.reduce((a, r) => a + (r?.rowCount ?? 0), 0);
+  return result?.rowCount ?? 0;
+}
+
+async function executePgMigration(
+  conn: ConnectionConfig,
+  script: string,
+  noTransaction: boolean,
+): Promise<{ rowsAffected: number; transactional: boolean }> {
+  const pool = await getPgPool(conn);
+  const client = await pool.connect();
+  try {
+    if (conn.schema) await client.query(`SET search_path TO ${conn.schema}`);
+
+    if (!noTransaction) {
+      // Whole script in one transaction — the engine parses it; any failure
+      // rolls the entire migration back.
+      await client.query("BEGIN");
+      try {
+        const result = await client.query(script);
+        await client.query("COMMIT");
+        return { rowsAffected: sumPgRowCount(result), transactional: true };
+      } catch (err) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          /* ignore rollback failure */
+        }
+        throw err;
+      }
+    }
+
+    // No-rollback path: run each statement individually (a multi-statement
+    // simple query is itself one implicit transaction, so CONCURRENTLY/VACUUM
+    // only work standalone). Stop on first error — prior statements are already
+    // committed and cannot be undone.
+    const { statements } = scanSql(script);
+    let rows = 0;
+    for (let n = 0; n < statements.length; n++) {
+      try {
+        rows += sumPgRowCount(await client.query(statements[n]));
+      } catch (err: any) {
+        throw new Error(
+          `Statement ${n + 1} of ${statements.length} failed (earlier statements were committed and cannot be rolled back): ${err?.message || err}`,
+        );
+      }
+    }
+    return { rowsAffected: rows, transactional: false };
+  } finally {
+    client.release();
+  }
+}
+
+async function executeMssqlMigration(
+  conn: ConnectionConfig,
+  script: string,
+  noTransaction: boolean,
+): Promise<{ rowsAffected: number; transactional: boolean }> {
+  const pool = await getMssqlPool(conn);
+  const sumAffected = (affected: number | number[] | undefined) =>
+    Array.isArray(affected)
+      ? affected.reduce((a, b) => a + b, 0)
+      : (affected ?? 0);
+
+  if (noTransaction) {
+    // No wrapping transaction — SQL Server autocommits each statement in the
+    // batch. A mid-batch failure leaves earlier statements committed.
+    const result = await pool.request().query(script);
+    return {
+      rowsAffected: sumAffected(result.rowsAffected),
+      transactional: false,
+    };
+  }
+
+  const tx = new mssql.Transaction(pool);
+  await tx.begin();
+  try {
+    const result = await new mssql.Request(tx).query(script);
+    await tx.commit();
+    return {
+      rowsAffected: sumAffected(result.rowsAffected),
+      transactional: true,
+    };
+  } catch (err) {
+    try {
+      await tx.rollback();
+    } catch {
+      /* ignore rollback failure */
+    }
+    throw err;
+  }
 }
 
 /** Executes a validated write statement, transactionally where supported. */

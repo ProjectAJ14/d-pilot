@@ -179,8 +179,10 @@ export type WriteRequestEventType =
 /** Structured AI safety assessment of a write request. */
 export interface WriteAiReview {
   verdict: "SAFE" | "CAUTION" | "DANGEROUS";
-  selectMatchesWrite: boolean;
-  estimatedBlastRadius: string;
+  /** Only meaningful for single-statement DML (a migration has no verify SELECT). */
+  selectMatchesWrite?: boolean;
+  /** Only meaningful for single-statement DML. */
+  estimatedBlastRadius?: string;
   risks: string[];
   summary: string;
   recommendation: string;
@@ -227,6 +229,10 @@ export interface WriteRequest {
   executionMs?: number;
   executionError?: string;
   transactional?: boolean;
+  /** Multi-statement migration script (vs. a single DML statement). */
+  isMigration?: boolean;
+  /** Migration opted out of the transaction wrapper (no rollback on failure). */
+  noTransaction?: boolean;
   aiVerdict?: string;
   aiReview?: WriteAiReview;
   createdAt: string;
