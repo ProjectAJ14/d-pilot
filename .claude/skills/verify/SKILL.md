@@ -37,7 +37,10 @@ Gotchas:
 
 ## Driving the UI
 
-Playwright MCP works well: navigate to the client port, fill the two login fields,
+Use **Playwright MCP** (project `.mcp.json`), not claude-in-chrome — it's the
+project-configured MCP. `.mcp.json` pins `--browser chrome`, so a local Chrome install
+is required; drop that flag to fall back to Playwright's bundled Chromium (e.g. in CI).
+Navigate to the client port, fill the two login fields,
 then interact with the Explorer sidebar / query editor. Mantine `Select` dropdowns render
 options in a portal — snapshot `[role="listbox"]` after clicking the input.
 
