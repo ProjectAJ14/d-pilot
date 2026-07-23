@@ -5,6 +5,15 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.9.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.8.0...v1.9.0) (2026-07-23)
+
+
+### Features
+
+* add Playwright MCP configuration and update UI driving instructions ([2bd75bc](https://github.com/ProjectAJ14/d-pilot/commit/2bd75bc02b61703da10cb1f094cc1a5548b4877f))
+* add Playwright MCP configuration and update UI driving instructions ([86b1202](https://github.com/ProjectAJ14/d-pilot/commit/86b12020263d9c46232e26bca7b4cb4228cf9404))
+* **write-requests:** multi-statement migrations with atomic rollback ([83146ed](https://github.com/ProjectAJ14/d-pilot/commit/83146edb8b2b09a2a0ee9dc575c8da760021f6e8))
+
 # [1.8.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.7.0...v1.8.0) (2026-07-23)
 
 
