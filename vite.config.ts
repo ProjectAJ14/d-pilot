@@ -30,6 +30,16 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: "dist/client",
+      rollupOptions: {
+        output: {
+          // Monaco is bundled rather than CDN-loaded (see utils/monaco-setup.ts)
+          // and dwarfs the app itself. Splitting it out keeps it cached across
+          // app deploys instead of being invalidated by every release.
+          manualChunks(id: string) {
+            if (id.includes("node_modules/monaco-editor")) return "monaco";
+          },
+        },
+      },
     },
   };
 });

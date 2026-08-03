@@ -3155,13 +3155,18 @@ mkdirp-classic@^0.5.2, mkdirp-classic@^0.5.3:
   resolved "https://registry.npmjs.org/mkdirp-classic/-/mkdirp-classic-0.5.3.tgz"
   integrity sha512-gKLcREMhtuZRwRAfqP3RFW+TK4JqApVBtOIftVgjuABpAtpxhPGaDcfvbhNvD0B8iD1oUr/txX35NjcaY6Ns/A==
 
-"monaco-editor@>= 0.25.0 < 1":
+monaco-editor@*, monaco-editor@^0.55.1, "monaco-editor@>= 0.25.0 < 1":
   version "0.55.1"
   resolved "https://registry.npmjs.org/monaco-editor/-/monaco-editor-0.55.1.tgz"
   integrity sha512-jz4x+TJNFHwHtwuV9vA9rMujcZRb0CEilTEwG2rRSpe/A7Jdkuj8xPKttCgOh+v/lkHy7HsZ64oj+q3xoAFl9A==
   dependencies:
     dompurify "3.2.7"
     marked "14.0.0"
+
+monaco-vim@^0.4.4:
+  version "0.4.4"
+  resolved "https://registry.npmjs.org/monaco-vim/-/monaco-vim-0.4.4.tgz"
+  integrity sha512-LNChAb//WEm/W+eyeHG/0+pdVEHotk2hLTN+M3sQZx5E8cAlSWSgqcxpcRuQnxDybSln7pfHF9i63HmbIQvrWw==
 
 mongodb-connection-string-url@^2.6.0:
   version "2.6.0"

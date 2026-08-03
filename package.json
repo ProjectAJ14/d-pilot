@@ -39,6 +39,8 @@
     "dotenv": "^16.5.0",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
+    "monaco-editor": "^0.55.1",
+    "monaco-vim": "^0.4.4",
     "mongodb": "^4.17.2",
     "mssql": "^11.0.1",
     "pg": "^8.13.3",

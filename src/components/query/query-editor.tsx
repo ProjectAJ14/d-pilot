@@ -47,6 +47,7 @@ import {
   type SqlDialect,
 } from "../../utils/sql-completions";
 import { baseSqlEditorOptions } from "../../utils/monaco-editor-options";
+import { useVimMode } from "../../utils/vim-mode";
 
 interface Props {
   tab: QueryTab;
@@ -281,12 +282,18 @@ function setModelCompletionContext(
 
 /** Idempotent: registers the SQL / Mongo / ES completion providers once. */
 function ensureCompletionProvidersRegistered(monaco: any) {
-  // The registered flag lives on the (page-global) monaco object, not in
-  // module state: a dev hot-reload re-evaluates this module but keeps the
-  // same Monaco instance, and a module-level flag would re-register the
-  // providers and duplicate every suggestion.
-  if (monaco.__dbPilotCompletionsRegistered) return;
-  monaco.__dbPilotCompletionsRegistered = true;
+  // The registered flag can't live in module state: a dev hot-reload
+  // re-evaluates this module but keeps the same Monaco instance, and a
+  // module-level flag would re-register the providers and duplicate every
+  // suggestion. It can't live on `monaco` either — since Monaco is bundled
+  // rather than CDN-loaded (see utils/monaco-setup.ts) that object is a sealed
+  // ES module namespace and assigning to it throws. So: a WeakSet keyed by the
+  // Monaco instance, parked on `globalThis`, which survives both.
+  const g = globalThis as any;
+  const registered: WeakSet<object> = (g.__dbPilotCompletionsRegistered ??=
+    new WeakSet());
+  if (registered.has(monaco)) return;
+  registered.add(monaco);
 
   const wordRange = (model: any, position: any) => {
     const word = model.getWordUntilPosition(position);
@@ -489,6 +496,7 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<any>(null);
   const readyTimerRef = useRef<number | null>(null);
+  const vim = useVimMode();
 
   const activeConn = connections.find((c) => c.id === tab.connectionId);
   const supportsSchemas =
@@ -787,6 +795,7 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
   const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    vim.attachEditor(editor);
     // Hold the placeholder ~500ms after mount so Monaco's initial layout/theme
     // paint (the brief black-box flicker) happens behind it, then fade out.
     readyTimerRef.current = window.setTimeout(() => setEditorReady(true), 500);
