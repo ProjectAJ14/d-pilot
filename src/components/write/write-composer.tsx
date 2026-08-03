@@ -39,6 +39,7 @@ import type {
 } from "../../types";
 import { EnvBadge, PreviewTable, AiReviewCard, StepBadge } from "./shared";
 import { baseSqlEditorOptions } from "../../utils/monaco-editor-options";
+import { useVimMode } from "../../utils/vim-mode";
 
 function monacoLang(dbType?: DatabaseType): string {
   if (dbType === "mongodb") return "javascript";
@@ -156,6 +157,9 @@ export function WriteComposer({
   const isCreate = mode === "create";
   const writeHandoff = useStore((s) => s.writeHandoff);
   const setWriteHandoff = useStore((s) => s.setWriteHandoff);
+  // Separate vim instances — one per editor, so they never share a mode.
+  const vimWrite = useVimMode();
+  const vimSelect = useVimMode();
 
   // For a new request, seed from the persisted draft; otherwise from `initial`.
   const seedRef = useRef<Partial<ComposerDraft> | null>(
@@ -645,6 +649,7 @@ export function WriteComposer({
             setWriteSql(v || "");
             if (aiReview) setAiReview(null);
           }}
+          onMount={vimWrite.attachEditor}
           options={editorOptions(WRITE_PLACEHOLDERS[dbType || "postgres"])}
         />
       </div>
@@ -770,6 +775,7 @@ export function WriteComposer({
                   setSelectSql(v || "");
                   setPreview(null);
                 }}
+                onMount={vimSelect.attachEditor}
                 options={editorOptions(
                   SELECT_PLACEHOLDERS[dbType || "postgres"],
                 )}
