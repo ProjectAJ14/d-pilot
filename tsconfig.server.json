@@ -11,5 +11,7 @@
     "resolveJsonModule": true
   },
   "include": ["server"],
-  "exclude": ["node_modules"]
+  // Tests are run by vitest from source; compiling them into dist/ would ship
+  // test code to production and make vitest collect each suite twice.
+  "exclude": ["node_modules", "server/**/*.test.ts"]
 }
