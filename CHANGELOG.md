@@ -5,6 +5,18 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.10.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.9.0...v1.10.0) (2026-08-04)
+
+
+### Bug Fixes
+
+* **security:** enforce read capability on every connection path ([e9f74c8](https://github.com/ProjectAJ14/d-pilot/commit/e9f74c89b0d394e196cd773aedaeca59b6e0d782))
+
+
+### Features
+
+* **mcp:** hosted read-only MCP endpoint for AI agents ([9617297](https://github.com/ProjectAJ14/d-pilot/commit/96172972a58729e5e702e58111a966f4a1b9293d))
+
 # [1.9.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.8.0...v1.9.0) (2026-07-23)
 
 
