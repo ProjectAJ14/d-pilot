@@ -3,6 +3,7 @@ import "@mantine/notifications/styles.css";
 import { MantineProvider, createTheme, Text, Button, TextInput, type MantineColorsTuple } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
 import { createRoot } from "react-dom/client";
+import "./utils/monaco-setup";
 import App from "./App";
 import { installClipboardFallback } from "./utils/clipboard-polyfill";
 import "./styles/fonts.css";

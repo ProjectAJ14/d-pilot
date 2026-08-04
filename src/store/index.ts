@@ -73,6 +73,11 @@ interface AppState {
   setDefaultLimitEnabled: (enabled: boolean) => void;
   setDefaultLimitValue: (value: number) => void;
 
+  // Editor keymap — opt-in vim keybindings across every SQL editor. Off by
+  // default; set per-user from the Profile page and kept in localStorage.
+  viModeEnabled: boolean;
+  setViMode: (enabled: boolean) => void;
+
   // Saved Queries
   savedQueries: SavedQuery[];
   setSavedQueries: (queries: SavedQuery[]) => void;
@@ -140,6 +145,8 @@ const savedLimitValue = parseInt(
   localStorage.getItem("dbpilot_limit_value") || "500",
   10,
 );
+// Opt-in: absent means off, unlike the shield/limit settings which default on.
+const savedViMode = localStorage.getItem("dbpilot_vi_mode") === "on";
 
 const persistedTabs = loadTabs();
 const debouncedSave = createDebouncedSave(500);
@@ -320,6 +327,13 @@ export const useStore = create<AppState>((set, get) => ({
     const clamped = Math.max(1, Math.min(value, 10000));
     localStorage.setItem("dbpilot_limit_value", String(clamped));
     set({ defaultLimitValue: clamped });
+  },
+
+  // Editor keymap
+  viModeEnabled: savedViMode,
+  setViMode: (enabled) => {
+    localStorage.setItem("dbpilot_vi_mode", enabled ? "on" : "off");
+    set({ viModeEnabled: enabled });
   },
 
   // Saved Queries
