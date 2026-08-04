@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.11.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.10.0...v1.11.0) (2026-08-04)
+
+
+### Features
+
+* **editor:** opt-in vim keybindings in the SQL editors ([da4c7bf](https://github.com/ProjectAJ14/d-pilot/commit/da4c7bf169a7e94875f5d88c5de22753eefdf1ca))
+
 # [1.10.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.9.0...v1.10.0) (2026-08-04)
 
 
