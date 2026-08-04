@@ -27,6 +27,6 @@ body:json {
 docs {
   Run a read-only query and download the masked results as JSON.
 
-  Requires a valid Bearer JWT ({{token}}).
+  Requires a valid Bearer JWT ({{token}}) plus **read** capability for the connection's environment — 403 otherwise (admins hold every environment).
   Supports PHI unmask headers (disabled by default; enable to reveal PHI where permitted).
 }

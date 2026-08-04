@@ -5,7 +5,7 @@ import {
   getPoolStatus,
   closeConnectionPool,
 } from "../services/query-executor.js";
-import { requireAdmin } from "../middleware/auth.js";
+import { requireAdmin, resolveReadableConnection } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -93,11 +93,8 @@ router.get("/grouped", (req: Request, res: Response) => {
 });
 
 router.get("/:id/test", async (req: Request, res: Response) => {
-  const conn = getConnection(req.params.id as string);
-  if (!conn) {
-    res.status(404).json({ error: "Connection not found" });
-    return;
-  }
+  const conn = resolveReadableConnection(req, res, req.params.id as string);
+  if (!conn) return;
 
   const ok = await testConnection(conn);
   res.json({ connectionId: conn.id, connected: ok });

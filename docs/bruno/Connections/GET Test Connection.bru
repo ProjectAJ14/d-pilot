@@ -13,5 +13,5 @@ get {
 docs {
   Attempt to connect to a target DB and report reachability.
 
-  Requires a valid Bearer JWT ({{token}}).
+  Requires a valid Bearer JWT ({{token}}) plus **read** capability for the connection's environment — 403 otherwise (admins hold every environment).
 }

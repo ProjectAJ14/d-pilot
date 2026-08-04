@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { getConnection } from "../config/connections.js";
+import { resolveReadableConnection } from "../middleware/auth.js";
 import {
   getTables,
   getColumns,
@@ -26,11 +26,12 @@ function sendSchemaError(res: Response, err: any, fallback: string): void {
 // Full schema (all tables + their columns) in one cached, de-duplicated call.
 // Used by the editor's autocomplete instead of N per-table column requests.
 router.get("/:connectionId/full", async (req: Request, res: Response) => {
-  const conn = getConnection(req.params.connectionId as string);
-  if (!conn) {
-    res.status(404).json({ error: "Connection not found" });
-    return;
-  }
+  const conn = resolveReadableConnection(
+    req,
+    res,
+    req.params.connectionId as string,
+  );
+  if (!conn) return;
 
   try {
     const schema = (req.query.schema as string) || undefined;
@@ -43,11 +44,12 @@ router.get("/:connectionId/full", async (req: Request, res: Response) => {
 
 // Available schemas for a connection (Postgres/MSSQL). Empty for Mongo/ES.
 router.get("/:connectionId/schemas", async (req: Request, res: Response) => {
-  const conn = getConnection(req.params.connectionId as string);
-  if (!conn) {
-    res.status(404).json({ error: "Connection not found" });
-    return;
-  }
+  const conn = resolveReadableConnection(
+    req,
+    res,
+    req.params.connectionId as string,
+  );
+  if (!conn) return;
 
   try {
     const result = await getSchemas(conn);
@@ -58,11 +60,12 @@ router.get("/:connectionId/schemas", async (req: Request, res: Response) => {
 });
 
 router.get("/:connectionId/tables", async (req: Request, res: Response) => {
-  const conn = getConnection(req.params.connectionId as string);
-  if (!conn) {
-    res.status(404).json({ error: "Connection not found" });
-    return;
-  }
+  const conn = resolveReadableConnection(
+    req,
+    res,
+    req.params.connectionId as string,
+  );
+  if (!conn) return;
 
   try {
     const schema = (req.query.schema as string) || undefined;
@@ -74,11 +77,12 @@ router.get("/:connectionId/tables", async (req: Request, res: Response) => {
 });
 
 router.get("/:connectionId/tables/:tableName/columns", async (req: Request, res: Response) => {
-  const conn = getConnection(req.params.connectionId as string);
-  if (!conn) {
-    res.status(404).json({ error: "Connection not found" });
-    return;
-  }
+  const conn = resolveReadableConnection(
+    req,
+    res,
+    req.params.connectionId as string,
+  );
+  if (!conn) return;
 
   try {
     const schema = (req.query.schema as string) || undefined;

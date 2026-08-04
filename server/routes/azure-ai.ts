@@ -1,6 +1,5 @@
 import { Router, Request, Response } from "express";
-import { requireAdmin } from "../middleware/auth.js";
-import { getConnection } from "../config/connections.js";
+import { requireAdmin, resolveReadableConnection } from "../middleware/auth.js";
 import {
   getCachedFullSchema,
   summarizeTables,
@@ -211,11 +210,8 @@ router.post("/generate-query", async (req: Request, res: Response) => {
     return;
   }
 
-  const conn = getConnection(connectionId);
-  if (!conn) {
-    res.status(404).json({ error: "Connection not found" });
-    return;
-  }
+  const conn = resolveReadableConnection(req, res, connectionId);
+  if (!conn) return;
 
   // Records every AI interaction (request + response/error) for later prompt
   // tuning and optimization. Never throws — logging must not break generation.

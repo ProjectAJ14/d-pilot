@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { getConnection } from "../config/connections.js";
+import { resolveReadableConnection } from "../middleware/auth.js";
 import { validateQuery, executeQuery } from "../services/query-executor.js";
 import { maskQueryResults } from "../services/phi-masking.js";
 import {
@@ -20,20 +20,8 @@ router.post("/execute", async (req: Request, res: Response) => {
     return;
   }
 
-  const conn = getConnection(connectionId);
-  if (!conn) {
-    res.status(404).json({ error: `Connection '${connectionId}' not found` });
-    return;
-  }
-
-  // Check environment access
-  const allowed = user.allowedEnvironments || [];
-  if (!user.isAdmin && !allowed.includes(conn.env)) {
-    res
-      .status(403)
-      .json({ error: `You do not have access to ${conn.env} environment` });
-    return;
-  }
+  const conn = resolveReadableConnection(req, res, connectionId);
+  if (!conn) return;
 
   // Validate query (block DML/DDL)
   const validation = validateQuery(sql);

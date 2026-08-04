@@ -1,8 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import type { AuthUser } from "../types/index.js";
+import type { AuthUser, ConnectionConfig } from "../types/index.js";
 import { getDb, archiveIfDue } from "../services/sqlite-store.js";
+import { getConnection } from "../config/connections.js";
 
 // Extend Express Request to include user
 declare global {
@@ -353,6 +354,44 @@ export function authMiddleware() {
       }
     }
   };
+}
+
+/**
+ * Resolves a connection *and* enforces the caller's read capability for its
+ * environment, writing the 400/404/403 response itself and returning null when
+ * the request must not proceed.
+ *
+ * Every route that reaches a target database through a caller-supplied
+ * connectionId must go through this — read access is environment-scoped, and a
+ * bare `getConnection()` silently grants access to environments the user cannot
+ * read. Routes with a *stronger* requirement (write, approve, unmask) do their
+ * own check on top.
+ */
+export function resolveReadableConnection(
+  req: Request,
+  res: Response,
+  connectionId?: string,
+): ConnectionConfig | null {
+  if (!connectionId) {
+    res.status(400).json({ error: "connectionId is required" });
+    return null;
+  }
+
+  const conn = getConnection(connectionId);
+  if (!conn) {
+    res.status(404).json({ error: `Connection '${connectionId}' not found` });
+    return null;
+  }
+
+  const user = req.user!;
+  if (!user.isAdmin && !(user.allowedEnvironments || []).includes(conn.env)) {
+    res
+      .status(403)
+      .json({ error: `You do not have access to ${conn.env} environment` });
+    return null;
+  }
+
+  return conn;
 }
 
 /**

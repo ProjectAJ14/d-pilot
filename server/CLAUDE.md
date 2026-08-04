@@ -18,6 +18,12 @@ submission/rejection when write mode is off.
 - Local JWT (bcrypt hashing, `jsonwebtoken`). No external IdP.
 - **Capability model** — `deriveUserProfile` turns a user row into `isAdmin` + four env
   lists (read/unmask/write/approve). Admin ⇒ all envs on every list.
+- **`resolveReadableConnection(req, res, connectionId)`** — the *only* way a route may turn a
+  caller-supplied `connectionId` into a `ConnectionConfig`. It 400/404/403s for you and
+  enforces read access for that connection's environment. A bare `getConnection()` in a route
+  is a bug: it hands the caller any environment (this is exactly how `/export` and `/schema`
+  once leaked data from environments the user could not read). Routes needing a stronger
+  capability (write/approve/unmask) check that *in addition*.
 - `initAuthTables` creates/migrates the `users` table, backfills capability columns, does
   the one-time **`role` → capabilities** migration (then drops `role`), and seeds the
   default admin (`admin@$EMAIL_DOMAIN`) when the table is empty.

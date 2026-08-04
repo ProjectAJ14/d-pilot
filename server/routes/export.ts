@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { getConnection } from "../config/connections.js";
+import { resolveReadableConnection } from "../middleware/auth.js";
 import { validateQuery, executeQuery } from "../services/query-executor.js";
 import { maskQueryResults } from "../services/phi-masking.js";
 import { logAudit, getPhiMaskedEnvs } from "../services/sqlite-store.js";
@@ -27,11 +27,8 @@ router.post("/csv", async (req: Request, res: Response) => {
     return;
   }
 
-  const conn = getConnection(connectionId);
-  if (!conn) {
-    res.status(404).json({ error: "Connection not found" });
-    return;
-  }
+  const conn = resolveReadableConnection(req, res, connectionId);
+  if (!conn) return;
 
   const validation = validateQuery(sql);
   if (!validation.valid) {
@@ -93,11 +90,8 @@ router.post("/json", async (req: Request, res: Response) => {
     return;
   }
 
-  const conn = getConnection(connectionId);
-  if (!conn) {
-    res.status(404).json({ error: "Connection not found" });
-    return;
-  }
+  const conn = resolveReadableConnection(req, res, connectionId);
+  if (!conn) return;
 
   const validation = validateQuery(sql);
   if (!validation.valid) {

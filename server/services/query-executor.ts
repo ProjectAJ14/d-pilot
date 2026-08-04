@@ -4,6 +4,7 @@ import { MongoClient } from "mongodb";
 import { Client as EsClient } from "@elastic/elasticsearch";
 import type { ConnectionConfig } from "../types/index.js";
 import { CONNECTION_ERROR_PATTERN } from "./connection-errors.js";
+import { scanSql } from "./sql-scan.js";
 
 const MAX_ROWS = parseInt(process.env.MAX_ROWS || "10000", 10);
 const QUERY_TIMEOUT = parseInt(process.env.QUERY_TIMEOUT_MS || "90000", 10);
@@ -61,9 +62,26 @@ export function validateQuery(sql: string): { valid: boolean; error?: string } {
     return { valid: false, error: "Query cannot be empty" };
   }
 
+  // Stacked statements must be rejected before the keyword check below, which
+  // only looks at the *first* statement: `pg` and `mssql` both execute an entire
+  // multi-statement string in one call, so `SELECT 1 LIMIT 1; DROP TABLE t`
+  // would otherwise sail past a read-only guard. Scanning (rather than splitting
+  // on ";") keeps semicolons inside string literals, comments and dollar-quoted
+  // bodies from counting.
+  const { statementCount, masked } = scanSql(trimmed);
+  if (statementCount > 1) {
+    return {
+      valid: false,
+      error:
+        "Only one statement can be run at a time. Remove the extra statements after the ';'.",
+    };
+  }
+
   for (const pattern of BLOCKED_PATTERNS) {
-    if (pattern.test(trimmed)) {
-      const keyword = trimmed.match(/^\s*(\w+)/i)?.[1]?.toUpperCase();
+    // Match against the masked script so a keyword sitting inside a string
+    // literal ('%DELETE%') isn't mistaken for the statement's verb.
+    if (pattern.test(masked)) {
+      const keyword = masked.match(/^\s*(\w+)/i)?.[1]?.toUpperCase();
       return {
         valid: false,
         error: `${keyword} statements are not allowed. This tool is read-only.`,
