@@ -41,6 +41,9 @@ ever leaving the building in the clear.
 - **Natural-language → query** for read and write modes, dialect-aware, with a table-selection pass for large schemas and few-shot examples pulled from saved queries.
 - **Schema-only** — only schema metadata is sent to Azure OpenAI; **never row data**. Every generation is logged (prompt, response, model, tokens, latency) for admin review.
 
+### AI agents (MCP)
+- **Hosted MCP endpoint** at `/api/mcp` — agents discover connections, browse schema, and run read-only queries through the same API the UI uses, so capabilities, PHI tokenization, row caps and audit logging all apply unchanged. Configure with just a URL, username, and password; nothing to install.
+
 ### Access control & governance
 - **Capability-based access control** — each user has an `isAdmin` flag plus four **per-environment** capability lists: **read**, **unmask PHI**, **write**, and **approve**. Admin implies all capabilities on all environments.
 - **Audit log** — every query, error, export, PHI unmask (and denial), and write-lifecycle event is recorded, with date/type filtering and automatic 30-day archival to a separate database.
@@ -133,6 +136,9 @@ DBFORGE_CONNECTIONS='[
 MAX_ROWS=10000            # hard cap on returned rows
 QUERY_TIMEOUT_MS=90000    # per-query timeout
 
+# MCP endpoint for AI agents — rows returned per query (agents may raise per call)
+MCP_MAX_ROWS=1000
+
 # Schema cache (autocomplete + AI); hours, 0 disables
 SCHEMA_CACHE_TTL_HOURS=24
 
@@ -173,6 +179,80 @@ Each user has an `isAdmin` flag plus four capability lists, managed from **Setti
 
 Admin implies every capability on every environment. PROD safety rails (mandatory PHI
 tokenization and two-person write approval) always apply regardless of capabilities.
+
+## MCP Server (AI agents)
+
+D-Pilot hosts a **read-only** [MCP](https://modelcontextprotocol.io) endpoint at
+**`/api/mcp`**, so AI agents can query the same databases under the same rules as the UI.
+It runs inside the existing server process — nothing extra to deploy, install, or clone.
+Agents just point at the URL everyone already uses.
+
+Its tools call D-Pilot's own REST API over loopback, so environment capabilities, PHI
+tokenization, row limits and audit logging are enforced exactly as they are for the UI and
+cannot be bypassed. Every agent query lands in the audit log under its service account.
+
+| Tool | Does |
+|------|------|
+| `whoami` | Which account is connected and which environments it may read |
+| `list_connections` | Databases available, per environment (optional `env` filter) |
+| `list_schemas` | Schemas on a connection (Postgres/SQL Server) |
+| `list_tables` | Tables, collections or indices |
+| `describe_table` | Columns, types, nullability |
+| `run_query` | Runs a read-only query, returns rows |
+
+Writes are deliberately **not** exposed — those stay in the write-approval workflow, where a
+human authors the paired verify SELECT and a second person approves.
+
+### Setup
+
+1. **Create a service account** in Settings → User Management. Grant *only* the Read
+   capability, on *only* the environments agents should reach — no Unmask PHI, no Write, no
+   Approve, not an admin. This is what bounds every agent using it.
+2. **Point the agent at the URL** with its username and password. For Claude Code:
+
+   ```bash
+   claude mcp add --transport http d-pilot https://d-pilot.internal/api/mcp \
+     --header "Authorization: Basic $(printf 'agent@example.com:the-password' | base64)"
+   ```
+
+   Or in any MCP client's config file:
+
+   ```json
+   {
+     "mcpServers": {
+       "d-pilot": {
+         "type": "http",
+         "url": "https://d-pilot.internal/api/mcp",
+         "headers": { "Authorization": "Basic YWdlbnRAZXhhbXBsZS5jb206dGhlLXBhc3N3b3Jk" }
+       }
+     }
+   }
+   ```
+
+   That `Basic` value is just `base64("username:password")` — generate it with
+   `printf 'user:pass' | base64`.
+
+**Why Basic auth:** MCP clients can send static headers but cannot run D-Pilot's
+username/password login flow, so `/api/mcp` accepts the credentials directly and exchanges
+them for a normal JWT internally (kept in memory, never on disk, refreshed automatically).
+Because the credentials cross the network on every request, **serve D-Pilot over HTTPS** if
+agents connect from other machines — see the reverse-proxy section below.
+
+Optional server-side setting:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MCP_MAX_ROWS` | `1000` | Rows returned per query. Agents are told this default (via `whoami` and the `run_query` schema) and can raise it per call with `limit`; `MAX_ROWS` remains the hard ceiling. |
+
+**PHI:** the endpoint never sends the unmask headers, so tokenized columns stay tokenized for
+agents regardless of the account's capabilities. `run_query` names the tokenized columns so an
+agent doesn't mistake mask characters for real values. Unmasking stays a UI-only action that
+requires a human-supplied reason.
+
+**Revoking access:** delete (or change the password of) the service account. Note this stops
+*new* logins but does not kill a token already issued — as everywhere else in D-Pilot, a JWT
+stays valid until it expires, so revocation takes effect within `JWT_EXPIRES_IN` (24h by
+default). Lower that value if you need a tighter window.
 
 ## First-Run Behavior
 

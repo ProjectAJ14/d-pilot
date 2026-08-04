@@ -17,6 +17,7 @@ import userRoutes from "./routes/users.js";
 import azureAiRoutes from "./routes/azure-ai.js";
 import analyticsRoutes from "./routes/analytics.js";
 import writeRequestRoutes from "./routes/write-requests.js";
+import mcpRoutes from "./routes/mcp.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "3101", 10);
@@ -46,6 +47,11 @@ app.get("/api/config", (_req, res) => {
 
 // Auth routes (no auth required)
 app.post("/api/auth/login", handleLogin);
+
+// MCP endpoint for AI agents. Mounted before authMiddleware because MCP clients
+// present the service account's username/password as HTTP Basic rather than a
+// JWT; the route exchanges those for a token itself (see routes/mcp.ts).
+app.use("/api/mcp", mcpRoutes);
 
 // Auth middleware for all other /api routes
 app.use("/api", authMiddleware());

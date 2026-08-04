@@ -40,6 +40,7 @@ Folders map 1:1 to the route mounts in `server/index.ts`:
 | Azure AI | `server/routes/azure-ai.ts` |
 | Analytics | `server/routes/analytics.ts` |
 | Write Requests | `server/routes/write-requests.ts` |
+| MCP | `server/routes/mcp.ts` (read-only agent endpoint) |
 
 ## File-naming system
 
@@ -67,10 +68,13 @@ Naming conventions for the Action word:
 ## Conventions inside each request
 
 - **Auth** — the collection sets Bearer auth to `{{token}}`; requests use `auth: inherit`.
-  Public endpoints (Health, Public Config, Login) override with `auth: none`.
+  Public endpoints (Health, Public Config, Login) override with `auth: none`, and the
+  MCP requests override with `auth: basic` — that route takes the service account's
+  credentials directly, not a JWT.
   Run **Auth / Login** once — its post-response script writes the JWT into `{{token}}`.
 - **Variables** (per environment): `{{baseUrl}}`, `{{token}}`, `{{connectionId}}`,
-  `{{tableName}}`, `{{savedQueryId}}`, `{{phiRuleId}}`, `{{userId}}`, `{{writeRequestId}}`.
+  `{{tableName}}`, `{{savedQueryId}}`, `{{phiRuleId}}`, `{{userId}}`, `{{writeRequestId}}`,
+  `{{mcpUsername}}` / `{{mcpPassword}}` (MCP service account).
   Path params always use one of these placeholders — never hard-code an id.
 - **PHI** — endpoints that return maskable data (Execute Query, Export CSV/JSON, Preview
   Write Request) carry three **disabled** headers: `X-PHI-Shield: off`,

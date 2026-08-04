@@ -1,0 +1,48 @@
+meta {
+  name: Call Tool
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/mcp
+  body: json
+  auth: basic
+}
+
+auth:basic {
+  username: {{mcpUsername}}
+  password: {{mcpPassword}}
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json, text/event-stream
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/call",
+    "params": {
+      "name": "run_query",
+      "arguments": {
+        "connectionId": "{{connectionId}}",
+        "sql": "SELECT * FROM {{tableName}}",
+        "limit": 10
+      }
+    }
+  }
+}
+
+docs {
+  Invokes one tool. Swap `params.name` / `params.arguments` for any tool from
+  **List Tools** — e.g. `{ "name": "list_connections", "arguments": {} }`.
+
+  `run_query` accepts `connectionId`, `sql`, optional `schema` and optional `limit`
+  (defaults to `MCP_MAX_ROWS`, 1000). Non-read statements are rejected by the same
+  validator the UI uses, and PHI columns come back tokenized — the response header
+  line names them. Tool failures return `isError: true` with the server's message
+  rather than a JSON-RPC error.
+}

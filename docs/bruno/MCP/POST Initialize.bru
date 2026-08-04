@@ -1,0 +1,48 @@
+meta {
+  name: Initialize
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/mcp
+  body: json
+  auth: basic
+}
+
+auth:basic {
+  username: {{mcpUsername}}
+  password: {{mcpPassword}}
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json, text/event-stream
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2025-06-18",
+      "capabilities": {},
+      "clientInfo": { "name": "bruno", "version": "1.0.0" }
+    }
+  }
+}
+
+docs {
+  MCP handshake for the read-only agent endpoint. Every request to `/api/mcp` is a
+  JSON-RPC 2.0 POST and must carry both headers above — the transport rejects a
+  request that does not accept `text/event-stream`.
+
+  **Basic auth, not Bearer.** This route is mounted before `authMiddleware` because
+  MCP clients cannot run D-Pilot's login flow. Present the MCP service account's
+  username/password as HTTP Basic (`{{mcpUsername}}` / `{{mcpPassword}}`); the route
+  exchanges them for a normal JWT internally, so capability checks, PHI masking and
+  audit logging all apply as usual.
+
+  Stateless — no session id is issued, so `GET` and `DELETE` on this path return 405.
+}

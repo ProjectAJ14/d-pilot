@@ -37,6 +37,11 @@ Detailed guidance lives with the code — read these when working in each area:
 - **`server/CLAUDE.md`** — routes, services, SQLite schema, PHI masking, write workflow, AI, auth.
 - **`src/CLAUDE.md`** — components, Zustand store, routing, api-client, utils.
 
+`/api/mcp` (`server/routes/mcp.ts`) is a read-only MCP endpoint for AI agents, hosted by the
+same Express process. Its tools call this server's **own REST API over loopback** — never the
+query executor directly — so masking, capability checks and audit logging stay in exactly one
+place. See the README's MCP section.
+
 ### Cross-cutting rules (apply everywhere)
 
 - **This is an open-source project — keep it company-agnostic.** Never put a company,

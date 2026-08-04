@@ -1,0 +1,38 @@
+meta {
+  name: List Tools
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/mcp
+  body: json
+  auth: basic
+}
+
+auth:basic {
+  username: {{mcpUsername}}
+  password: {{mcpPassword}}
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json, text/event-stream
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/list"
+  }
+}
+
+docs {
+  Lists the tools exposed to agents: `whoami`, `list_connections`, `list_schemas`,
+  `list_tables`, `describe_table`, `run_query`.
+
+  All read-only. Write tools are deliberately absent — writes go through the
+  write-approval workflow so a human authors the paired verify SELECT and a second
+  person approves.
+}

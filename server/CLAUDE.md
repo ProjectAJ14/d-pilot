@@ -45,6 +45,7 @@ submission/rejection when write mode is off.
 | `/azure-ai` | `azure-ai.ts` | `test`, `generate-query`, chat, `chat-log` (admin) |
 | `/analytics` | `analytics.ts` | admin usage dashboard |
 | `/write-requests` | `write-requests.ts` | write lifecycle + policy + AI review/suggest |
+| `/mcp` | `mcp.ts` | **read-only MCP endpoint for AI agents — mounted *before* `authMiddleware`** (HTTP Basic, not Bearer) |
 
 ## Services (`services/`)
 
@@ -69,6 +70,10 @@ submission/rejection when write mode is off.
 - **`query-examples.ts`** — picks few-shot examples from saved queries for AI prompts
   (`extractReferencedTables`, `selectExampleQueries`).
 - **`sqlite-store.ts`** — the app DB (see below) and all its accessors.
+- **`mcp-client.ts`** — session layer for the MCP endpoint: swaps an agent's Basic
+  credentials for a JWT and calls this same server over loopback. `routes/mcp.ts` must keep
+  going through the REST API this way rather than calling the executor directly, so masking,
+  capability checks and audit logging stay in one place.
 
 ## App database — SQLite (`services/sqlite-store.ts`)
 
