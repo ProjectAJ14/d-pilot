@@ -1,6 +1,10 @@
 node_modules/
 dist/
 data/
+# npm is the package manager here (deploy.sh + CI use it); package-lock.json is
+# the single committed lockfile. A stray yarn.lock is a second source of truth
+# that nothing installs from but that still conflicts on every dependency change.
+yarn.lock
 .env
 .env.*
 *.sqlite

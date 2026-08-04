@@ -51,7 +51,11 @@ cd "$SCRIPT_DIR"
 STEPS=(
     "git stash|Stashing local changes"
     "git pull|Pulling latest code"
-    "npm install|Installing dependencies"
+    # `npm ci` installs exactly what package-lock.json pins and never rewrites
+    # it, so the deploy host stays a clean checkout. It fails loudly if the
+    # lockfile and package.json disagree — fix that by running `npm install`
+    # locally and committing the updated lockfile, not by loosening this.
+    "npm ci|Installing dependencies"
     "npm run build|Building project"
     "systemctl restart d-pilot|Restarting service"
 )
