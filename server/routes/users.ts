@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { randomUUID } from "crypto";
 import { requireAdmin } from "../middleware/auth.js";
 import { getDb } from "../services/sqlite-store.js";
+import { getEnvironments } from "../config/connections.js";
 
 const router = Router();
 
@@ -19,8 +20,6 @@ router.get("/", (_req: Request, res: Response) => {
   res.json(users.map(mapUserRow));
 });
 
-const ALL_ENVS = ["DEV", "QA", "UAT", "STG", "PROD"];
-
 function parseEnvs(raw: string | null | undefined): string[] {
   try {
     const p = JSON.parse(raw || "[]");
@@ -32,12 +31,13 @@ function parseEnvs(raw: string | null | undefined): string[] {
 
 function sanitizeEnvs(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((e) => typeof e === "string" && ALL_ENVS.includes(e));
+  const allowed = getEnvironments();
+  return value.filter((e) => typeof e === "string" && allowed.includes(e));
 }
 
 function mapUserRow(u: any) {
   const isAdmin = u.is_admin === 1 || u.is_admin === true;
-  const scoped = (raw: string) => (isAdmin ? ALL_ENVS : parseEnvs(raw));
+  const scoped = (raw: string) => (isAdmin ? getEnvironments() : parseEnvs(raw));
   return {
     id: u.id,
     username: u.username,
@@ -102,10 +102,10 @@ router.post("/", (req: Request, res: Response) => {
   const id = `usr-${randomUUID().slice(0, 8)}`;
   const passwordHash = bcrypt.hashSync(password, 10);
   // Admin implies all capabilities; otherwise use the supplied per-env lists.
-  const read = admin ? ALL_ENVS : sanitizeEnvs(allowedEnvironments);
-  const unmask = admin ? ALL_ENVS : sanitizeEnvs(unmaskEnvironments);
-  const write = admin ? ALL_ENVS : sanitizeEnvs(writeEnvironments);
-  const approve = admin ? ALL_ENVS : sanitizeEnvs(approveEnvironments);
+  const read = admin ? getEnvironments() : sanitizeEnvs(allowedEnvironments);
+  const unmask = admin ? getEnvironments() : sanitizeEnvs(unmaskEnvironments);
+  const write = admin ? getEnvironments() : sanitizeEnvs(writeEnvironments);
+  const approve = admin ? getEnvironments() : sanitizeEnvs(approveEnvironments);
 
   db.prepare(
     "INSERT INTO users (id, username, password_hash, email, display_name, is_admin, allowed_environments, unmask_environments, write_environments, approve_environments) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",

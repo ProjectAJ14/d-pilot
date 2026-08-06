@@ -13,5 +13,10 @@ get {
 docs {
   Non-sensitive front-end config (app name, logos, PHI-masked environments).
 
+  `environments` lists the environments this deployment has, ordered least → most
+  sensitive. It is derived from `DBFORGE_CONNECTIONS`, so it is also the set of
+  values every other endpoint accepts for an environment (capability lists,
+  masked-envs, direct-write envs) — the client renders its pickers from it.
+
   **Public** — no auth.
 }

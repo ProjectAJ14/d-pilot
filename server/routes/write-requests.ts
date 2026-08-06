@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { getConnection } from "../config/connections.js";
+import { getConnection, getEnvironments } from "../config/connections.js";
 import {
   executeQuery,
   validateQuery,
@@ -41,7 +41,6 @@ import {
 } from "../services/sqlite-store.js";
 import type {
   AuthUser,
-  Environment,
   QueryResult,
   WriteAiReview,
   WriteRequest,
@@ -49,7 +48,6 @@ import type {
 
 const router = Router();
 
-const ALL_ENVS: Environment[] = ["DEV", "QA", "UAT", "STG", "PROD"];
 const MAX_PROMPT_TABLES = 30;
 
 // ── Access helpers ──
@@ -231,7 +229,7 @@ router.put("/policy", requireAdmin, (req: Request, res: Response) => {
     setSetting("write_mode_enabled", writeModeEnabled ? "true" : "false");
   }
   if (Array.isArray(directEnvs)) {
-    if (!directEnvs.every((e) => ALL_ENVS.includes(e as Environment))) {
+    if (!directEnvs.every((e) => getEnvironments().includes(e))) {
       res.status(400).json({ error: "Invalid environment in directEnvs" });
       return;
     }
@@ -308,7 +306,7 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
     return;
   }
 
-  const direct = getWriteDirectEnvs().includes(conn.env as Environment);
+  const direct = getWriteDirectEnvs().includes(conn.env);
 
   const wr = createWriteRequest({
     title: title.trim(),
@@ -349,7 +347,7 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
 
 router.get("/", (req: Request, res: Response) => {
   const user = req.user!;
-  const envs = user.isAdmin ? ALL_ENVS : user.approveEnvironments;
+  const envs = user.isAdmin ? getEnvironments() : user.approveEnvironments;
   const requests = listWriteRequests({
     requestedBy: user.sub,
     envs,
@@ -626,7 +624,7 @@ router.post("/:id/preview", async (req: Request, res: Response) => {
     const raw = await executeQuery(conn, wr.selectSql, req.body?.defaultLimit);
 
     const maskedEnvs = getPhiMaskedEnvs();
-    const envRequiresMasking = maskedEnvs.includes(conn.env as Environment);
+    const envRequiresMasking = maskedEnvs.includes(conn.env);
     const clientRequestsUnmask = req.headers["x-phi-shield"] === "off";
     const unmaskReason = req.headers["x-phi-unmask-reason"] as
       | string
@@ -1037,7 +1035,7 @@ router.post(
     });
 
     // A DIRECT-policy environment re-runs immediately on resubmit.
-    if (getWriteDirectEnvs().includes(conn.env as Environment)) {
+    if (getWriteDirectEnvs().includes(conn.env)) {
       await runDirectExecution(wr.id, conn, newWrite, user, {
         isMigration,
         noTransaction: noTx,

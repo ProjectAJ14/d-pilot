@@ -29,6 +29,9 @@ body:json {
 docs {
   Set the masked-environment list. PROD must remain present (422 otherwise).
 
+  Values must be environments this deployment actually has (see `GET /api/config`
+  → `environments`); anything else is a 400 that names the allowed values.
+
   Requires a valid Bearer JWT ({{token}}).
   **Admin only.**
 }

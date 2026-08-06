@@ -167,7 +167,8 @@ AZURE_OPENAI_MODEL=gpt-4o           # optional, informational
 
 ### Access model
 
-Access is **capability-based and scoped per environment** (`DEV`, `QA`, `UAT`, `STG`, `PROD`).
+Access is **capability-based and scoped per environment** (`DEV`, `QA`, `UAT`, `STG`, `PROD`
+by default — see [Custom environments](#custom-environments)).
 Each user has an `isAdmin` flag plus four capability lists, managed from **Settings → User Management**:
 
 | Capability | Grants |
@@ -179,6 +180,27 @@ Each user has an `isAdmin` flag plus four capability lists, managed from **Setti
 
 Admin implies every capability on every environment. PROD safety rails (mandatory PHI
 tokenization and two-person write approval) always apply regardless of capabilities.
+
+### Custom environments
+
+The environment list is **not** hardcoded — it is derived from the `env` values in
+`DBFORGE_CONNECTIONS`. Adding a connection with a new `env` is all it takes:
+
+```jsonc
+{ "id": "sp-pg", "name": "Super Prod PostgreSQL", "env": "SUPER_PROD", "type": "postgres", … }
+```
+
+After a restart, `SUPER_PROD` shows up on its own in the connection tree, the four
+capability pickers in **Settings → User Management**, the PHI masked-environment toggles
+and the write policy. Only environments the deployment actually has are accepted by the
+API, so a stale name can't be granted to anyone.
+
+Notes:
+- Custom names sort **after** `PROD` and are treated as the most sensitive.
+- The PROD safety rails key off the environment literally named `PROD`. A custom
+  environment does **not** inherit them — mark it PHI-masked in **Settings → PHI
+  Management** and leave it out of the direct-write list if it needs the same treatment.
+- Existing users don't gain a new environment automatically; grant it per user.
 
 ## MCP Server (AI agents)
 

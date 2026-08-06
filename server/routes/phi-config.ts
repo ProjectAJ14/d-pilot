@@ -10,8 +10,8 @@ import {
   logAudit,
 } from "../services/sqlite-store.js";
 import { requireAdmin } from "../middleware/auth.js";
-import { getConnection } from "../config/connections.js";
-import type { Environment, MaskingType, PhiFieldRule } from "../types/index.js";
+import { getConnection, getEnvironments } from "../config/connections.js";
+import type { MaskingType, PhiFieldRule } from "../types/index.js";
 
 const router = Router();
 
@@ -120,13 +120,13 @@ router.get("/masked-envs", (_req: Request, res: Response) => {
 
 router.put("/masked-envs", requireAdmin, (req: Request, res: Response) => {
   const { environments } = req.body;
-  const valid: Environment[] = ["DEV", "QA", "UAT", "STG", "PROD"];
+  const valid = getEnvironments();
   if (
     !Array.isArray(environments) ||
-    !environments.every((e: string) => valid.includes(e as Environment))
+    !environments.every((e: string) => valid.includes(e))
   ) {
     res.status(400).json({
-      error: "Invalid environments list. Allowed: DEV, QA, UAT, STG, PROD",
+      error: `Invalid environments list. Allowed: ${valid.join(", ")}`,
     });
     return;
   }

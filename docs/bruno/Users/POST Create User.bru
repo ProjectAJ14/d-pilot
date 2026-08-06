@@ -35,6 +35,9 @@ body:json {
 docs {
   Create a user. Admin implies all capabilities; otherwise supply per-env lists.
 
+  Environment names outside this deployment's set (see `GET /api/config` →
+  `environments`) are silently dropped from every capability list.
+
   Requires a valid Bearer JWT ({{token}}).
   **Admin only.**
 }

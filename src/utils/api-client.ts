@@ -84,6 +84,7 @@ export const api = {
       faviconUrl: string | null;
       emailDomain: string | null;
       phiMaskedEnvironments: string[];
+      environments: string[];
     }>,
 
   // Auth

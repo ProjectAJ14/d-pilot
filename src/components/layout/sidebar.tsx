@@ -39,11 +39,9 @@ import { api, ApiError } from "../../utils/api-client";
 import { copyToClipboard } from "../../utils/clipboard";
 import { copySavedQueryShareLink } from "../../utils/share-links";
 import { buildTableMetadata, supportsDdl, type MetadataFormat } from "../../utils/schema-metadata";
-import type { ConnectionInfo, TableInfo, ColumnInfo, Environment, DatabaseType } from "../../types";
+import type { ConnectionInfo, TableInfo, ColumnInfo, DatabaseType } from "../../types";
+import { envColor, envLabel, useEnvironments } from "../../utils/environments";
 
-const ENV_COLORS: Record<Environment, string> = {
-  PROD: "red", STG: "orange", UAT: "teal", QA: "violet", DEV: "green",
-};
 const DB_ICONS: Record<DatabaseType, string> = {
   postgres: "🐘", mssql: "🗄️", mongodb: "🍃", elasticsearch: "🔍",
 };
@@ -107,7 +105,8 @@ export function Sidebar() {
     { x: number; y: number; connId: string; table: TableInfo } | null
   >(null);
 
-  const grouped = groupByEnv(connections);
+  const envOrder = useEnvironments();
+  const grouped = groupByEnv(connections, envOrder);
 
   const toggleEnv = (env: string) => {
     setExpandedEnvs((prev) => {
@@ -430,14 +429,14 @@ export function Sidebar() {
                 >
                   <Badge
                     size="xs"
-                    color={ENV_COLORS[env as Environment]}
+                    color={envColor(env)}
                     variant="filled"
                     styles={{ root: { textTransform: "uppercase", fontWeight: 700, fontSize: 9, letterSpacing: 0.5 } }}
                   >
                     {env}
                   </Badge>
                   <Text size="xs" fw={600} style={{ flex: 1 }} c="secondary.9">
-                    {env === "PROD" ? "Production" : env === "STG" ? "Staging" : env === "UAT" ? "UAT" : env === "QA" ? "QA / Testing" : "Development"}
+                    {envLabel(env)}
                   </Text>
                   <Text size="xs" c="dimmed" ff="monospace" style={{ fontSize: 10 }}>{conns.length}</Text>
                   <IconChevronDown
@@ -990,16 +989,20 @@ export function Sidebar() {
   );
 }
 
-function groupByEnv(connections: ConnectionInfo[]): Record<string, ConnectionInfo[]> {
-  const order: string[] = ["PROD", "STG", "UAT", "QA", "DEV"];
+function groupByEnv(
+  connections: ConnectionInfo[],
+  order: string[],
+): Record<string, ConnectionInfo[]> {
   const grouped: Record<string, ConnectionInfo[]> = {};
   for (const c of connections) {
     if (!grouped[c.env]) grouped[c.env] = [];
     grouped[c.env].push(c);
   }
   const sorted: Record<string, ConnectionInfo[]> = {};
-  for (const env of order) {
-    if (grouped[env]) sorted[env] = grouped[env];
+  // `order` first, then anything the server didn't list, so a connection is
+  // never silently dropped from the tree because of an unknown environment.
+  for (const env of [...order, ...Object.keys(grouped)]) {
+    if (grouped[env] && !sorted[env]) sorted[env] = grouped[env];
   }
   return sorted;
 }

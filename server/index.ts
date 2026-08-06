@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 
 import { authMiddleware, handleLogin, handleMe, handleChangePassword, handleUpdateProfile, initAuthTables } from "./middleware/auth.js";
 import { initDatabase, getPhiMaskedEnvs } from "./services/sqlite-store.js";
+import { getEnvironments } from "./config/connections.js";
 import queryRoutes from "./routes/query.js";
 import connectionRoutes from "./routes/connections.js";
 import savedQueryRoutes from "./routes/saved-queries.js";
@@ -42,6 +43,9 @@ app.get("/api/config", (_req, res) => {
     faviconUrl: process.env.FAVICON_URL || null,
     emailDomain: process.env.EMAIL_DOMAIN || null,
     phiMaskedEnvironments: getPhiMaskedEnvs(),
+    // The deployment's environments, derived from DBFORGE_CONNECTIONS. The
+    // client renders its env pickers from this — never a hardcoded list.
+    environments: getEnvironments(),
   });
 });
 

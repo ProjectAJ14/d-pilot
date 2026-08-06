@@ -23,6 +23,7 @@ import type {
   Environment,
   DatabaseType,
 } from "../../types";
+import { envColor } from "../../utils/environments";
 
 function monacoLang(dbType?: DatabaseType): string {
   if (dbType === "mongodb") return "javascript";
@@ -223,14 +224,6 @@ export function SqlBlock({
   );
 }
 
-export const ENV_COLORS: Record<string, string> = {
-  PROD: "red",
-  STG: "orange",
-  UAT: "teal",
-  QA: "violet",
-  DEV: "green",
-};
-
 export const STATUS_META: Record<
   WriteRequestStatus,
   { label: string; color: string }
@@ -265,7 +258,7 @@ export function EnvBadge({ env }: { env: Environment | string }) {
       size="xs"
       radius="sm"
       variant="light"
-      color={ENV_COLORS[env] || "gray"}
+      color={envColor(env)}
       style={{ overflow: "visible" }}
     >
       {env}

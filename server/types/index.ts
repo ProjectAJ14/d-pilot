@@ -1,5 +1,11 @@
 export type DatabaseType = "postgres" | "mssql" | "mongodb" | "elasticsearch";
-export type Environment = "DEV" | "QA" | "UAT" | "STG" | "PROD";
+/**
+ * Environment name. Deliberately an open `string`: the set of environments comes
+ * from `DBFORGE_CONNECTIONS` at runtime (see `getEnvironments()`), so a
+ * deployment can define its own (e.g. `SUPER_PROD`) without a code change.
+ * `"PROD"` is still special-cased by the PROD safety rails.
+ */
+export type Environment = string;
 export type MaskingType = "FULL" | "PARTIAL" | "HASH" | "REDACT";
 
 // Machine-readable error codes returned by the API (body: { error, code? }).

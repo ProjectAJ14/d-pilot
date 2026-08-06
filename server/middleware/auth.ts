@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import type { AuthUser, ConnectionConfig } from "../types/index.js";
 import { getDb, archiveIfDue } from "../services/sqlite-store.js";
-import { getConnection } from "../config/connections.js";
+import { getConnection, getEnvironments } from "../config/connections.js";
 
 // Extend Express Request to include user
 declare global {
@@ -17,8 +17,6 @@ declare global {
 const JWT_SECRET =
   process.env.JWT_SECRET || "dbpilot-dev-secret-change-in-production";
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "24h";
-
-const ALL_ENVS = ["DEV", "QA", "UAT", "STG", "PROD"];
 
 function parseEnvList(
   raw: string | null | undefined,
@@ -41,8 +39,11 @@ function parseEnvList(
 function deriveUserProfile(user: any) {
   const isAdmin = user.is_admin === 1 || user.is_admin === true;
   const scoped = (raw: string, fallback: string[] = []) =>
-    isAdmin ? ALL_ENVS : parseEnvList(raw, fallback);
-  const allowedEnvironments = scoped(user.allowed_environments, ALL_ENVS);
+    isAdmin ? getEnvironments() : parseEnvList(raw, fallback);
+  const allowedEnvironments = scoped(
+    user.allowed_environments,
+    getEnvironments(),
+  );
   const unmaskEnvironments = scoped(user.unmask_environments);
   const writeEnvironments = scoped(user.write_environments);
   const approveEnvironments = scoped(user.approve_environments);
@@ -151,7 +152,7 @@ export function initAuthTables(): void {
     const adminEmail = `admin@${domain}`;
     const adminPassword = process.env.DEFAULT_ADMIN_PASSWORD || "changeme123";
     const adminHash = bcrypt.hashSync(adminPassword, 10);
-    const allEnvs = JSON.stringify(ALL_ENVS);
+    const allEnvs = JSON.stringify(getEnvironments());
 
     db.prepare(
       `INSERT INTO users (id, username, password_hash, email, display_name, is_admin, allowed_environments, unmask_environments, write_environments, approve_environments)
@@ -320,7 +321,7 @@ export function authMiddleware() {
           ? !!payload.isAdmin
           : payload.role === "admin";
       const scoped = (list: string[] | undefined) =>
-        isAdmin ? ALL_ENVS : list || [];
+        isAdmin ? getEnvironments() : list || [];
       const legacyUnmask =
         payload.role === "phi_viewer" ? payload.allowedEnvironments || [] : [];
       const unmaskEnvironments = scoped(
@@ -335,8 +336,8 @@ export function authMiddleware() {
         name: payload.name,
         isAdmin,
         allowedEnvironments: isAdmin
-          ? ALL_ENVS
-          : payload.allowedEnvironments || ALL_ENVS,
+          ? getEnvironments()
+          : payload.allowedEnvironments || getEnvironments(),
         unmaskEnvironments,
         writeEnvironments,
         approveEnvironments,

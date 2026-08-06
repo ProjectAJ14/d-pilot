@@ -1,5 +1,10 @@
 export type DatabaseType = "postgres" | "mssql" | "mongodb" | "elasticsearch";
-export type Environment = "DEV" | "QA" | "UAT" | "STG" | "PROD";
+/**
+ * Environment name. Open `string` by design — the deployment's environments come
+ * from the server (`/api/config` → `environments`), not from this union.
+ * `"PROD"` is still special-cased by the PROD safety rails.
+ */
+export type Environment = string;
 export type MaskingType = "FULL" | "PARTIAL" | "HASH" | "REDACT";
 export type ResultViewMode = "table" | "json";
 

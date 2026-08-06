@@ -51,11 +51,21 @@ place. See the README's MCP section.
   from `.env` (`APP_NAME`, `LOGO_URL`, `EMAIL_DOMAIN`, `DBFORGE_CONNECTIONS`, …). Where
   code needs a hardcoded fallback, use the neutral `D-Pilot` / `d-pilot`. Test fixtures
   must use generic names (`app_core`, `orders`, `customers`), never real internal ones.
-- **Capability-based access, scoped per environment** (`DEV`/`QA`/`UAT`/`STG`/`PROD`).
-  A user has `isAdmin` plus four env lists: read (`allowedEnvironments`), unmask PHI
-  (`unmaskEnvironments`), write (`writeEnvironments`), approve (`approveEnvironments`).
-  Admin implies all capabilities on all envs. There is **no** legacy `role` column — it
-  was migrated to capabilities (see `initAuthTables` in `server/middleware/auth.ts`).
+- **Capability-based access, scoped per environment** (`DEV`/`QA`/`UAT`/`STG`/`PROD` in a
+  standard deployment). A user has `isAdmin` plus four env lists: read
+  (`allowedEnvironments`), unmask PHI (`unmaskEnvironments`), write (`writeEnvironments`),
+  approve (`approveEnvironments`). Admin implies all capabilities on all envs. There is
+  **no** legacy `role` column — it was migrated to capabilities (see `initAuthTables` in
+  `server/middleware/auth.ts`).
+- **The environment list is runtime config, never a literal.** `getEnvironments()`
+  (`server/config/connections.ts`) derives it from the `env` values in
+  `DBFORGE_CONNECTIONS` and is the single source of truth; the client gets it from
+  `/api/config` → `environments` and reads it via `useEnvironments()`
+  (`src/utils/environments.ts`, which also owns env colors/labels). `Environment` is
+  therefore `string`, not a union. **Never reintroduce a hardcoded
+  `["DEV","QA","UAT","STG","PROD"]`** in a route, picker, zod schema or color map — a
+  deployment can define its own env (e.g. `SUPER_PROD`) and every one of those lists would
+  silently exclude it. The only legitimate literal is `"PROD"` itself, in the safety rails.
 - **PROD safety rails always apply**, regardless of capabilities: PROD is always PHI-tokenized
   (cannot be turned off) and PROD writes always require a second approver (no direct execute).
 - **In-app config, not env vars:** masked environments, PHI rules, write-mode toggle, and

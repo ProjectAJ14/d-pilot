@@ -138,9 +138,11 @@ function createMcpServer(client: DPilotApiClient): McpServer {
         "Databases this account can query, one entry per environment+database. Use the returned `id` as `connectionId` for the other tools.",
       inputSchema: {
         env: z
-          .enum(["DEV", "QA", "UAT", "STG", "PROD"])
+          .string()
           .optional()
-          .describe("Only return connections in this environment."),
+          .describe(
+            "Only return connections in this environment (e.g. DEV, QA, PROD — call whoami or list without a filter to see what this deployment has).",
+          ),
       },
       annotations: readOnly,
     },

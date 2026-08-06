@@ -64,6 +64,7 @@ import { api } from "../../utils/api-client";
 import { copyToClipboard } from "../../utils/clipboard";
 import { generatePassword } from "../../utils/password";
 import { downloadTextFile } from "../../utils/download-file";
+import { envColor, useEnvironments } from "../../utils/environments";
 import type {
   User,
   PhiFieldRule,
@@ -843,7 +844,7 @@ function AnalyticsTab() {
                         size="xs"
                         radius="sm"
                         variant="light"
-                        color={ENV_COLORS[c.env] || "gray"}
+                        color={envColor(c.env)}
                       >
                         {c.env}
                       </Badge>
@@ -1158,14 +1159,6 @@ function getInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-const ALL_ENVS_DATA = [
-  { value: "DEV", label: "DEV" },
-  { value: "QA", label: "QA" },
-  { value: "UAT", label: "UAT" },
-  { value: "STG", label: "STG" },
-  { value: "PROD", label: "PROD" },
-];
-
 function AddUserModal({
   opened,
   onClose,
@@ -1183,7 +1176,9 @@ function AddUserModal({
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
-  const [readEnvs, setReadEnvs] = useState<string[]>(["DEV", "QA"]);
+  // A new user gets no environment access at all — every capability is granted
+  // explicitly by the admin creating them.
+  const [readEnvs, setReadEnvs] = useState<string[]>([]);
   const [unmaskEnvs, setUnmaskEnvs] = useState<string[]>([]);
   const [writeEnvs, setWriteEnvs] = useState<string[]>([]);
   const [approveEnvs, setApproveEnvs] = useState<string[]>([]);
@@ -1246,7 +1241,7 @@ function AddUserModal({
       setDisplayName("");
       setPassword("");
       setIsAdmin(false);
-      setReadEnvs(["DEV", "QA"]);
+      setReadEnvs([]);
       setUnmaskEnvs([]);
       setWriteEnvs([]);
       setApproveEnvs([]);
@@ -1350,6 +1345,7 @@ function CapabilityFields({
   approveEnvs: string[];
   setApproveEnvs: (v: string[]) => void;
 }) {
+  const envOptions = useEnvironments();
   return (
     <>
       <div
@@ -1374,7 +1370,7 @@ function CapabilityFields({
           <MultiSelect
             label="Read environments"
             description="Run read queries in these environments"
-            data={ALL_ENVS_DATA}
+            data={envOptions}
             value={readEnvs}
             onChange={setReadEnvs}
             mb="sm"
@@ -1382,7 +1378,7 @@ function CapabilityFields({
           <MultiSelect
             label="Unmask PHI environments"
             description="De-tokenize PHI in these environments (still needs a reason on masked envs)"
-            data={ALL_ENVS_DATA}
+            data={envOptions}
             value={unmaskEnvs}
             onChange={setUnmaskEnvs}
             mb="sm"
@@ -1390,7 +1386,7 @@ function CapabilityFields({
           <MultiSelect
             label="Write environments"
             description="Author write requests (direct-policy envs run immediately)"
-            data={ALL_ENVS_DATA}
+            data={envOptions}
             value={writeEnvs}
             onChange={setWriteEnvs}
             mb="sm"
@@ -1398,7 +1394,7 @@ function CapabilityFields({
           <MultiSelect
             label="Approve environments"
             description="Approve others' write requests"
-            data={ALL_ENVS_DATA}
+            data={envOptions}
             value={approveEnvs}
             onChange={setApproveEnvs}
             mb="sm"
@@ -1421,7 +1417,7 @@ function EditUserModal({
   const [displayName, setDisplayName] = useState(user?.displayName || "");
   const [isAdmin, setIsAdmin] = useState(user?.isAdmin || false);
   const [readEnvs, setReadEnvs] = useState<string[]>(
-    user?.allowedEnvironments || ["DEV", "QA"],
+    user?.allowedEnvironments || [],
   );
   const [unmaskEnvs, setUnmaskEnvs] = useState<string[]>(
     user?.unmaskEnvironments || [],
@@ -1438,7 +1434,7 @@ function EditUserModal({
     if (user) {
       setDisplayName(user.displayName);
       setIsAdmin(user.isAdmin || false);
-      setReadEnvs(user.allowedEnvironments || ["DEV", "QA"]);
+      setReadEnvs(user.allowedEnvironments || []);
       setUnmaskEnvs(user.unmaskEnvironments || []);
       setWriteEnvs(user.writeEnvironments || []);
       setApproveEnvs(user.approveEnvironments || []);
@@ -1872,7 +1868,7 @@ function WriteModeTab() {
     save({ directEnvs: next });
   };
 
-  const WRITE_ENVS = ["PROD", "STG", "UAT", "QA", "DEV"];
+  const envOptions = useEnvironments();
 
   if (loading) {
     return (
@@ -1938,7 +1934,7 @@ function WriteModeTab() {
         logged). All other environments require approval by a second person.
       </Text>
       <Group gap={8} mb="lg">
-        {WRITE_ENVS.map((env) => {
+        {envOptions.map((env) => {
           const active = directEnvs.includes(env);
           const locked = env === "PROD";
           const button = (
@@ -1991,15 +1987,6 @@ function WriteModeTab() {
 // ── PHI Management Tab ──
 // ═══════════════════════════════════════
 
-const ENV_OPTIONS = ["PROD", "STG", "UAT", "QA", "DEV"] as const;
-const ENV_COLORS: Record<string, string> = {
-  PROD: "red",
-  STG: "orange",
-  UAT: "teal",
-  QA: "violet",
-  DEV: "green",
-};
-
 function PhiManagementTab() {
   const [rules, setRules] = useState<PhiFieldRule[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2012,6 +1999,7 @@ function PhiManagementTab() {
   const importResetRef = useRef<() => void>(null);
   const [maskedEnvs, setMaskedEnvs] = useState<string[]>([]);
   const [envSaving, setEnvSaving] = useState(false);
+  const envOptions = useEnvironments();
   const setConfig = useStore((s) => s.setConfig);
   const config = useStore((s) => s.config);
 
@@ -2203,7 +2191,7 @@ function PhiManagementTab() {
         role can request de-tokenization with a logged reason.
       </Text>
       <Group gap={8} mb="lg">
-        {ENV_OPTIONS.map((env) => {
+        {envOptions.map((env) => {
           const active = maskedEnvs.includes(env);
           const locked = env === "PROD";
           const button = (
@@ -2211,7 +2199,7 @@ function PhiManagementTab() {
               key={env}
               size="xs"
               variant={active ? "filled" : "outline"}
-              color={ENV_COLORS[env]}
+              color={envColor(env)}
               onClick={() => toggleEnv(env)}
               loading={envSaving && !locked}
               leftSection={

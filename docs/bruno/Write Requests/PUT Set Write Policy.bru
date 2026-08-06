@@ -26,6 +26,9 @@ body:json {
 docs {
   Update write-mode and direct-write environments. PROD can never be a direct-write env (422).
 
+  `directEnvs` values must be environments this deployment has (see
+  `GET /api/config` → `environments`); an unknown one is a 400.
+
   Requires a valid Bearer JWT ({{token}}).
   **Admin only.**
 }
