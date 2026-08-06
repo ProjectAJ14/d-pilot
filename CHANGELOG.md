@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.12.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.11.0...v1.12.0) (2026-08-06)
+
+
+### Features
+
+* **env:** derive the environment list from DBFORGE_CONNECTIONS ([0f11bee](https://github.com/ProjectAJ14/d-pilot/commit/0f11bee12760bcd09dcc0826518d62c18c908971))
+
 # [1.11.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.10.0...v1.11.0) (2026-08-04)
 
 
