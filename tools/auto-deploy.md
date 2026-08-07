@@ -46,6 +46,10 @@ Description=D-Pilot auto-deploy (poll origin/main)
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/dpilot-autodeploy
+# A oneshot service inherits TimeoutStartSec=90s. An observed deploy took 58s
+# with a warm npm cache, so a cold `npm ci` plus a full build would be killed
+# mid-build. No useful deadline exists here — drop it.
+TimeoutStartSec=infinity
 EOF
 
 sudo tee /etc/systemd/system/dpilot-autodeploy.timer >/dev/null <<'EOF'
@@ -63,14 +67,36 @@ EOF
 sudo systemctl daemon-reload
 ```
 
-### 3. Dry run before arming
+### 3. Let root use the checkout
+
+Git refuses to operate on a repo owned by another user. The service runs as root and the
+checkout is owned by the deploy user, so without this every run dies instantly with
+`fatal: detected dubious ownership` and exit 128.
 
 ```bash
-sudo systemctl start dpilot-autodeploy.service     # runs the check right now
-journalctl -u dpilot-autodeploy -n 50 --no-pager   # see what it did
+sudo git config --system --add safe.directory /opt/d-pilot
 ```
 
-### 4. Arm it
+`--system` (`/etc/gitconfig`) rather than `--global` on purpose: `--global` writes to
+`$HOME/.gitconfig`, and a systemd service does not get the `HOME` your interactive `sudo`
+session has. That difference is exactly why the poller can succeed when you run it by hand
+and still fail under the timer.
+
+### 4. Dry run before arming
+
+```bash
+sudo systemctl start dpilot-autodeploy.service          # runs the check right now
+sudo journalctl -u dpilot-autodeploy -n 50 --no-pager   # see what it did
+```
+
+If that fails, run the poller outside systemd — same environment, error prints straight
+to the terminal, no journal permissions involved:
+
+```bash
+sudo /usr/local/bin/dpilot-autodeploy
+```
+
+### 5. Arm it
 
 ```bash
 sudo systemctl enable --now dpilot-autodeploy.timer
@@ -82,9 +108,9 @@ sudo systemctl enable --now dpilot-autodeploy.timer
 |---|---|
 | Is it on? When does it next fire? | `systemctl list-timers dpilot-autodeploy` |
 | Did the last run succeed? | `systemctl status dpilot-autodeploy` |
-| Watch deploys live | `journalctl -u dpilot-autodeploy -f` |
-| Today's history | `journalctl -u dpilot-autodeploy --since today` |
-| Only the failures | `journalctl -u dpilot-autodeploy -p err` |
+| Watch deploys live | `sudo journalctl -u dpilot-autodeploy -f` |
+| Today's history | `sudo journalctl -u dpilot-autodeploy --since today` |
+| Only the failures | `sudo journalctl -u dpilot-autodeploy -p err` |
 | Deploy now, don't wait | `sudo systemctl start dpilot-autodeploy.service` |
 | Pause (returns on reboot) | `sudo systemctl stop dpilot-autodeploy.timer` |
 | Stop for good | `sudo systemctl disable --now dpilot-autodeploy.timer` |
@@ -99,8 +125,15 @@ still going, so a slow `npm ci` can't stack up.
 
 ## Notes and gotchas
 
-- **Root must be able to pull without a prompt.** Step 3 proves this. A hang or 403 there
+- **`journalctl` needs `sudo`** unless the deploy user is in the `adm` or
+  `systemd-journal` group. Without it you get a bare `-- No entries --` and it looks like
+  nothing ever ran.
+- **Root must be able to pull without a prompt.** Step 4 proves this. A hang or 403 there
   is a deploy key / credential-helper problem in `/root/.ssh`, not a timer problem.
+- **"Works with `sudo`, fails under the timer" is almost always an environment
+  difference**, not a permissions one — `sudo` inherits much of your login environment,
+  systemd starts from near-nothing. Prefer system-wide config (`/etc/gitconfig`) over
+  anything that resolves through `$HOME`.
 - **`semantic-release` pushes back to `main`.** Every feature push produces your commit
   *plus* a `chore(release)` commit from CI, so the poller sees two moves and deploys
   twice. Harmless — two restarts instead of one. To avoid it, skip when the newest
