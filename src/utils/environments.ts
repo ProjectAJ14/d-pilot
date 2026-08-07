@@ -32,6 +32,14 @@ export const envColor = (env: string): string => ENV_COLORS[env] ?? "pink";
 export const envLabel = (env: string): string => ENV_LABELS[env] ?? env;
 
 /**
+ * Whether an environment counts as production for the PHI safety rail. Any name
+ * containing "prod" qualifies — `PROD`, `SUPER_PROD`, `PREPROD` — and its PHI
+ * stays tokenized; the server enforces the same rule (`isProductionEnv` in
+ * `server/config/connections.ts`), this only mirrors it in the UI.
+ */
+export const isProductionEnv = (env: string): boolean => /prod/i.test(env);
+
+/**
  * This deployment's environments in display order — most sensitive first, which
  * is how every picker and the connection tree list them.
  */

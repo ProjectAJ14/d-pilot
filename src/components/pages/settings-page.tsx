@@ -64,7 +64,11 @@ import { api } from "../../utils/api-client";
 import { copyToClipboard } from "../../utils/clipboard";
 import { generatePassword } from "../../utils/password";
 import { downloadTextFile } from "../../utils/download-file";
-import { envColor, useEnvironments } from "../../utils/environments";
+import {
+  envColor,
+  isProductionEnv,
+  useEnvironments,
+} from "../../utils/environments";
 import type {
   User,
   PhiFieldRule,
@@ -2031,12 +2035,11 @@ function PhiManagementTab() {
 
   const toggleEnv = async (env: string) => {
     // Production PHI is always tokenized — it can't be removed from masking.
-    if (env === "PROD") {
+    if (isProductionEnv(env)) {
       notifications.show({
         color: "red",
-        title: "Production is always tokenized",
-        message:
-          "Production PHI stays masked at all times and can't be exposed here. Users with the PHI Viewer or Admin role can still de-tokenize individual queries with a logged reason.",
+        title: `${env} is always tokenized`,
+        message: `${env} is a production environment, so its PHI stays masked at all times and can't be exposed here. Users with unmask rights can still de-tokenize individual queries with a logged reason.`,
       });
       return;
     }
@@ -2193,7 +2196,7 @@ function PhiManagementTab() {
       <Group gap={8} mb="lg">
         {envOptions.map((env) => {
           const active = maskedEnvs.includes(env);
-          const locked = env === "PROD";
+          const locked = isProductionEnv(env);
           const button = (
             <Button
               key={env}
@@ -2220,7 +2223,7 @@ function PhiManagementTab() {
           return locked ? (
             <Tooltip
               key={env}
-              label="Production PHI is always tokenized and can't be exposed."
+              label={`${env} is a production environment — its PHI is always tokenized and can't be exposed.`}
               withArrow
               multiline
               w={240}

@@ -11,7 +11,8 @@ get {
 }
 
 docs {
-  Environments where PHI is tokenized. PROD is always included.
+  Environments where PHI is tokenized. Every production-like environment (any
+  name containing "prod") is always included, whatever the stored setting says.
 
   Requires a valid Bearer JWT ({{token}}).
 }

@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
 import { DEFAULT_PHI_RULES } from "../config/phi-defaults.js";
+import { getProductionEnvs } from "../config/connections.js";
 import type {
   SavedQuery,
   PhiFieldRule,
@@ -490,20 +491,20 @@ export function setSetting(key: string, value: string): void {
 
 export function getPhiMaskedEnvs(): Environment[] {
   const val = getSetting("phi_masked_envs");
-  let envs: Environment[];
-  if (!val) {
-    envs = ["PROD"];
-  } else {
+  let envs: Environment[] = [];
+  if (val) {
     try {
       const parsed = JSON.parse(val);
-      envs = Array.isArray(parsed) ? parsed : ["PROD"];
+      if (Array.isArray(parsed)) envs = parsed;
     } catch {
-      envs = ["PROD"];
+      // Unreadable setting falls back to production-only masking below.
     }
   }
-  // Production PHI is always tokenized — guarantee PROD is masked, regardless
-  // of what's stored.
-  return envs.includes("PROD") ? envs : ["PROD", ...envs];
+  // Production PHI is always tokenized. Every production-like environment
+  // (PROD, SUPER_PROD, …) is masked regardless of what's stored, so the rail
+  // can't be turned off through the settings table.
+  const locked = getProductionEnvs();
+  return [...locked, ...envs.filter((e) => !locked.includes(e))];
 }
 
 export function getWriteModeEnabled(): boolean {

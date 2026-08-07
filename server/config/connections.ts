@@ -35,8 +35,7 @@ const KNOWN_ENV_ORDER = ["DEV", "QA", "UAT", "STG", "PROD"];
  * capability pickers, PHI settings, write policy and the connection tree.
  *
  * This is the single source of truth — routes and the client must not re-declare
- * an environment list. Unknown envs sort after PROD (treated as most sensitive);
- * PROD's own safety rails still key off the literal `"PROD"`.
+ * an environment list. Unknown envs sort after PROD (treated as most sensitive).
  */
 export function getEnvironments(): string[] {
   const found = new Set(loadConnections().map((c) => c.env));
@@ -44,6 +43,21 @@ export function getEnvironments(): string[] {
   const known = KNOWN_ENV_ORDER.filter((e) => found.has(e));
   const extra = [...found].filter((e) => !KNOWN_ENV_ORDER.includes(e)).sort();
   return [...known, ...extra];
+}
+
+/**
+ * Whether an environment counts as production for the PHI safety rail. Any name
+ * containing "prod" qualifies — `PROD`, `SUPER_PROD`, `PREPROD`, `PRODUCTION` —
+ * so a deployment can't sidestep mandatory tokenization by naming a production
+ * environment something new.
+ */
+export function isProductionEnv(env: string): boolean {
+  return /prod/i.test(env);
+}
+
+/** Every production-like environment this deployment has. */
+export function getProductionEnvs(): string[] {
+  return getEnvironments().filter(isProductionEnv);
 }
 
 export function getConnectionsByEnv(): Record<string, ConnectionConfig[]> {

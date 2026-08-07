@@ -10,7 +10,11 @@ import {
   logAudit,
 } from "../services/sqlite-store.js";
 import { requireAdmin } from "../middleware/auth.js";
-import { getConnection, getEnvironments } from "../config/connections.js";
+import {
+  getConnection,
+  getEnvironments,
+  getProductionEnvs,
+} from "../config/connections.js";
 import type { MaskingType, PhiFieldRule } from "../types/index.js";
 
 const router = Router();
@@ -130,11 +134,14 @@ router.put("/masked-envs", requireAdmin, (req: Request, res: Response) => {
     });
     return;
   }
-  // Production PHI must always be tokenized — it can't be removed from masking.
-  if (!environments.includes("PROD")) {
+  // Production PHI must always be tokenized — no production-like environment
+  // can be removed from masking.
+  const missing = getProductionEnvs().filter((e) => !environments.includes(e));
+  if (missing.length > 0) {
     res.status(422).json({
-      error:
-        "Production PHI is always tokenized and can't be exposed. PROD must remain a masked environment.",
+      error: `Production PHI is always tokenized and can't be exposed. ${missing.join(
+        ", ",
+      )} must remain masked.`,
     });
     return;
   }

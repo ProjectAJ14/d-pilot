@@ -1,9 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { isProductionEnv } from "./connections.js";
 
 /**
  * `loadConnections()` memoizes, so each case re-imports the module with its own
  * DBFORGE_CONNECTIONS.
  */
+async function prodEnvsFor(connections: unknown): Promise<string[]> {
+  vi.resetModules();
+  process.env.DBFORGE_CONNECTIONS = JSON.stringify(connections);
+  const { getProductionEnvs } = await import("./connections.js");
+  return getProductionEnvs();
+}
+
 async function envsFor(connections: unknown): Promise<string[]> {
   vi.resetModules();
   process.env.DBFORGE_CONNECTIONS =
@@ -54,5 +62,32 @@ describe("getEnvironments", () => {
       "STG",
       "PROD",
     ]);
+  });
+});
+
+describe("isProductionEnv", () => {
+  it("matches any environment whose name contains prod", () => {
+    for (const env of ["PROD", "SUPER_PROD", "PREPROD", "PRODUCTION", "prod"]) {
+      expect(isProductionEnv(env)).toBe(true);
+    }
+  });
+
+  it("does not match non-production environments", () => {
+    for (const env of ["DEV", "QA", "UAT", "STG"]) {
+      expect(isProductionEnv(env)).toBe(false);
+    }
+  });
+});
+
+describe("getProductionEnvs", () => {
+  it("returns every production-like env the deployment has", async () => {
+    expect(
+      await prodEnvsFor([
+        conn("a", "DEV"),
+        conn("b", "PROD"),
+        conn("c", "SUPER_PROD"),
+        conn("d", "QA"),
+      ]),
+    ).toEqual(["PROD", "SUPER_PROD"]);
   });
 });

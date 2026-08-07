@@ -27,7 +27,9 @@ body:json {
 }
 
 docs {
-  Set the masked-environment list. PROD must remain present (422 otherwise).
+  Set the masked-environment list. Every production-like environment — any name
+  containing "prod" (PROD, SUPER_PROD, PREPROD) — must remain present, or the
+  request is a 422 naming the ones that were dropped.
 
   Values must be environments this deployment actually has (see `GET /api/config`
   → `environments`); anything else is a 400 that names the allowed values.

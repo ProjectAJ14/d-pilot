@@ -25,7 +25,7 @@ ever leaving the building in the clear.
 
 ### PHI protection
 - **PHI tokenization ("shield")** — pattern-based column matching with four masking types: **FULL** (`********`), **PARTIAL** (last 4 shown), **HASH** (`tok_…` deterministic), **REDACT** (`[REDACTED]`).
-- **Per-environment enforcement** — PROD is always tokenized and cannot be turned off; masked environments are configurable (PROD locked in). QA/DEV return real values by default.
+- **Per-environment enforcement** — every production environment (any name containing "prod": `PROD`, `SUPER_PROD`, …) is always tokenized and cannot be turned off; the rest of the masked list is configurable. QA/DEV return real values by default.
 - **`alwaysMasked` (locked) rules** — never unmask regardless of role or shield state.
 - **Audited unmasking** — de-tokenizing requires a reason (and optional notes), is gated per-environment, and is logged with user, IP, session, and timestamp. Unauthorized attempts stay masked and are logged as denied.
 
@@ -197,9 +197,13 @@ API, so a stale name can't be granted to anyone.
 
 Notes:
 - Custom names sort **after** `PROD` and are treated as the most sensitive.
-- The PROD safety rails key off the environment literally named `PROD`. A custom
-  environment does **not** inherit them — mark it PHI-masked in **Settings → PHI
-  Management** and leave it out of the direct-write list if it needs the same treatment.
+- **Any environment whose name contains "prod" is PHI-locked** — `SUPER_PROD`, `PREPROD`
+  and `PROD` are always tokenized, and the toggle for them in **Settings → PHI
+  Management** is disabled. Naming a production environment something new does not
+  opt it out.
+- The **write** rails (no direct-write, mandatory second approver) still key off the env
+  literally named `PROD`. A custom environment does not inherit those — leave it out of
+  the direct-write list if it needs the same treatment.
 - Existing users don't gain a new environment automatically; grant it per user.
 
 ## MCP Server (AI agents)
