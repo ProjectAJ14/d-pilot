@@ -1,6 +1,6 @@
 {
   "name": "d-pilot",
-  "version": "1.12.0",
+  "version": "1.12.1",
   "description": "D-Pilot — Internal SQL Explorer with PHI Masking",
   "private": true,
   "type": "module",

@@ -5,6 +5,15 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [1.12.1](https://github.com/ProjectAJ14/d-pilot/compare/v1.12.0...v1.12.1) (2026-08-07)
+
+
+### Bug Fixes
+
+* **env:** drop the last hardcoded PROD assumptions outside the rails ([42a3976](https://github.com/ProjectAJ14/d-pilot/commit/42a397643d143bc00666b42d3f056bfd26a130c7))
+* **phi:** lock PHI masking for every production-like environment ([fd81636](https://github.com/ProjectAJ14/d-pilot/commit/fd816365765b316825e689365820f046016afbb0))
+* **write:** extend the two-person rule to every production-like environment ([1de1f40](https://github.com/ProjectAJ14/d-pilot/commit/1de1f40f07174a26510988bc390cc47192493a00))
+
 # [1.12.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.11.0...v1.12.0) (2026-08-06)
 
 
