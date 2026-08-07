@@ -5,7 +5,6 @@ import {
   IconShieldOff,
   IconSettings,
   IconUser,
-  IconAdjustments,
   IconLogout,
   IconSearch,
   IconPencilBolt,
@@ -274,14 +273,6 @@ export function TopBar() {
             onClick={() => navigate("/profile")}
           >
             Profile
-          </Menu.Item>
-          {/* Personal, per-browser preferences. Lives under Profile rather than
-              Settings so non-admins can reach it too. */}
-          <Menu.Item
-            leftSection={<IconAdjustments size={14} />}
-            onClick={() => navigate("/profile?tab=user-settings")}
-          >
-            User Settings
           </Menu.Item>
           {/* Admins get Settings (the hub — PHI/token config, audit, etc. live
               there as tabs). Non-admins get the lighter token config panel. */}
