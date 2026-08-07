@@ -3,6 +3,7 @@ import { Text, ScrollArea, ActionIcon, Switch } from "@mantine/core";
 import { IconX, IconShieldLock } from "@tabler/icons-react";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
+import { useEnvironments } from "../../utils/environments";
 import type { PhiFieldRule } from "../../types";
 
 const FIELD_ICONS: Record<string, string> = {
@@ -36,6 +37,10 @@ export function PhiConfigPanel() {
   const phiPanelOpen = useStore((s) => s.phiPanelOpen);
   const togglePhiPanel = useStore((s) => s.togglePhiPanel);
   const [rules, setRules] = useState<PhiFieldRule[]>([]);
+  // Which environments are masked is in-app config (production is always in
+  // the list) — read it rather than restating a fixed set here.
+  const maskedEnvs = useStore((s) => s.config.phiMaskedEnvironments);
+  const unmaskedEnvs = useEnvironments().filter((e) => !maskedEnvs.includes(e));
 
   useEffect(() => {
     if (phiPanelOpen) {
@@ -238,12 +243,29 @@ export function PhiConfigPanel() {
           }}
         >
           Tokenization enforced on{" "}
-          <strong style={{ color: "var(--error)" }}>PROD</strong> and{" "}
-          <strong style={{ color: "var(--phi)" }}>STAGING</strong>.
-          <br />
-          <span style={{ color: "var(--accent2)" }}>QA</span> and{" "}
-          <span style={{ color: "var(--accent2)" }}>DEV</span> connections
-          return real values.
+          {maskedEnvs.length > 0 ? (
+            maskedEnvs.map((env, i) => (
+              <span key={env}>
+                {i > 0 && ", "}
+                <strong style={{ color: "var(--error)" }}>{env}</strong>
+              </span>
+            ))
+          ) : (
+            <strong>no environments</strong>
+          )}
+          .
+          {unmaskedEnvs.length > 0 && (
+            <>
+              <br />
+              {unmaskedEnvs.map((env, i) => (
+                <span key={env}>
+                  {i > 0 && " and "}
+                  <span style={{ color: "var(--accent2)" }}>{env}</span>
+                </span>
+              ))}{" "}
+              connections return real values.
+            </>
+          )}
         </div>
       </ScrollArea>
     </div>

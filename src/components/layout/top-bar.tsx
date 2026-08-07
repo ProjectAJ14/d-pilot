@@ -30,7 +30,7 @@ export function TopBar() {
   const actionRequiredCount = useStore((s) => s.actionRequiredCount);
   const { appName, logoUrl, phiMaskedEnvironments } = useStore((s) => s.config);
   const activeConn = connections.find((c) => c.id === activeConnectionId);
-  const maskedEnvs = phiMaskedEnvironments || ["PROD"];
+  const maskedEnvs = phiMaskedEnvironments;
   const isEnvMasked = activeConn ? maskedEnvs.includes(activeConn.env) : false;
 
   // PHI unmask is environment-scoped: allowed only where the active connection's

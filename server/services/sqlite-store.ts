@@ -185,7 +185,9 @@ export function initDatabase(): void {
   if (!existing) {
     db.prepare("INSERT INTO app_settings (key, value) VALUES (?, ?)").run(
       "phi_masked_envs",
-      '["PROD"]',
+      // Production only, by name — getPhiMaskedEnvs() enforces this on read
+      // anyway, but seeding it keeps the stored row honest.
+      JSON.stringify(getProductionEnvs()),
     );
   }
 

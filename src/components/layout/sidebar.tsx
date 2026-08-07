@@ -77,7 +77,7 @@ export function Sidebar() {
   const schemaByConnection = useStore((s) => s.schemaByConnection);
   const setSchemaForConnection = useStore((s) => s.setSchemaForConnection);
   const phiMaskedEnvironments = useStore((s) => s.config.phiMaskedEnvironments);
-  const maskedEnvLabel = (phiMaskedEnvironments || ["PROD"]).join(" + ");
+  const maskedEnvLabel = phiMaskedEnvironments.join(" + ");
 
   const [activeSection, setActiveSection] = useState<"explorer" | "saved" | "history">("explorer");
   const [history, setHistory] = useState<any[]>([]);

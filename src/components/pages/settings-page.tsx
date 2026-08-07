@@ -2433,7 +2433,7 @@ function PhiManagementTab() {
         {deleteCount === rules.length && (
           <Text size="sm" c="red" fw={600} mb="sm">
             No rules will remain: query results will not be tokenized in any
-            environment — including PROD — until new rules are added or
+            environment — including production — until new rules are added or
             imported.
           </Text>
         )}

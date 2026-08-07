@@ -23,7 +23,6 @@ export function PhiUnmaskModal() {
   const [notes, setNotes] = useState("");
 
   const activeConn = connections.find((c) => c.id === activeConnectionId);
-  const isProdOrStg = activeConn?.env === "PROD" || activeConn?.env === "STG";
 
   // This is called from the store's togglePhi — we intercept it
   // We expose open/close via a global ref so TopBar can trigger it
