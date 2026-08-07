@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.13.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.12.1...v1.13.0) (2026-08-07)
+
+
+### Features
+
+* **profile:** rebuild profile as a full-page, scrollable section ([369cb68](https://github.com/ProjectAJ14/d-pilot/commit/369cb686847650dcb046d08f9a6e941972f1a93b))
+
 ## [1.12.1](https://github.com/ProjectAJ14/d-pilot/compare/v1.12.0...v1.12.1) (2026-08-07)
 
 
