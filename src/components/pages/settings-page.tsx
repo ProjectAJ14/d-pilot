@@ -1856,12 +1856,11 @@ function WriteModeTab() {
 
   const toggleDirect = (env: string) => {
     // Production is locked to the two-person rule — it can never be direct-write.
-    if (env === "PROD") {
+    if (isProductionEnv(env)) {
       notifications.show({
         color: "red",
-        title: "Not allowed for Production",
-        message:
-          "Production always requires the two-person rule — a second person must approve every write. It can't be set to direct-write.",
+        title: `Not allowed for ${env}`,
+        message: `${env} is a production environment, so it always requires the two-person rule — a second person must approve every write. It can't be set to direct-write.`,
       });
       return;
     }
@@ -1940,7 +1939,7 @@ function WriteModeTab() {
       <Group gap={8} mb="lg">
         {envOptions.map((env) => {
           const active = directEnvs.includes(env);
-          const locked = env === "PROD";
+          const locked = isProductionEnv(env);
           const button = (
             <Button
               key={env}
@@ -1967,7 +1966,7 @@ function WriteModeTab() {
           return locked ? (
             <Tooltip
               key={env}
-              label="Production always requires two-person approval — it can't be a direct-write environment."
+              label={`${env} is a production environment — it always requires two-person approval and can't be direct-write.`}
               withArrow
               multiline
               w={240}

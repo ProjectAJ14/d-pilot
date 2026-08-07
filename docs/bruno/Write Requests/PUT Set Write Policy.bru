@@ -24,7 +24,10 @@ body:json {
 }
 
 docs {
-  Update write-mode and direct-write environments. PROD can never be a direct-write env (422).
+  Update write-mode and direct-write environments. No production-like environment —
+  any name containing "prod" (PROD, SUPER_PROD, PREPROD) — can be direct-write; the
+  request 422s naming the ones that were sent. They are also stripped on read, so a
+  hand-edited setting can't grant direct-write on production either.
 
   `directEnvs` values must be environments this deployment has (see
   `GET /api/config` → `environments`); an unknown one is a 400.

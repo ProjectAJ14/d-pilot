@@ -66,13 +66,14 @@ place. See the README's MCP section.
   `["DEV","QA","UAT","STG","PROD"]`** in a route, picker, zod schema or color map — a
   deployment can define its own env (e.g. `SUPER_PROD`) and every one of those lists would
   silently exclude it. The only legitimate literal is `"PROD"` itself, in the safety rails.
-- **PROD safety rails always apply**, regardless of capabilities. The PHI rail covers **every
-  production-like environment** — `isProductionEnv()` (`server/config/connections.ts`) matches
-  any name containing "prod" (`PROD`, `SUPER_PROD`, `PREPROD`), and `getPhiMaskedEnvs()` forces
-  all of them into the masked list, so the lock can't be lifted from Settings *or* by editing
-  `app_settings`. The write rail is narrower: only the env literally named `PROD` is barred from
-  direct-write / auto-approve. Mirror helper for the UI lock: `isProductionEnv` in
-  `src/utils/environments.ts`.
+- **Production safety rails always apply**, regardless of capabilities, and cover **every
+  production-like environment**: `isProductionEnv()` (`server/config/connections.ts`) matches
+  any name containing "prod" (`PROD`, `SUPER_PROD`, `PREPROD`). Both rails are enforced in the
+  *getter*, so neither can be lifted from Settings **or** by editing `app_settings` —
+  `getPhiMaskedEnvs()` forces production envs into the masked list, `getWriteDirectEnvs()`
+  strips them out (which is what blocks direct-execute *and* auto-approve, since both gate on
+  it). The routes 422 with the offending env names. Mirror helper for the UI locks:
+  `isProductionEnv` in `src/utils/environments.ts`.
 - **In-app config, not env vars:** masked environments, PHI rules, write-mode toggle, and
   direct-write environments live in the SQLite `app_settings`/`phi_field_rules` tables and
   are edited in Settings — not in `.env`. (Legacy `PHI_ALWAYS_MASKED` / `PHI_ADMIN_CAN_UNMASK`

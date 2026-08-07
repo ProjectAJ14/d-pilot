@@ -31,7 +31,7 @@ ever leaving the building in the clear.
 
 ### Write workflow (governed)
 - **Write mode** with a request → review → approval → execute lifecycle. Globally toggleable by admins.
-- **Two-person rule on PROD** — PROD writes always require a second approver and can never be direct-execute; other environments can be configured for direct write.
+- **Two-person rule on production** — writes to any production environment (any name containing "prod") always require a second approver and can never be direct-execute; other environments can be configured for direct write.
 - **Paired verify SELECT** — every write request carries a read-only SELECT to preview affected rows before execution.
 - **AI safety review** — verdict (Safe / Caution / Dangerous), blast-radius estimate, SELECT-matches-write check, and one-click suggested corrections.
 - **Single-statement, scoped writes only** — one INSERT/UPDATE/DELETE (or Mongo/ES equivalent); UPDATE/DELETE must be scoped (WHERE required); transactional where the engine supports it.
@@ -178,8 +178,9 @@ Each user has an `isAdmin` flag plus four capability lists, managed from **Setti
 | **Write** (`writeEnvironments`) | Author write requests for those environments |
 | **Approve** (`approveEnvironments`) | Approve others' write requests in those environments |
 
-Admin implies every capability on every environment. PROD safety rails (mandatory PHI
-tokenization and two-person write approval) always apply regardless of capabilities.
+Admin implies every capability on every environment. Production safety rails (mandatory
+PHI tokenization and two-person write approval) always apply regardless of capabilities,
+on every environment whose name contains "prod" — see [Custom environments](#custom-environments).
 
 ### Custom environments
 
@@ -197,13 +198,11 @@ API, so a stale name can't be granted to anyone.
 
 Notes:
 - Custom names sort **after** `PROD` and are treated as the most sensitive.
-- **Any environment whose name contains "prod" is PHI-locked** — `SUPER_PROD`, `PREPROD`
-  and `PROD` are always tokenized, and the toggle for them in **Settings → PHI
-  Management** is disabled. Naming a production environment something new does not
-  opt it out.
-- The **write** rails (no direct-write, mandatory second approver) still key off the env
-  literally named `PROD`. A custom environment does not inherit those — leave it out of
-  the direct-write list if it needs the same treatment.
+- **Any environment whose name contains "prod" gets the full production rails** —
+  `PROD`, `SUPER_PROD` and `PREPROD` alike are always PHI-tokenized and can never be
+  direct-write (every change needs a second approver). Both toggles for them in
+  **Settings** are locked. Naming a production environment something new does not opt
+  it out.
 - Existing users don't gain a new environment automatically; grant it per user.
 
 ## MCP Server (AI agents)

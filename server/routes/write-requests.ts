@@ -1,5 +1,9 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { getConnection, getEnvironments } from "../config/connections.js";
+import {
+  getConnection,
+  getEnvironments,
+  isProductionEnv,
+} from "../config/connections.js";
 import {
   executeQuery,
   validateQuery,
@@ -233,12 +237,14 @@ router.put("/policy", requireAdmin, (req: Request, res: Response) => {
       res.status(400).json({ error: "Invalid environment in directEnvs" });
       return;
     }
-    // Production must ALWAYS use the two-person rule — it can never be a
-    // direct-write environment, regardless of who is asking.
-    if (directEnvs.includes("PROD")) {
+    // Production must ALWAYS use the two-person rule — no production-like
+    // environment can be direct-write, regardless of who is asking.
+    const prod = directEnvs.filter(isProductionEnv);
+    if (prod.length > 0) {
       res.status(422).json({
-        error:
-          "Production can't be a direct-write environment. Writes to PROD always require the two-person rule — a second person must approve every change.",
+        error: `${prod.join(
+          ", ",
+        )} can't be a direct-write environment. Writes to production always require the two-person rule — a second person must approve every change.`,
       });
       return;
     }

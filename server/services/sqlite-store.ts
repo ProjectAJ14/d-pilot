@@ -3,7 +3,7 @@ import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
 import { DEFAULT_PHI_RULES } from "../config/phi-defaults.js";
-import { getProductionEnvs } from "../config/connections.js";
+import { getProductionEnvs, isProductionEnv } from "../config/connections.js";
 import type {
   SavedQuery,
   PhiFieldRule,
@@ -524,9 +524,10 @@ export function getWriteDirectEnvs(): Environment[] {
       envs = ["DEV"];
     }
   }
-  // Production is never a direct-write environment — it always requires the
-  // two-person rule. Strip it defensively, regardless of what's stored.
-  return envs.filter((e) => e !== "PROD");
+  // No production-like environment (PROD, SUPER_PROD, …) is ever direct-write —
+  // they always require the two-person rule. Strip them defensively, regardless
+  // of what's stored, so this can't be turned off through the settings table.
+  return envs.filter((e) => !isProductionEnv(e));
 }
 
 // --- Audit Log ---
