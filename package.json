@@ -21,6 +21,7 @@
     "lint": "eslint . --ext .ts,.tsx",
     "test": "vitest run",
     "format": "prettier --write .",
+    "icons:pwa": "node scripts/generate-pwa-icons.mjs",
     "prepare": "husky"
   },
   "dependencies": {
