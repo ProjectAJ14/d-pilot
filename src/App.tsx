@@ -6,6 +6,7 @@ import { LoginScreen } from "./components/auth/login-screen";
 import { TopBar } from "./components/layout/top-bar";
 import { Sidebar } from "./components/layout/sidebar";
 import { Footer } from "./components/layout/footer";
+import { PwaUpdatePrompt } from "./components/layout/pwa-prompts";
 import { QueryWorkspace } from "./components/query/query-workspace";
 import { PhiConfigPanel } from "./components/phi/phi-config-panel";
 import { PhiUnmaskModal } from "./components/phi/phi-unmask-modal";
@@ -135,17 +136,31 @@ export default function App() {
           }
           link.href = cfg.faviconUrl;
         }
+        // iOS takes the home-screen name from this tag rather than the
+        // manifest, so branding has to be applied to it at runtime too.
+        if (cfg.appName) {
+          document
+            .querySelector<HTMLMetaElement>(
+              'meta[name="apple-mobile-web-app-title"]',
+            )
+            ?.setAttribute("content", cfg.appName);
+        }
       })
       .catch(() => {});
   }, []);
 
-  if (!isAuthenticated) {
-    return <LoginScreen />;
-  }
-
   return (
-    <BrowserRouter>
-      <AuthenticatedApp />
-    </BrowserRouter>
+    <>
+      {/* Outside the auth branch so a pending update is offered on the login
+          screen too, not just once someone is signed in. */}
+      <PwaUpdatePrompt />
+      {isAuthenticated ? (
+        <BrowserRouter>
+          <AuthenticatedApp />
+        </BrowserRouter>
+      ) : (
+        <LoginScreen />
+      )}
+    </>
   );
 }
