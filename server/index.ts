@@ -49,6 +49,42 @@ app.get("/api/config", (_req, res) => {
   });
 });
 
+// PWA web manifest. Rendered per request rather than baked into the build so an
+// installed app carries the deployment's own APP_NAME instead of the neutral
+// fallback. The icons stay as the bundled PNGs on purpose: LOGO_URL/FAVICON_URL
+// are arbitrary URLs (frequently SVG, often cross-origin) while installers
+// require raster icons at the declared sizes. Regenerate them with
+// `npm run icons:pwa`.
+app.get("/manifest.webmanifest", (_req, res) => {
+  const appName = process.env.APP_NAME || "D-Pilot";
+  res.type("application/manifest+json");
+  // Branding comes from env, so never let a proxy pin an old name.
+  res.setHeader("Cache-Control", "no-cache");
+  res.json({
+    id: "/",
+    name: appName,
+    short_name: appName,
+    description: `${appName} — internal SQL explorer`,
+    start_url: "/",
+    scope: "/",
+    // The installed window is the web app, unchanged — same layout, same routes.
+    display: "standalone",
+    // Mirrors --bg and --accent4 in src/styles/global.css.
+    background_color: "#f3f6f7",
+    theme_color: "#0c2340",
+    icons: [
+      { src: "/pwa-192.png", sizes: "192x192", type: "image/png" },
+      { src: "/pwa-512.png", sizes: "512x512", type: "image/png" },
+      {
+        src: "/pwa-maskable-512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
+      },
+    ],
+  });
+});
+
 // Auth routes (no auth required)
 app.post("/api/auth/login", handleLogin);
 
@@ -83,7 +119,19 @@ app.use("/api/write-requests", writeRequestRoutes);
 // Serve static frontend in production
 if (process.env.NODE_ENV === "production") {
   const clientDir = path.join(__dirname, "../client");
-  app.use(express.static(clientDir));
+  app.use(
+    express.static(clientDir, {
+      setHeaders(res, filePath) {
+        // The service worker and its runtime must never be served from a stale
+        // cache: a proxy holding on to the previous sw.js pins clients to the
+        // old build indefinitely. Hashed assets under /assets stay cacheable.
+        const name = path.basename(filePath);
+        if (name === "sw.js" || name.startsWith("workbox-")) {
+          res.setHeader("Cache-Control", "no-cache");
+        }
+      },
+    }),
+  );
   app.get("*", (_req, res) => {
     res.sendFile(path.join(clientDir, "index.html"));
   });
