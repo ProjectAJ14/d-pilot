@@ -15,6 +15,7 @@ import {
 } from "@mantine/core";
 import {
   IconChevronDown,
+  IconArchive,
   IconBookmark,
   IconFileText,
   IconSearch,
@@ -74,6 +75,7 @@ export function Sidebar() {
   const activeConnectionId = useStore((s) => s.activeConnectionId);
   const setActiveConnection = useStore((s) => s.setActiveConnection);
   const savedQueries = useStore((s) => s.savedQueries);
+  const user = useStore((s) => s.user);
   const artifacts = useStore((s) => s.artifacts);
   const removeArtifact = useStore((s) => s.removeArtifact);
   const openArtifactTab = useStore((s) => s.openArtifactTab);
@@ -312,11 +314,16 @@ export function Sidebar() {
     }, 0);
   };
 
-  const handleDeleteArtifact = async (id: string) => {
+  // Artifacts archive rather than delete — the link keeps working and the author
+  // can restore it, so a stray click here costs nothing.
+  const handleArchiveArtifact = async (id: string) => {
     try {
-      await api.deleteArtifact(id);
+      await api.setArtifactArchived(id, true);
       removeArtifact(id);
-      notifications.show({ message: "Artifact deleted", color: "green" });
+      notifications.show({
+        message: "Artifact archived — it can be restored",
+        color: "green",
+      });
     } catch (err: any) {
       notifications.show({ message: err.message, color: "red" });
     }
@@ -828,17 +835,19 @@ export function Sidebar() {
                         <IconLink size={12} />
                       </ActionIcon>
                     </Tooltip>
-                    <Tooltip label="Delete" position="right">
-                      <ActionIcon
-                        size="xs"
-                        variant="subtle"
-                        color="red"
-                        style={{ opacity: isHovered ? 1 : 0, transition: "opacity 150ms ease" }}
-                        onClick={(e) => { e.stopPropagation(); handleDeleteArtifact(artifact.id); }}
-                      >
-                        <IconTrash size={12} />
-                      </ActionIcon>
-                    </Tooltip>
+                    {artifact.createdByEmail === user?.email && (
+                      <Tooltip label="Archive (reversible)" position="right">
+                        <ActionIcon
+                          size="xs"
+                          variant="subtle"
+                          color="gray"
+                          style={{ opacity: isHovered ? 1 : 0, transition: "opacity 150ms ease" }}
+                          onClick={(e) => { e.stopPropagation(); handleArchiveArtifact(artifact.id); }}
+                        >
+                          <IconArchive size={12} />
+                        </ActionIcon>
+                      </Tooltip>
+                    )}
                   </div>
                 );
               })}

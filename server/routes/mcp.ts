@@ -18,6 +18,7 @@
  * D-Pilot's own SQLite, and an agent may only touch the ones its account owns.
  * The DB boundary is unchanged — nothing an agent writes here can reach a target
  * database without a human opening the artifact and running a block as themselves.
+ * Nor can an agent destroy one: artifacts archive, they never delete.
  */
 import { Router, Request, Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -327,7 +328,7 @@ function createMcpServer(client: DPilotApiClient): McpServer {
   const writes = { readOnlyHint: false, openWorldHint: true };
 
   const blocksInput = blocksSchema.describe(
-    'The document body, in order. `{"type":"text","body":"..."}` for prose (plain text — no markdown or HTML rendering) and `{"type":"sql","sql":"...","label":"short name","connectionId":"..."}` for a query the reader can run from the artifact. Put each query in its own block so it gets its own Run button; omit connectionId to inherit the artifact\'s. Write queries may be stored for discussion but are never runnable from an artifact — the reader is offered the write-approval workflow instead.',
+    'The document body, in order. `{"type":"text","body":"..."}` for prose — GitHub-flavoured **markdown**: use `##` headings to structure a long document, `**bold**`, bullet lists, and `|` tables for anything columnar (never hand-aligned ASCII columns, which reflow into mush). Raw HTML is escaped, not rendered. Use a fenced code block when you need monospace alignment preserved. Then `{"type":"sql","sql":"...","label":"short name","connectionId":"..."}` for a query the reader can run from the artifact. Put each query in its own block so it gets its own Run button; omit connectionId to inherit the artifact\'s. Write queries may be stored for discussion but are never runnable from an artifact — the reader is offered the write-approval workflow instead.',
   );
 
   server.registerTool(
@@ -380,6 +381,12 @@ function createMcpServer(client: DPilotApiClient): McpServer {
           .describe("Replaces the entire document body when given."),
         connectionId: z.string().optional(),
         tags: z.array(z.string()).optional(),
+        archived: z
+          .boolean()
+          .optional()
+          .describe(
+            "Archive (true) or restore (false) — see archive_artifact.",
+          ),
       },
       annotations: writes,
     },
@@ -419,7 +426,7 @@ function createMcpServer(client: DPilotApiClient): McpServer {
     {
       title: "List artifacts",
       description:
-        "Artifacts visible to this account, newest first. Bodies are omitted — call get_artifact for one.",
+        "Artifacts visible to this account, newest first. Archived ones are hidden. Bodies are omitted — call get_artifact for one.",
       inputSchema: {
         search: z
           .string()
@@ -459,18 +466,32 @@ function createMcpServer(client: DPilotApiClient): McpServer {
   );
 
   server.registerTool(
-    "delete_artifact",
+    "archive_artifact",
     {
-      title: "Delete an artifact",
+      title: "Archive or restore an artifact",
       description:
-        "Permanently deletes an artifact this account created. The link stops working for everyone — prefer update_artifact when the document is merely out of date.",
-      inputSchema: { id: z.string() },
-      annotations: { ...writes, destructiveHint: true, idempotentHint: true },
+        "Archives an artifact this account created: it disappears from listings, but its link keeps working and shows it as archived. There is no delete — pass `archived: false` to restore it. Prefer update_artifact when the document is merely out of date.",
+      inputSchema: {
+        id: z.string(),
+        archived: z
+          .boolean()
+          .optional()
+          .describe(
+            "Defaults to true. Pass false to restore an archived artifact.",
+          ),
+      },
+      annotations: { ...writes, idempotentHint: true },
     },
-    ({ id }) =>
+    ({ id, archived }) =>
       guard(async () => {
-        await client.delete<unknown>(`/artifacts/${encodeURIComponent(id)}`);
-        return text(`Deleted artifact ${id}.`);
+        const next = archived ?? true;
+        const artifact = await client.put<any>(
+          `/artifacts/${encodeURIComponent(id)}`,
+          { archived: next },
+        );
+        return text(
+          `${next ? "Archived" : "Restored"} "${artifact.title}" — ${artifactUrl(artifact.id)}`,
+        );
       }),
   );
 

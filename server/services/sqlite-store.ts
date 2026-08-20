@@ -56,6 +56,7 @@ export function initDatabase(): void {
       created_by_email TEXT NOT NULL,
       is_shared INTEGER NOT NULL DEFAULT 1,
       tags TEXT NOT NULL DEFAULT '[]',
+      archived_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -170,6 +171,13 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_saved_queries_shared ON saved_queries(is_shared);
     CREATE INDEX IF NOT EXISTS idx_artifacts_shared ON artifacts(is_shared);
   `);
+
+  // Migrate artifacts: add archived_at if missing (artifacts are never deleted,
+  // only archived, so an accidental click is always recoverable).
+  const artifactCols = db.pragma("table_info(artifacts)") as { name: string }[];
+  if (!artifactCols.some((c) => c.name === "archived_at")) {
+    db.exec("ALTER TABLE artifacts ADD COLUMN archived_at TEXT");
+  }
 
   // Migrate audit_log: add reason/notes columns if missing
   const auditCols = db.pragma("table_info(audit_log)") as { name: string }[];
@@ -398,12 +406,20 @@ function mapSavedQuery(row: any): SavedQuery {
 export function getArtifacts(userId: string): Artifact[] {
   const rows = db
     .prepare(
-      "SELECT * FROM artifacts WHERE is_shared = 1 OR created_by = ? ORDER BY updated_at DESC",
+      `SELECT * FROM artifacts
+        WHERE (is_shared = 1 OR created_by = ?)
+          AND archived_at IS NULL
+        ORDER BY updated_at DESC`,
     )
     .all(userId) as any[];
   return rows.map(mapArtifact);
 }
 
+/**
+ * Archived artifacts are still returned here on purpose: a link that was shared
+ * months ago should open and say "archived", not 404 as though it never existed.
+ * Only the *listings* hide them.
+ */
 export function getArtifactById(id: string, userId: string): Artifact | null {
   const row = db
     .prepare(
@@ -479,11 +495,30 @@ export function updateArtifact(
   );
 }
 
-export function deleteArtifact(id: string, userId: string): boolean {
-  const result = db
-    .prepare("DELETE FROM artifacts WHERE id = ? AND created_by = ?")
-    .run(id, userId);
-  return result.changes > 0;
+/**
+ * Archiving is the only removal an artifact has — there is deliberately no
+ * delete. A shared link is other people's bookmark, so one stray click must
+ * never destroy the document; `archived: false` puts it straight back.
+ */
+export function setArtifactArchived(
+  id: string,
+  userId: string,
+  archived: boolean,
+): Artifact | null {
+  const existing = db
+    .prepare("SELECT id FROM artifacts WHERE id = ? AND created_by = ?")
+    .get(id, userId);
+  if (!existing) return null;
+
+  // updated_at is deliberately untouched: archiving changes no content, and
+  // bumping it would make the document claim an edit that never happened.
+  db.prepare("UPDATE artifacts SET archived_at = ? WHERE id = ?").run(
+    archived ? new Date().toISOString() : null,
+    id,
+  );
+  return mapArtifact(
+    db.prepare("SELECT * FROM artifacts WHERE id = ?").get(id) as any,
+  );
 }
 
 function mapArtifact(row: any): Artifact {
@@ -497,6 +532,7 @@ function mapArtifact(row: any): Artifact {
     createdByEmail: row.created_by_email,
     isShared: row.is_shared === 1,
     tags: JSON.parse(row.tags || "[]"),
+    archivedAt: row.archived_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

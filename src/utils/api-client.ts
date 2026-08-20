@@ -300,8 +300,12 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
-  deleteArtifact: (id: string) =>
-    request<{ deleted: boolean }>(`/artifacts/${id}`, { method: "DELETE" }),
+  /** Artifacts are never deleted — `archived: false` restores one. */
+  setArtifactArchived: (id: string, archived: boolean) =>
+    request<Artifact>(`/artifacts/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ archived }),
+    }),
 
   // Schema
   getSchemas: (connectionId: string) =>

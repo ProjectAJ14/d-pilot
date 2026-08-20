@@ -47,7 +47,8 @@ ever leaving the building in the clear.
 ### Artifacts
 - **Shareable documents that live next to the data** — prose plus runnable read queries, opened as a tab from `/artifacts/:id` by anyone who can log in. Each query block has its own Run button and its own results.
 - **Stores queries, never rows** — running a block goes through the normal read path, so every reader gets their own capability checks, their own PHI tokenization and their own audit entry. An artifact cannot carry a snapshot past masking policy.
-- **Structured blocks, not HTML** — text blocks are plain text end to end and there is no markup renderer, so a document cannot script the app.
+- **Markdown prose, safely rendered** — text blocks are GitHub-flavoured markdown (headings, bold, lists, tables). The renderer never emits raw HTML, so a document written by one colleague cannot script the app for everyone who opens the link.
+- **Archive, never delete** — a shared link is somebody else's bookmark, so artifacts can only be archived, and archiving is reversible. Archived artifacts drop out of listings but their links still open.
 - **Agent-authored** — the MCP endpoint can create, update and delete them, so an AI agent's analysis lands somewhere the whole organization can open instead of in one person's chat window.
 
 ### Access control & governance
@@ -235,7 +236,7 @@ cannot be bypassed. Every agent query lands in the audit log under its service a
 | `update_artifact` | Edits an artifact the service account created |
 | `get_artifact` | Reads one artifact's full body |
 | `list_artifacts` | Artifacts visible to the account (optional `search`) |
-| `delete_artifact` | Deletes an artifact the service account created |
+| `archive_artifact` | Archives (or restores) an artifact the service account created |
 
 Database writes are deliberately **not** exposed — those stay in the write-approval workflow,
 where a human authors the paired verify SELECT and a second person approves.

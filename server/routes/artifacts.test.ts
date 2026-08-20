@@ -40,10 +40,27 @@ describe("parseBlocks", () => {
       expect(result.blocks[0]).toEqual({ type: "text", body: "hi" });
   });
 
+  it("stores markdown verbatim — rendering is the client's job", () => {
+    const body = "## Heading\n\n**bold** and a | table | row |";
+    const result = parseBlocks([{ type: "text", body }]);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.blocks[0]).toEqual({ type: "text", body });
+  });
+
+  it("keeps raw HTML as text rather than rejecting it", () => {
+    // The renderer escapes it, so storing it is harmless — and rejecting it
+    // would break anyone writing about HTML.
+    const result = parseBlocks([
+      { type: "text", body: "<script>alert(1)</script>" },
+    ]);
+    expect(result.ok).toBe(true);
+  });
+
   it("names the offending block in the error", () => {
     const result = parseBlocks([{ type: "text", body: "ok" }, { type: "sql" }]);
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toBe(
+    if (!result.ok)
+      expect(result.error).toBe(
         "blocks[1].sql: Invalid input: expected string, received undefined",
       );
   });

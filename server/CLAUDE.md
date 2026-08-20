@@ -117,14 +117,20 @@ masking and their own audit entry apply. Embedding rows would freeze one author'
 privileges into a document everyone can open — do not add a "snapshot the results" feature
 without solving that first.
 
-Blocks are a structured discriminated union (`text` | `sql`), **not** markdown or HTML. There
-is no renderer to exploit and a `text` block is plain text all the way to the DOM. `parseBlocks`
+Blocks are a structured discriminated union (`text` | `sql`). Text blocks hold markdown, which
+the client renders without ever emitting raw HTML, so the server stores them verbatim and does
+no escaping of its own. `parseBlocks`
 in `routes/artifacts.ts` rejects unknown block types rather than storing them (a block nothing
 can render reads as data loss later) and strips unknown keys.
 
-The MCP endpoint may create/update/delete artifacts — the single exception to its read-only
+There is **no delete** — `setArtifactArchived` is the only removal, exposed as
+`PUT /:id { "archived": true|false }`; `DELETE` answers 405 with that instruction. Listings hide
+archived artifacts, `getArtifactById` still returns them so an old share link opens and says
+"archived" rather than 404ing.
+
+The MCP endpoint may create/update/archive artifacts — the single exception to its read-only
 posture, and only because artifacts are not database state. Keep that boundary: an agent must
-never gain a path that mutates a *target* database.
+never gain a path that mutates a *target* database, and cannot destroy an artifact either.
 
 ## Types
 

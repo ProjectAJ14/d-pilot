@@ -126,8 +126,4 @@ export class DPilotApiClient {
       body: JSON.stringify(body),
     });
   }
-
-  delete<T>(path: string): Promise<T> {
-    return this.request<T>(path, { method: "DELETE" });
-  }
 }

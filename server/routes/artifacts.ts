@@ -8,8 +8,13 @@
  * checks, PHI masking and audit entries via `/api/query/execute`. That is the
  * whole reason blocks store SQL instead of a rendered snapshot.
  *
- * Blocks are structured, not HTML or markdown: there is no renderer here to
- * exploit, and a `text` block is plain text all the way to the DOM.
+ * Blocks are structured: prose and queries are separate, so a query is always a
+ * query the reader can run rather than a fenced string in a wall of text. Text
+ * blocks are markdown, rendered by a parser that never emits raw HTML (see
+ * `artifact-view.tsx`), so a document still cannot script the app.
+ *
+ * There is no DELETE. An artifact's link is other people's bookmark, so removal
+ * is archiving (`PUT { archived: true }`) and is always reversible.
  */
 import { Router, Request, Response } from "express";
 import { z } from "zod";
@@ -18,7 +23,7 @@ import {
   getArtifactById,
   createArtifact,
   updateArtifact,
-  deleteArtifact,
+  setArtifactArchived,
 } from "../services/sqlite-store.js";
 
 const router = Router();
@@ -105,7 +110,25 @@ router.post("/", (req: Request, res: Response) => {
 });
 
 router.put("/:id", (req: Request, res: Response) => {
-  const { blocks, ...rest } = req.body;
+  const { blocks, archived, ...rest } = req.body;
+
+  // Archiving is a separate column, not a content edit, so it is applied on its
+  // own — and it may be the *only* thing in the body.
+  if (archived !== undefined) {
+    const flipped = setArtifactArchived(
+      req.params.id as string,
+      req.user!.sub,
+      !!archived,
+    );
+    if (!flipped) {
+      res.status(404).json({ error: "Artifact not found or not owned by you" });
+      return;
+    }
+    if (blocks === undefined && Object.keys(rest).length === 0) {
+      res.json(flipped);
+      return;
+    }
+  }
 
   // Only validate when blocks are actually being replaced — a title-only edit
   // must not have to resend the whole document.
@@ -130,13 +153,12 @@ router.put("/:id", (req: Request, res: Response) => {
   res.json(updated);
 });
 
-router.delete("/:id", (req: Request, res: Response) => {
-  const deleted = deleteArtifact(req.params.id as string, req.user!.sub);
-  if (!deleted) {
-    res.status(404).json({ error: "Artifact not found or not owned by you" });
-    return;
-  }
-  res.json({ deleted: true });
+// No DELETE by design. Archive instead: PUT /:id { "archived": true }.
+router.delete("/:id", (_req: Request, res: Response) => {
+  res.status(405).json({
+    error:
+      'Artifacts cannot be deleted. Archive it instead: PUT /api/artifacts/:id with {"archived": true}.',
+  });
 });
 
 export default router;

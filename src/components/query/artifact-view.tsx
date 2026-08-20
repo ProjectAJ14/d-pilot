@@ -1,22 +1,26 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Editor from "@monaco-editor/react";
+import { notifications } from "@mantine/notifications";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
 import {
-  ActionIcon,
   Badge,
   Button,
   Group,
   Loader,
   Text,
   Tooltip,
+  TypographyStylesProvider,
 } from "@mantine/core";
-import { notifications } from "@mantine/notifications";
 import {
   IconAlertTriangle,
+  IconArchive,
+  IconArchiveOff,
   IconExternalLink,
-  IconLink,
   IconPlayerPlay,
-  IconTrash,
+  IconShare,
   IconWand,
 } from "@tabler/icons-react";
 import { useStore } from "../../store";
@@ -41,6 +45,39 @@ import { monacoLanguageForDb } from "./query-editor";
  */
 const WRITE_STATEMENT =
   /^\s*(insert|update|delete|drop|alter|create|truncate|merge|grant|revoke)\b/i;
+
+/**
+ * Text blocks are GitHub-flavoured markdown. `react-markdown` never emits raw
+ * HTML unless `rehype-raw` is added — do not add it. Escaping by construction is
+ * what keeps a document written by one colleague from scripting the app for
+ * everyone who opens the link, and it is stronger than sanitising after the fact.
+ *
+ * `remark-breaks` makes a single newline a line break, because people write these
+ * in a plain textarea and expect their line endings to survive.
+ */
+const MARKDOWN_PLUGINS = [remarkGfm, remarkBreaks];
+
+function MarkdownBlock({ body }: { body: string }) {
+  return (
+    <TypographyStylesProvider style={{ fontSize: 14 }}>
+      <ReactMarkdown
+        remarkPlugins={MARKDOWN_PLUGINS}
+        components={{
+          table: (props) => (
+            <div style={{ overflowX: "auto" }}>
+              <table {...props} />
+            </div>
+          ),
+          a: (props) => (
+            <a {...props} target="_blank" rel="noopener noreferrer" />
+          ),
+        }}
+      >
+        {body}
+      </ReactMarkdown>
+    </TypographyStylesProvider>
+  );
+}
 
 const BLOCK_EDITOR_MIN = 60;
 const BLOCK_EDITOR_MAX = 260;
@@ -82,11 +119,11 @@ export function ArtifactView({ tab }: Props) {
   const user = useStore((s) => s.user);
   const addTab = useStore((s) => s.addTab);
   const updateTab = useStore((s) => s.updateTab);
-  const closeTab = useStore((s) => s.closeTab);
-  const removeArtifact = useStore((s) => s.removeArtifact);
   const setWriteHandoff = useStore((s) => s.setWriteHandoff);
+  const setArtifacts = useStore((s) => s.setArtifacts);
 
   const [artifact, setArtifact] = useState<Artifact | null>(null);
+  const [restoring, setRestoring] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [blocks, setBlocks] = useState<Record<number, BlockState>>({});
 
@@ -171,15 +208,19 @@ export function ArtifactView({ tab }: Props) {
     navigate("/write");
   };
 
-  const handleDelete = async () => {
+  const handleRestore = async () => {
     if (!artifact) return;
+    setRestoring(true);
     try {
-      await api.deleteArtifact(artifact.id);
-      removeArtifact(artifact.id);
-      notifications.show({ message: "Artifact deleted", color: "green" });
-      closeTab(tab.id);
+      setArtifact(await api.setArtifactArchived(artifact.id, false));
+      // The sidebar list was filtered server-side; re-fetch so the restored
+      // artifact reappears there instead of only on the next page load.
+      setArtifacts(await api.getArtifacts());
+      notifications.show({ message: "Artifact restored", color: "green" });
     } catch (err: any) {
       notifications.show({ message: err.message, color: "red" });
+    } finally {
+      setRestoring(false);
     }
   };
 
@@ -204,8 +245,6 @@ export function ArtifactView({ tab }: Props) {
       </Centered>
     );
   }
-
-  const isOwner = user?.email === artifact.createdByEmail;
 
   return (
     <div style={{ flex: 1, overflowY: "auto", background: "var(--bg)" }}>
@@ -235,25 +274,44 @@ export function ArtifactView({ tab }: Props) {
               >
                 {artifact.isShared ? "shared" : "private"}
               </Badge>
+              {artifact.archivedAt && (
+                <Badge
+                  size="xs"
+                  variant="light"
+                  color="orange"
+                  leftSection={<IconArchive size={10} />}
+                >
+                  archived
+                </Badge>
+              )}
             </Group>
           </div>
-          <Group gap={4} wrap="nowrap">
-            <Tooltip label="Copy share link">
-              <ActionIcon
-                variant="subtle"
-                color="gray"
-                onClick={() => copyArtifactShareLink(artifact)}
+          {/*
+            Share only. There is deliberately no destructive control here: this
+            page is what a teammate opens from a pasted link, and a delete button
+            one click from the title is how a shared document gets lost. Owners
+            archive from the sidebar instead, and archiving is reversible.
+          */}
+          <Group gap={6} wrap="nowrap" style={{ flexShrink: 0 }}>
+            {artifact.archivedAt && artifact.createdByEmail === user?.email && (
+              <Button
+                size="compact-sm"
+                variant="default"
+                loading={restoring}
+                leftSection={<IconArchiveOff size={14} />}
+                onClick={handleRestore}
               >
-                <IconLink size={16} />
-              </ActionIcon>
-            </Tooltip>
-            {isOwner && (
-              <Tooltip label="Delete artifact">
-                <ActionIcon variant="subtle" color="red" onClick={handleDelete}>
-                  <IconTrash size={16} />
-                </ActionIcon>
-              </Tooltip>
+                Restore
+              </Button>
             )}
+            <Button
+              size="compact-sm"
+              variant="light"
+              leftSection={<IconShare size={14} />}
+              onClick={() => copyArtifactShareLink(artifact)}
+            >
+              Share
+            </Button>
           </Group>
         </Group>
 
@@ -274,14 +332,9 @@ export function ArtifactView({ tab }: Props) {
         {artifact.blocks.map((block, index) => {
           if (block.type === "text") {
             return (
-              <Text
-                key={index}
-                size="sm"
-                mt={18}
-                style={{ whiteSpace: "pre-wrap", lineHeight: 1.65 }}
-              >
-                {block.body}
-              </Text>
+              <div key={index} style={{ marginTop: 18 }}>
+                <MarkdownBlock body={block.body} />
+              </div>
             );
           }
 

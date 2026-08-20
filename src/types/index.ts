@@ -46,9 +46,10 @@ export interface QueryResult {
 }
 
 /**
- * One block of an artifact document. `text` is plain prose (no markdown, no
- * HTML — nothing to render unsafely); `sql` is a read query the viewer can run
- * from the artifact tab, against their own capabilities.
+ * One block of an artifact document. `text` is GitHub-flavoured markdown
+ * (headings, bold, lists, tables); `sql` is a read query the viewer can run from
+ * the artifact tab, against their own capabilities. Raw HTML inside a text block
+ * is escaped, never rendered — see `artifact-view.tsx`.
  */
 export type ArtifactBlock =
   | { type: "text"; body: string }
@@ -70,6 +71,8 @@ export interface Artifact {
   createdByEmail: string;
   isShared: boolean;
   tags: string[];
+  /** Set when archived. Artifacts are never deleted, only archived. */
+  archivedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

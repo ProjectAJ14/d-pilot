@@ -92,9 +92,11 @@ place. See the README's MCP section.
   any logged-in user can open by link. Its blocks are run *by the reader* through
   `/api/query/execute`, so masking, capabilities and audit stay per-viewer. Never store
   result rows in an artifact — that would freeze one author's unmask rights into a document
-  the whole org can read. Blocks are a structured `text`/`sql` union, never HTML or markdown:
-  there is no renderer, so a document cannot script the app or reach the JWT in
-  `localStorage`.
+  the whole org can read. Text blocks are markdown rendered by `react-markdown` with
+  **no `rehype-raw`** — raw HTML is escaped, never injected, which is what keeps a
+  document from scripting the app or reaching the JWT in `localStorage`. Never add
+  `rehype-raw` or `dangerouslySetInnerHTML` here. Artifacts also have **no delete** —
+  only a reversible archive — because a shared link is other people's bookmark.
 - **Types are duplicated** by design: `src/types/index.ts` (frontend) and
   `server/types/index.ts` (backend) — keep shared shapes (`Environment`, `MaskingType`,
   `WriteRequest`, etc.) in sync when you change one.
