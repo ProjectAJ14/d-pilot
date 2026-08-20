@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Group, Text, Tooltip, Avatar } from "@mantine/core";
 import { IconBrandGithub, IconStar, IconHistory } from "@tabler/icons-react";
+import { InstallAppButton } from "./pwa-prompts";
 
 const GITHUB_OWNER = "ProjectAJ14";
 const GITHUB_REPO = "d-pilot";
@@ -101,6 +102,9 @@ export function Footer() {
           <IconHistory size={13} />v{APP_VERSION}
         </a>
       </Tooltip>
+
+      {/* Install as an app — renders only when the browser offers it */}
+      <InstallAppButton />
 
       <div style={{ width: 1, height: 16, background: "var(--border)" }} />
 

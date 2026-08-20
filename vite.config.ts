@@ -3,6 +3,9 @@ import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import tsconfigPaths from "vite-tsconfig-paths";
+import { VitePWA } from "vite-plugin-pwa";
+
+import { pwaOptions } from "./vite.pwa.config";
 
 const pkg = JSON.parse(
   readFileSync(fileURLToPath(new URL("./package.json", import.meta.url)), "utf8"),
@@ -14,7 +17,7 @@ export default defineConfig(({ mode }) => {
   const clientPort = parseInt(env.VITE_PORT || String(serverPort - 1), 10);
 
   return {
-    plugins: [react(), tsconfigPaths()],
+    plugins: [react(), tsconfigPaths(), VitePWA(pwaOptions)],
     define: {
       __APP_VERSION__: JSON.stringify(pkg.version),
     },
@@ -23,6 +26,12 @@ export default defineConfig(({ mode }) => {
       host: true,
       proxy: {
         "/api": {
+          target: `http://localhost:${serverPort}`,
+          changeOrigin: true,
+        },
+        // The web manifest is rendered by Express from APP_NAME, so the dev
+        // server has to proxy it too or the install metadata 404s.
+        "/manifest.webmanifest": {
           target: `http://localhost:${serverPort}`,
           changeOrigin: true,
         },

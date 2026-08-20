@@ -30,6 +30,11 @@ submission/rejection when write mode is off.
 - The middleware keeps backward-compat for pre-capability JWTs (derives from the old
   `role` claim) so live sessions survive a deploy.
 
+`GET /manifest.webmanifest` (in `index.ts`, outside `/api` and unauthenticated) renders the
+PWA manifest per request from `APP_NAME`, so an installed app carries the deployment's own
+name rather than one baked in at build time. In production `express.static` also sends
+`Cache-Control: no-cache` for `sw.js`, so a proxy cannot pin clients to an old build.
+
 ## Routes (`routes/`) — all under `/api`
 
 | Mount | File | Notes |
