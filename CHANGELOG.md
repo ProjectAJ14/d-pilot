@@ -5,6 +5,15 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.14.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.13.0...v1.14.0) (2026-08-20)
+
+
+### Features
+
+* **pwa:** add install and update prompts ([440d338](https://github.com/ProjectAJ14/d-pilot/commit/440d338e7e8be3028ea031e610c39f41561e8910))
+* **pwa:** register a service worker that never caches API responses ([0b88e18](https://github.com/ProjectAJ14/d-pilot/commit/0b88e18c470d1c88df581582b8e5b1d1ca493208))
+* **pwa:** serve the web manifest from APP_NAME ([5d7ff5a](https://github.com/ProjectAJ14/d-pilot/commit/5d7ff5a46e11023921cc6a84bd5f5a1cad471117))
+
 # [1.13.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.12.1...v1.13.0) (2026-08-07)
 
 
