@@ -79,6 +79,35 @@ export interface SavedQuery {
   updatedAt: string;
 }
 
+/**
+ * One block of an artifact document. `text` is plain prose (no markdown, no
+ * HTML — nothing to render unsafely); `sql` is a read query the viewer can run
+ * from the artifact tab, against their own capabilities.
+ */
+export type ArtifactBlock =
+  | { type: "text"; body: string }
+  | { type: "sql"; sql: string; label?: string; connectionId?: string };
+
+/**
+ * A shareable document that lives next to the data it talks about: prose plus
+ * runnable read queries. Stores queries, never rows — so every viewer's results
+ * come back through their own masking and audit trail.
+ */
+export interface Artifact {
+  id: string;
+  title: string;
+  description?: string;
+  blocks: ArtifactBlock[];
+  /** Fallback connection for `sql` blocks that don't name their own. */
+  connectionId?: string;
+  createdBy: string;
+  createdByEmail: string;
+  isShared: boolean;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PhiFieldRule {
   id: string;
   pattern: string; // glob pattern for column names

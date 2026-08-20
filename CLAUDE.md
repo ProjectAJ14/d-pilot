@@ -87,6 +87,14 @@ place. See the README's MCP section.
   do not add Background Sync for writes either, since offline replay would reorder the
   governed write workflow's audit trail. Same principle `utils/tab-persistence.ts` already
   follows: persist the workspace, never the results.
+- **Artifacts hold queries, not rows.** An artifact (`server/routes/artifacts.ts`,
+  `src/components/query/artifact-view.tsx`) is a shared document of prose + SQL blocks that
+  any logged-in user can open by link. Its blocks are run *by the reader* through
+  `/api/query/execute`, so masking, capabilities and audit stay per-viewer. Never store
+  result rows in an artifact — that would freeze one author's unmask rights into a document
+  the whole org can read. Blocks are a structured `text`/`sql` union, never HTML or markdown:
+  there is no renderer, so a document cannot script the app or reach the JWT in
+  `localStorage`.
 - **Types are duplicated** by design: `src/types/index.ts` (frontend) and
   `server/types/index.ts` (backend) — keep shared shapes (`Environment`, `MaskingType`,
   `WriteRequest`, etc.) in sync when you change one.

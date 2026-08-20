@@ -23,6 +23,7 @@ queries**, **UI** (`sidebarOpen`, `phiPanelOpen`, `aiAssistantOpen`), **write ha
 | `/requests` | Write requests list (`write/requests-page.tsx`) |
 | `/write-requests/:id` | Write request detail + timeline (`write/write-request-detail.tsx`) |
 | `/saved-queries/:id` | Saved-query share link — opens the query in a new editor tab (`query/saved-query-link.tsx`) |
+| `/artifacts/:id` | Artifact share link — opens the document as a tab (`query/artifact-link.tsx`) |
 | `/profile` | Profile / password (`pages/profile-page.tsx`) |
 | `/settings` | Admin settings, sidebar-nav (`pages/settings-page.tsx`) |
 
@@ -40,7 +41,15 @@ Unknown paths redirect to `/`.
 - **`query/`** — `query-workspace.tsx` (orchestrator), `query-tabs.tsx`, `query-editor.tsx`
   (Monaco, dialect-aware, schema-aware autocomplete), `results-grid.tsx` (AG Grid),
   `results-json-view.tsx` (table ↔ JSON toggle), `cell-detail-drawer.tsx` (large-value
-  inspector), `grid-cell-tooltip.tsx` (local-time datetime peek), `ai-assistant-panel.tsx`.
+  inspector), `grid-cell-tooltip.tsx` (local-time datetime peek), `ai-assistant-panel.tsx`,
+  `artifact-view.tsx` + `artifact-link.tsx` (artifact documents — see below).
+
+**Tab kinds.** `QueryTab.kind` is `"sql"` (default, undefined included) or `"artifact"`.
+`query-workspace.tsx` branches on it: an artifact tab renders `ArtifactView` instead of the
+editor + results pair. `tab-persistence.ts` stores only `artifactId`, never the document —
+same rule as results. Each SQL block inside an artifact owns its own result state and passes
+`onViewModeChange` to `ResultsGrid` so the table/JSON toggle stays per-block instead of
+writing to the tab in the store.
 - **`write/`** — `write-workspace.tsx`, `write-composer.tsx` (paired SELECT + WRITE, AI
   review), `requests-page.tsx`, `write-request-detail.tsx`, `shared.tsx` (status
   badges/helpers).

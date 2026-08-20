@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { QueryTabs } from "./query-tabs";
 import { QueryEditor } from "./query-editor";
+import { ArtifactView } from "./artifact-view";
 import { ResultsGrid } from "./results-grid";
 import { AiAssistantPanel } from "./ai-assistant-panel";
 import { useStore } from "../../store";
@@ -70,7 +71,8 @@ export function QueryWorkspace() {
       }}
     >
       <QueryTabs />
-      {activeTab && (
+      {activeTab?.kind === "artifact" && <ArtifactView tab={activeTab} />}
+      {activeTab && activeTab.kind !== "artifact" && (
         <>
           <QueryEditor
             tab={activeTab}

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ConnectionInfo, QueryTab, SavedQuery } from "../types";
+import type { Artifact, ConnectionInfo, QueryTab, SavedQuery } from "../types";
 import {
   loadTabs,
   clearPersistedTabs,
@@ -87,6 +87,13 @@ interface AppState {
   updateSavedQuery: (query: SavedQuery) => void;
   removeSavedQuery: (id: string) => void;
 
+  // Artifacts
+  artifacts: Artifact[];
+  setArtifacts: (artifacts: Artifact[]) => void;
+  removeArtifact: (id: string) => void;
+  /** Open an artifact as a tab, focusing it if it is already open. */
+  openArtifactTab: (artifact: Pick<Artifact, "id" | "title">) => void;
+
   // Sidebar
   sidebarOpen: boolean;
   toggleSidebar: () => void;
@@ -168,6 +175,8 @@ const initialTabs: QueryTab[] = persistedTabs
   ? persistedTabs.tabs.map((t) => ({
       id: t.id,
       title: t.title,
+      kind: t.kind,
+      artifactId: t.artifactId,
       sql: t.sql,
       connectionId: t.connectionId,
       schema: t.schema,
@@ -352,6 +361,29 @@ export const useStore = create<AppState>((set, get) => ({
     })),
   removeSavedQuery: (id) =>
     set((s) => ({ savedQueries: s.savedQueries.filter((q) => q.id !== id) })),
+
+  // Artifacts
+  artifacts: [],
+  setArtifacts: (artifacts) => set({ artifacts }),
+  removeArtifact: (id) =>
+    set((s) => ({ artifacts: s.artifacts.filter((a) => a.id !== id) })),
+  openArtifactTab: (artifact) => {
+    const existing = get().tabs.find(
+      (t) => t.kind === "artifact" && t.artifactId === artifact.id,
+    );
+    if (existing) {
+      set({ activeTabId: existing.id });
+    } else {
+      const tab: QueryTab = {
+        ...createTab(null),
+        kind: "artifact",
+        artifactId: artifact.id,
+        title: artifact.title,
+      };
+      set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id }));
+    }
+    persistAfterSet();
+  },
 
   // Sidebar
   sidebarOpen: initialSidebarOpen,

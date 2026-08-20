@@ -76,7 +76,9 @@ const CLIENT_SCHEMA_TTL_MS = 5 * 60_000;
 const TRIGGER_CHARS = " .,(\"'[{/".split("");
 
 /** Monaco grammar: SQL for RDBMS; JavaScript for Mongo shell-style; plaintext for ES (GET + JSON body). */
-function monacoLanguageForDb(dbType: DatabaseType | null | undefined): string {
+export function monacoLanguageForDb(
+  dbType: DatabaseType | null | undefined,
+): string {
   switch (dbType) {
     case "mongodb":
       return "javascript";

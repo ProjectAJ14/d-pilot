@@ -19,10 +19,12 @@ import {
 } from "./components/write/requests-page";
 import { WriteRequestDetail } from "./components/write/write-request-detail";
 import { SavedQueryLink } from "./components/query/saved-query-link";
+import { ArtifactLink } from "./components/query/artifact-link";
 
 function AuthenticatedApp() {
   const setConnections = useStore((s) => s.setConnections);
   const setSavedQueries = useStore((s) => s.setSavedQueries);
+  const setArtifacts = useStore((s) => s.setArtifacts);
   const setActiveConnection = useStore((s) => s.setActiveConnection);
   const login = useStore((s) => s.login);
   const user = useStore((s) => s.user);
@@ -39,6 +41,7 @@ function AuthenticatedApp() {
       .catch(console.error);
 
     api.getSavedQueries().then(setSavedQueries).catch(console.error);
+    api.getArtifacts().then(setArtifacts).catch(console.error);
 
     // Refresh the current user so newly-granted write/approve permissions and
     // roles appear without requiring a re-login.
@@ -102,6 +105,7 @@ function AuthenticatedApp() {
           />
           <Route path="/write-requests/:id" element={<WriteRequestDetail />} />
           <Route path="/saved-queries/:id" element={<SavedQueryLink />} />
+          <Route path="/artifacts/:id" element={<ArtifactLink />} />
           <Route
             path="/settings"
             element={

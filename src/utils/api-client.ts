@@ -1,5 +1,7 @@
 import type {
   AiChatLogEntry,
+  Artifact,
+  ArtifactBlock,
   ApiErrorCode,
   WriteRequest,
   WriteAiReview,
@@ -267,6 +269,39 @@ export const api = {
     }),
   deleteSavedQuery: (id: string) =>
     request<any>(`/saved-queries/${id}`, { method: "DELETE" }),
+
+  // Artifacts
+  getArtifacts: () => request<Artifact[]>("/artifacts"),
+  getArtifact: (id: string) => request<Artifact>(`/artifacts/${id}`),
+  createArtifact: (data: {
+    title: string;
+    blocks: ArtifactBlock[];
+    description?: string;
+    connectionId?: string;
+    isShared?: boolean;
+    tags?: string[];
+  }) =>
+    request<Artifact>("/artifacts", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateArtifact: (
+    id: string,
+    data: Partial<{
+      title: string;
+      description: string;
+      blocks: ArtifactBlock[];
+      connectionId: string;
+      isShared: boolean;
+      tags: string[];
+    }>,
+  ) =>
+    request<Artifact>(`/artifacts/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  deleteArtifact: (id: string) =>
+    request<{ deleted: boolean }>(`/artifacts/${id}`, { method: "DELETE" }),
 
   // Schema
   getSchemas: (connectionId: string) =>

@@ -5,6 +5,8 @@ import { randomUUID } from "crypto";
 import { DEFAULT_PHI_RULES } from "../config/phi-defaults.js";
 import { getProductionEnvs, isProductionEnv } from "../config/connections.js";
 import type {
+  Artifact,
+  ArtifactBlock,
   SavedQuery,
   PhiFieldRule,
   AuditEntry,
@@ -39,6 +41,20 @@ export function initDatabase(): void {
       created_by TEXT NOT NULL,
       created_by_email TEXT NOT NULL,
       is_shared INTEGER NOT NULL DEFAULT 0,
+      tags TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS artifacts (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      blocks TEXT NOT NULL DEFAULT '[]',
+      connection_id TEXT,
+      created_by TEXT NOT NULL,
+      created_by_email TEXT NOT NULL,
+      is_shared INTEGER NOT NULL DEFAULT 1,
       tags TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -152,6 +168,7 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id);
     CREATE INDEX IF NOT EXISTS idx_audit_user_action ON audit_log(user_id, action);
     CREATE INDEX IF NOT EXISTS idx_saved_queries_shared ON saved_queries(is_shared);
+    CREATE INDEX IF NOT EXISTS idx_artifacts_shared ON artifacts(is_shared);
   `);
 
   // Migrate audit_log: add reason/notes columns if missing
@@ -361,6 +378,120 @@ function mapSavedQuery(row: any): SavedQuery {
     name: row.name,
     sql: row.sql,
     description: row.description,
+    connectionId: row.connection_id,
+    createdBy: row.created_by,
+    createdByEmail: row.created_by_email,
+    isShared: row.is_shared === 1,
+    tags: JSON.parse(row.tags || "[]"),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+// --- Artifacts ---
+//
+// Deliberately the same visibility model as saved queries: shared by default,
+// readable by anyone logged in, editable only by the author. An artifact holds
+// queries rather than rows, so it cannot carry a PHI snapshot past masking —
+// the rows a viewer sees come from running the blocks as themselves.
+
+export function getArtifacts(userId: string): Artifact[] {
+  const rows = db
+    .prepare(
+      "SELECT * FROM artifacts WHERE is_shared = 1 OR created_by = ? ORDER BY updated_at DESC",
+    )
+    .all(userId) as any[];
+  return rows.map(mapArtifact);
+}
+
+export function getArtifactById(id: string, userId: string): Artifact | null {
+  const row = db
+    .prepare(
+      "SELECT * FROM artifacts WHERE id = ? AND (is_shared = 1 OR created_by = ?)",
+    )
+    .get(id, userId);
+  return row ? mapArtifact(row as any) : null;
+}
+
+export function createArtifact(
+  artifact: Omit<Artifact, "id" | "createdAt" | "updatedAt">,
+): Artifact {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO artifacts (id, title, description, blocks, connection_id, created_by, created_by_email, is_shared, tags, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    id,
+    artifact.title,
+    artifact.description ?? null,
+    JSON.stringify(artifact.blocks),
+    artifact.connectionId ?? null,
+    artifact.createdBy,
+    artifact.createdByEmail,
+    artifact.isShared ? 1 : 0,
+    JSON.stringify(artifact.tags),
+    now,
+    now,
+  );
+  return { ...artifact, id, createdAt: now, updatedAt: now };
+}
+
+export function updateArtifact(
+  id: string,
+  userId: string,
+  updates: Partial<
+    Pick<
+      Artifact,
+      "title" | "description" | "blocks" | "connectionId" | "isShared" | "tags"
+    >
+  >,
+): Artifact | null {
+  const existing = db
+    .prepare("SELECT id FROM artifacts WHERE id = ? AND created_by = ?")
+    .get(id, userId);
+  if (!existing) return null;
+
+  const now = new Date().toISOString();
+  db.prepare(
+    `UPDATE artifacts SET
+      title = COALESCE(?, title),
+      description = COALESCE(?, description),
+      blocks = COALESCE(?, blocks),
+      connection_id = COALESCE(?, connection_id),
+      is_shared = COALESCE(?, is_shared),
+      tags = COALESCE(?, tags),
+      updated_at = ?
+     WHERE id = ?`,
+  ).run(
+    updates.title ?? null,
+    updates.description ?? null,
+    updates.blocks ? JSON.stringify(updates.blocks) : null,
+    updates.connectionId ?? null,
+    updates.isShared !== undefined ? (updates.isShared ? 1 : 0) : null,
+    updates.tags ? JSON.stringify(updates.tags) : null,
+    now,
+    id,
+  );
+
+  return mapArtifact(
+    db.prepare("SELECT * FROM artifacts WHERE id = ?").get(id) as any,
+  );
+}
+
+export function deleteArtifact(id: string, userId: string): boolean {
+  const result = db
+    .prepare("DELETE FROM artifacts WHERE id = ? AND created_by = ?")
+    .run(id, userId);
+  return result.changes > 0;
+}
+
+function mapArtifact(row: any): Artifact {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    blocks: JSON.parse(row.blocks || "[]") as ArtifactBlock[],
     connectionId: row.connection_id,
     createdBy: row.created_by,
     createdByEmail: row.created_by_email,

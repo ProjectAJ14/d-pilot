@@ -16,6 +16,7 @@ import {
 import {
   IconChevronDown,
   IconBookmark,
+  IconFileText,
   IconSearch,
   IconShieldLock,
   IconTrash,
@@ -37,7 +38,10 @@ import { notifications } from "@mantine/notifications";
 import { useStore } from "../../store";
 import { api, ApiError } from "../../utils/api-client";
 import { copyToClipboard } from "../../utils/clipboard";
-import { copySavedQueryShareLink } from "../../utils/share-links";
+import {
+  copyArtifactShareLink,
+  copySavedQueryShareLink,
+} from "../../utils/share-links";
 import { buildTableMetadata, supportsDdl, type MetadataFormat } from "../../utils/schema-metadata";
 import type { ConnectionInfo, TableInfo, ColumnInfo, DatabaseType } from "../../types";
 import { envColor, envLabel, useEnvironments } from "../../utils/environments";
@@ -70,6 +74,9 @@ export function Sidebar() {
   const activeConnectionId = useStore((s) => s.activeConnectionId);
   const setActiveConnection = useStore((s) => s.setActiveConnection);
   const savedQueries = useStore((s) => s.savedQueries);
+  const artifacts = useStore((s) => s.artifacts);
+  const removeArtifact = useStore((s) => s.removeArtifact);
+  const openArtifactTab = useStore((s) => s.openArtifactTab);
   const removeSavedQuery = useStore((s) => s.removeSavedQuery);
   const updateTab = useStore((s) => s.updateTab);
   const activeTabId = useStore((s) => s.activeTabId);
@@ -305,6 +312,16 @@ export function Sidebar() {
     }, 0);
   };
 
+  const handleDeleteArtifact = async (id: string) => {
+    try {
+      await api.deleteArtifact(id);
+      removeArtifact(id);
+      notifications.show({ message: "Artifact deleted", color: "green" });
+    } catch (err: any) {
+      notifications.show({ message: err.message, color: "red" });
+    }
+  };
+
   const handleDeleteSaved = async (id: string) => {
     try {
       await api.deleteSavedQuery(id);
@@ -368,7 +385,7 @@ export function Sidebar() {
             ) : section === "saved" ? (
               <>
                 <IconBookmark size={13} style={{ verticalAlign: "middle", marginRight: 5, marginTop: -1 }} />
-                Saved ({savedQueries.length})
+                Saved ({savedQueries.length + artifacts.length})
               </>
             ) : (
               <>
@@ -763,6 +780,68 @@ export function Sidebar() {
 
         {activeSection === "saved" && (
           <div style={{ padding: "4px 8px" }}>
+            {artifacts
+              .filter((a) =>
+                `${a.title} ${a.description ?? ""}`
+                  .toLowerCase()
+                  .includes(savedSearch.toLowerCase()),
+              )
+              .map((artifact) => {
+                const isHovered = hovered === `artifact-${artifact.id}`;
+                const blockCount = artifact.blocks.filter((b) => b.type === "sql").length;
+                return (
+                  <div
+                    key={artifact.id}
+                    onClick={() => openArtifactTab(artifact)}
+                    onMouseEnter={() => setHovered(`artifact-${artifact.id}`)}
+                    onMouseLeave={() => setHovered(null)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "10px 12px",
+                      borderRadius: 6,
+                      cursor: "pointer",
+                      marginBottom: 2,
+                      background: isHovered ? "#ffffff" : "transparent",
+                      boxShadow: isHovered
+                        ? "0 1px 2px 0 rgba(0,0,0,0.08), 0 1px 3px 0 rgba(0,0,0,0.04)"
+                        : "none",
+                      transition: "all 150ms ease",
+                    }}
+                  >
+                    <IconFileText size={15} color="var(--accent4)" style={{ flexShrink: 0, alignSelf: "flex-start", marginTop: 2 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <Text size="xs" fw={600} c="secondary.9" style={{ fontSize: 12, lineHeight: 1.4, wordBreak: "break-word" }}>{artifact.title}</Text>
+                      <Text c="dimmed" style={{ marginTop: 3, fontSize: 10, lineHeight: 1.4 }}>
+                        {blockCount} {blockCount === 1 ? "query" : "queries"} · {artifact.createdByEmail}
+                      </Text>
+                    </div>
+                    <Tooltip label="Copy share link" position="right">
+                      <ActionIcon
+                        size="xs"
+                        variant="subtle"
+                        color="gray"
+                        style={{ opacity: isHovered ? 1 : 0, transition: "opacity 150ms ease" }}
+                        onClick={(e) => { e.stopPropagation(); copyArtifactShareLink(artifact); }}
+                      >
+                        <IconLink size={12} />
+                      </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label="Delete" position="right">
+                      <ActionIcon
+                        size="xs"
+                        variant="subtle"
+                        color="red"
+                        style={{ opacity: isHovered ? 1 : 0, transition: "opacity 150ms ease" }}
+                        onClick={(e) => { e.stopPropagation(); handleDeleteArtifact(artifact.id); }}
+                      >
+                        <IconTrash size={12} />
+                      </ActionIcon>
+                    </Tooltip>
+                  </div>
+                );
+              })}
             {savedQueries
               .filter((q) =>
                 q.name.toLowerCase().includes(savedSearch.toLowerCase()) ||
@@ -829,7 +908,7 @@ export function Sidebar() {
                   </div>
                 );
               })}
-            {savedQueries.length === 0 && (
+            {savedQueries.length === 0 && artifacts.length === 0 && (
               <div style={{ padding: "24px 16px", textAlign: "center" }}>
                 <IconBookmark size={28} color="var(--muted)" style={{ opacity: 0.4, marginBottom: 8 }} />
                 <Text size="xs" c="dimmed">No saved queries yet</Text>

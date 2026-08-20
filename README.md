@@ -44,6 +44,12 @@ ever leaving the building in the clear.
 ### AI agents (MCP)
 - **Hosted MCP endpoint** at `/api/mcp` — agents discover connections, browse schema, and run read-only queries through the same API the UI uses, so capabilities, PHI tokenization, row caps and audit logging all apply unchanged. Configure with just a URL, username, and password; nothing to install.
 
+### Artifacts
+- **Shareable documents that live next to the data** — prose plus runnable read queries, opened as a tab from `/artifacts/:id` by anyone who can log in. Each query block has its own Run button and its own results.
+- **Stores queries, never rows** — running a block goes through the normal read path, so every reader gets their own capability checks, their own PHI tokenization and their own audit entry. An artifact cannot carry a snapshot past masking policy.
+- **Structured blocks, not HTML** — text blocks are plain text end to end and there is no markup renderer, so a document cannot script the app.
+- **Agent-authored** — the MCP endpoint can create, update and delete them, so an AI agent's analysis lands somewhere the whole organization can open instead of in one person's chat window.
+
 ### Access control & governance
 - **Capability-based access control** — each user has an `isAdmin` flag plus four **per-environment** capability lists: **read**, **unmask PHI**, **write**, and **approve**. Admin implies all capabilities on all environments.
 - **Audit log** — every query, error, export, PHI unmask (and denial), and write-lifecycle event is recorded, with date/type filtering and automatic 30-day archival to a separate database.
@@ -225,9 +231,20 @@ cannot be bypassed. Every agent query lands in the audit log under its service a
 | `list_tables` | Tables, collections or indices |
 | `describe_table` | Columns, types, nullability |
 | `run_query` | Runs a read-only query, returns rows |
+| `create_artifact` | Publishes a shareable document (prose + runnable read queries), returns its link |
+| `update_artifact` | Edits an artifact the service account created |
+| `get_artifact` | Reads one artifact's full body |
+| `list_artifacts` | Artifacts visible to the account (optional `search`) |
+| `delete_artifact` | Deletes an artifact the service account created |
 
-Writes are deliberately **not** exposed — those stay in the write-approval workflow, where a
-human authors the paired verify SELECT and a second person approves.
+Database writes are deliberately **not** exposed — those stay in the write-approval workflow,
+where a human authors the paired verify SELECT and a second person approves.
+
+The artifact tools are the one exception to read-only, and only because they touch no target
+database: an artifact holds prose and *unexecuted* read queries in D-Pilot's own SQLite, an
+agent may only edit the ones its own account created, and nothing it writes reaches a database
+until a human opens the artifact and runs a block as themselves. Set `APP_BASE_URL` so the
+tools hand back a clickable link instead of a bare `/artifacts/<id>` path.
 
 ### Setup
 
@@ -269,6 +286,7 @@ Optional server-side setting:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `MCP_MAX_ROWS` | `1000` | Rows returned per query. Agents are told this default (via `whoami` and the `run_query` schema) and can raise it per call with `limit`; `MAX_ROWS` remains the hard ceiling. |
+| `APP_BASE_URL` | *(unset)* | The origin users browse D-Pilot on, used to build clickable artifact links in tool output. Unset means agents return a bare `/artifacts/<id>` path. |
 
 **PHI:** the endpoint never sends the unmask headers, so tokenized columns stay tokenized for
 agents regardless of the account's capabilities. `run_query` names the tokenized columns so an

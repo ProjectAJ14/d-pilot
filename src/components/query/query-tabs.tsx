@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Text, ActionIcon, Tooltip } from "@mantine/core";
-import { IconPlus, IconX } from "@tabler/icons-react";
+import { IconFileText, IconPlus, IconX } from "@tabler/icons-react";
 import { useStore } from "../../store";
 
 export function QueryTabs() {
@@ -58,6 +58,9 @@ export function QueryTabs() {
             transition: "all 0.15s",
           }}
         >
+          {tab.kind === "artifact" && (
+            <IconFileText size={12} style={{ flexShrink: 0 }} />
+          )}
           {editingTabId === tab.id ? (
             <input
               ref={inputRef}

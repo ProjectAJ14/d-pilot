@@ -1,11 +1,16 @@
 import type { QueryTab, ResultViewMode } from "../types";
 
 const STORAGE_KEY = "dbpilot_tabs";
-const CURRENT_VERSION = 1;
+// 2: artifact tabs (kind/artifactId). A version bump discards older payloads,
+// which is correct here — a restored artifact tab needs its id to reload.
+const CURRENT_VERSION = 2;
 
 interface PersistedTab {
   id: string;
   title: string;
+  kind?: "sql" | "artifact";
+  /** Pointer only — the document itself is re-fetched, like results are. */
+  artifactId?: string;
   sql: string;
   connectionId: string | null;
   schema?: string;
@@ -31,6 +36,8 @@ function sanitizeTab(tab: QueryTab): PersistedTab {
   return {
     id: tab.id,
     title: tab.title,
+    kind: tab.kind,
+    artifactId: tab.artifactId,
     sql: tab.sql,
     connectionId: tab.connectionId,
     schema: tab.schema,
@@ -60,7 +67,11 @@ export function loadTabs(): PersistedTabData | null {
 
     const data = JSON.parse(raw) as PersistedTabData;
 
-    if (data.version !== CURRENT_VERSION || !Array.isArray(data.tabs) || data.tabs.length === 0) {
+    if (
+      data.version !== CURRENT_VERSION ||
+      !Array.isArray(data.tabs) ||
+      data.tabs.length === 0
+    ) {
       localStorage.removeItem(STORAGE_KEY);
       return null;
     }

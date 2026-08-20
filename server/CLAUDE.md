@@ -43,6 +43,7 @@ name rather than one baked in at build time. In production `express.static` also
 | `/connections` | `connections.ts` | list / `writable` / `grouped` / `:id/test` |
 | `/schema` | `schema.ts` | `:connectionId` full / schemas / tables / columns |
 | `/saved-queries` | `saved-queries.ts` | CRUD; shared-by-default; `GET /:id` backs share links |
+| `/artifacts` | `artifacts.ts` | CRUD; shared-by-default; `GET /:id` backs share links. `parseBlocks` is the only gate on document shape |
 | `/phi-config` | `phi-config.ts` | masked-envs, `POST /unmask` (audited), rule CRUD (admin), CSV `GET /export` / `POST /import` + `DELETE /` bulk delete (admin, audited) |
 | `/audit` | `audit.ts` | log + archive read, manual archive (admin) |
 | `/export` | `export.ts` | `POST /csv`, `POST /json` (masking enforced + audited) |
@@ -83,7 +84,7 @@ name rather than one baked in at build time. In production `express.static` also
 ## App database — SQLite (`services/sqlite-store.ts`)
 
 `data/dbpilot.sqlite` (WAL). `initDatabase()` creates tables idempotently. Tables:
-`saved_queries`, `phi_field_rules`, `audit_log`, `app_settings`, `ai_chat_log`,
+`saved_queries`, `artifacts`, `phi_field_rules`, `audit_log`, `app_settings`, `ai_chat_log`,
 `write_requests`, `write_request_events` (the `users` table is created by
 `initAuthTables`). Audit entries older than 30 days are moved to a separate
 `data/audit_archive.sqlite` by `archiveOldAuditEntries`; `archiveIfDue` runs on login.
@@ -104,6 +105,26 @@ for the timeline. Every request carries a paired verify **SELECT** and the **WRI
 `WriteAiReview` holds the structured safety verdict (SAFE/CAUTION/DANGEROUS, blast
 radius, select-matches-write, suggested corrections). **PROD always needs a second
 approver** — never auto-approve/direct-execute on PROD.
+
+## Artifacts
+
+A shareable document: prose blocks plus SQL blocks the reader can run. Same visibility model
+as saved queries (shared by default, author-only edits) and the same deep-link shape.
+
+**An artifact stores queries, never result rows.** That is the whole design: a reader runs a
+block through `/api/query/execute` *as themselves*, so their own capabilities, their own PHI
+masking and their own audit entry apply. Embedding rows would freeze one author's unmask
+privileges into a document everyone can open — do not add a "snapshot the results" feature
+without solving that first.
+
+Blocks are a structured discriminated union (`text` | `sql`), **not** markdown or HTML. There
+is no renderer to exploit and a `text` block is plain text all the way to the DOM. `parseBlocks`
+in `routes/artifacts.ts` rejects unknown block types rather than storing them (a block nothing
+can render reads as data loss later) and strips unknown keys.
+
+The MCP endpoint may create/update/delete artifacts — the single exception to its read-only
+posture, and only because artifacts are not database state. Keep that boundary: an agent must
+never gain a path that mutates a *target* database.
 
 ## Types
 

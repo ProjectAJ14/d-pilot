@@ -9,15 +9,22 @@
  * environment capabilities, PHI masking, row caps and audit logging all apply
  * unchanged.
  *
- * Writes are deliberately not exposed. They belong to the write-approval
+ * Database writes are deliberately not exposed. They belong to the write-approval
  * workflow, where a human authors the paired verify SELECT and an approver signs
  * off; an agent holding one credential must not be able to do both.
+ *
+ * Artifacts are the one exception to "read-only", and only because they are not
+ * database state: an artifact stores prose and *unexecuted* read queries in
+ * D-Pilot's own SQLite, and an agent may only touch the ones its account owns.
+ * The DB boundary is unchanged — nothing an agent writes here can reach a target
+ * database without a human opening the artifact and running a block as themselves.
  */
 import { Router, Request, Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import { DPilotApiClient } from "../services/mcp-client.js";
+import { blocksSchema } from "./artifacts.js";
 
 const router = Router();
 
@@ -30,6 +37,16 @@ const MCP_MAX_ROWS = parseInt(process.env.MCP_MAX_ROWS || "", 10) || 1000;
 
 /** Tools call this same process back over loopback — nothing to configure. */
 const loopbackUrl = () => `http://127.0.0.1:${process.env.PORT || "3101"}`;
+
+/**
+ * The origin humans browse D-Pilot on, used to hand back a clickable artifact
+ * link. Falls back to a bare path: an agent pasting `/artifacts/<id>` is mildly
+ * annoying, inventing `localhost:3101` for a teammate on the VPN is worse.
+ */
+const artifactUrl = (id: string): string => {
+  const base = process.env.APP_BASE_URL?.replace(/\/+$/, "");
+  return `${base ?? ""}/artifacts/${id}`;
+};
 
 // --- Credentials ---
 
@@ -298,6 +315,162 @@ function createMcpServer(client: DPilotApiClient): McpServer {
         ].filter(Boolean);
 
         return text(`${notes.join(" · ")}\n\n${JSON.stringify(rows, null, 2)}`);
+      }),
+  );
+
+  // --- Artifacts ---
+  //
+  // Not database access — these read and write D-Pilot's own document store, so
+  // an agent can leave findings somewhere the whole org can open, instead of in
+  // a chat only its author can see. `blocks` carry queries, never result rows.
+
+  const writes = { readOnlyHint: false, openWorldHint: true };
+
+  const blocksInput = blocksSchema.describe(
+    'The document body, in order. `{"type":"text","body":"..."}` for prose (plain text — no markdown or HTML rendering) and `{"type":"sql","sql":"...","label":"short name","connectionId":"..."}` for a query the reader can run from the artifact. Put each query in its own block so it gets its own Run button; omit connectionId to inherit the artifact\'s. Write queries may be stored for discussion but are never runnable from an artifact — the reader is offered the write-approval workflow instead.',
+  );
+
+  server.registerTool(
+    "create_artifact",
+    {
+      title: "Create an artifact",
+      description:
+        "Publishes a shareable D-Pilot document — prose plus runnable read queries — and returns its link. Use this instead of pasting a long analysis into chat: anyone who can log in to D-Pilot can open the link, re-run the queries under their own permissions, and see their own PHI masking. Store the queries, not the rows you read.",
+      inputSchema: {
+        title: z.string().describe("Short document title, shown on the tab."),
+        blocks: blocksInput,
+        description: z
+          .string()
+          .optional()
+          .describe("One-line summary shown under the title."),
+        connectionId: z
+          .string()
+          .optional()
+          .describe(
+            "Default connection for sql blocks that don't name one (see list_connections).",
+          ),
+        tags: z.array(z.string()).optional(),
+      },
+      annotations: writes,
+    },
+    (input) =>
+      guard(async () => {
+        const artifact = await client.post<any>("/artifacts", input);
+        return json({
+          id: artifact.id,
+          url: artifactUrl(artifact.id),
+          title: artifact.title,
+          blocks: artifact.blocks.length,
+        });
+      }),
+  );
+
+  server.registerTool(
+    "update_artifact",
+    {
+      title: "Update an artifact",
+      description:
+        "Edits an artifact this account created. Only the fields you pass change; `blocks` replaces the whole body, so call get_artifact first and send the full list back rather than just the part you changed.",
+      inputSchema: {
+        id: z.string(),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        blocks: blocksSchema
+          .optional()
+          .describe("Replaces the entire document body when given."),
+        connectionId: z.string().optional(),
+        tags: z.array(z.string()).optional(),
+      },
+      annotations: writes,
+    },
+    ({ id, ...updates }) =>
+      guard(async () => {
+        const artifact = await client.put<any>(
+          `/artifacts/${encodeURIComponent(id)}`,
+          updates,
+        );
+        return json({
+          id: artifact.id,
+          url: artifactUrl(artifact.id),
+          title: artifact.title,
+          blocks: artifact.blocks.length,
+          updatedAt: artifact.updatedAt,
+        });
+      }),
+  );
+
+  server.registerTool(
+    "get_artifact",
+    {
+      title: "Read an artifact",
+      description:
+        "The full document — every block in order. Read this before update_artifact, which replaces the whole body.",
+      inputSchema: { id: z.string() },
+      annotations: readOnly,
+    },
+    ({ id }) =>
+      guard(async () =>
+        json(await client.get<unknown>(`/artifacts/${encodeURIComponent(id)}`)),
+      ),
+  );
+
+  server.registerTool(
+    "list_artifacts",
+    {
+      title: "List artifacts",
+      description:
+        "Artifacts visible to this account, newest first. Bodies are omitted — call get_artifact for one.",
+      inputSchema: {
+        search: z
+          .string()
+          .optional()
+          .describe("Case-insensitive match on title and description."),
+      },
+      annotations: readOnly,
+    },
+    ({ search }) =>
+      guard(async () => {
+        const all = await client.get<any[]>("/artifacts");
+        const needle = search?.toLowerCase();
+        const matched = needle
+          ? all.filter((a) =>
+              `${a.title} ${a.description ?? ""}`
+                .toLowerCase()
+                .includes(needle),
+            )
+          : all;
+        if (!matched.length) {
+          return text(
+            needle ? `No artifacts match "${search}".` : "No artifacts yet.",
+          );
+        }
+        return json(
+          matched.map((a) => ({
+            id: a.id,
+            url: artifactUrl(a.id),
+            title: a.title,
+            description: a.description,
+            author: a.createdByEmail,
+            blocks: a.blocks.length,
+            updatedAt: a.updatedAt,
+          })),
+        );
+      }),
+  );
+
+  server.registerTool(
+    "delete_artifact",
+    {
+      title: "Delete an artifact",
+      description:
+        "Permanently deletes an artifact this account created. The link stops working for everyone — prefer update_artifact when the document is merely out of date.",
+      inputSchema: { id: z.string() },
+      annotations: { ...writes, destructiveHint: true, idempotentHint: true },
+    },
+    ({ id }) =>
+      guard(async () => {
+        await client.delete<unknown>(`/artifacts/${encodeURIComponent(id)}`);
+        return text(`Deleted artifact ${id}.`);
       }),
   );
 

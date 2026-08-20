@@ -51,6 +51,12 @@ const INSPECT_MIN_CHARS = 24;
 
 interface Props {
   tab: QueryTab;
+  /**
+   * Takes over the table/JSON toggle. Artifact blocks pass this because their
+   * results belong to a block, not to the tab — without it every block on the
+   * tab would switch view together.
+   */
+  onViewModeChange?: (mode: ResultViewMode) => void;
 }
 
 function PhiCellRenderer(props: any) {
@@ -72,7 +78,7 @@ function PhiCellRenderer(props: any) {
   );
 }
 
-export function ResultsGrid({ tab }: Props) {
+export function ResultsGrid({ tab, onViewModeChange }: Props) {
   const phiEnabled = useStore((s) => s.phiEnabled);
   const updateTab = useStore((s) => s.updateTab);
   const viewMode = tab.viewMode ?? "table";
@@ -368,7 +374,11 @@ export function ResultsGrid({ tab }: Props) {
         <SegmentedControl
           size="xs"
           value={viewMode}
-          onChange={(value) => updateTab(tab.id, { viewMode: value as ResultViewMode })}
+          onChange={(value) =>
+            onViewModeChange
+              ? onViewModeChange(value as ResultViewMode)
+              : updateTab(tab.id, { viewMode: value as ResultViewMode })
+          }
           data={[
             { label: <IconTable size={14} />, value: "table" },
             { label: <IconBraces size={14} />, value: "json" },

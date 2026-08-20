@@ -45,6 +45,35 @@ export interface QueryResult {
   truncated: boolean;
 }
 
+/**
+ * One block of an artifact document. `text` is plain prose (no markdown, no
+ * HTML — nothing to render unsafely); `sql` is a read query the viewer can run
+ * from the artifact tab, against their own capabilities.
+ */
+export type ArtifactBlock =
+  | { type: "text"; body: string }
+  | { type: "sql"; sql: string; label?: string; connectionId?: string };
+
+/**
+ * A shareable document that lives next to the data it talks about: prose plus
+ * runnable read queries. Stores queries, never rows — so every viewer's results
+ * come back through their own masking and audit trail.
+ */
+export interface Artifact {
+  id: string;
+  title: string;
+  description?: string;
+  blocks: ArtifactBlock[];
+  /** Fallback connection for `sql` blocks that don't name their own. */
+  connectionId?: string;
+  createdBy: string;
+  createdByEmail: string;
+  isShared: boolean;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface SavedQuery {
   id: string;
   name: string;
@@ -88,6 +117,10 @@ export interface ColumnInfo {
 export interface QueryTab {
   id: string;
   title: string;
+  /** "artifact" tabs render an Artifact document instead of the SQL editor. */
+  kind?: "sql" | "artifact";
+  /** Set on artifact tabs — the document is fetched fresh, never persisted. */
+  artifactId?: string;
   sql: string;
   connectionId: string | null;
   /** Active schema for this tab (Postgres/MSSQL). Undefined = connection default. */

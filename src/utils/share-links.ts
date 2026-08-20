@@ -1,6 +1,6 @@
 import { notifications } from "@mantine/notifications";
 import { copyToClipboard } from "./clipboard";
-import type { SavedQuery } from "../types";
+import type { Artifact, SavedQuery } from "../types";
 
 /**
  * Copy a saved query's share link (`/saved-queries/:id`) to the clipboard,
@@ -15,6 +15,24 @@ export function copySavedQueryShareLink(query: SavedQuery) {
     notifications.show({
       message:
         "This query is private — only you can open the link. Make it shared for others to open it.",
+      color: "yellow",
+    });
+  }
+}
+
+/**
+ * Copy an artifact's share link (`/artifacts/:id`), the counterpart of the
+ * saved-query one. Same caveat: a private artifact's link opens for nobody else.
+ */
+export function copyArtifactShareLink(artifact: Artifact) {
+  copyToClipboard(
+    `${window.location.origin}/artifacts/${artifact.id}`,
+    "share link",
+  );
+  if (!artifact.isShared) {
+    notifications.show({
+      message:
+        "This artifact is private — only you can open the link. Make it shared for others to open it.",
       color: "yellow",
     });
   }
