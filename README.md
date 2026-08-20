@@ -50,6 +50,7 @@ ever leaving the building in the clear.
 - **Usage analytics** — admin dashboard: users, DAU/WAU/MAU, query volume/latency, AI usage and success rate, PHI unmasks, top users, per-connection activity.
 - **Read-only enforcement** — the read path blocks all DML/DDL; writes only ever go through the governed write workflow (a separate executor).
 - **White-label branding** — custom app name, logo (light/dark), and favicon via environment variables.
+- **Installable app (PWA)** — install to the desktop or home screen for a standalone window with an identical UI; the manifest picks up `APP_NAME`, and new deploys prompt to reload. No API response is ever cached, so PHI never reaches on-disk storage. See [Install as an App](#install-as-an-app-pwa).
 
 ## Tech Stack
 
@@ -278,6 +279,51 @@ requires a human-supplied reason.
 *new* logins but does not kill a token already issued — as everywhere else in D-Pilot, a JWT
 stays valid until it expires, so revocation takes effect within `JWT_EXPIRES_IN` (24h by
 default). Lower that value if you need a tighter window.
+
+## Install as an App (PWA)
+
+D-Pilot is a Progressive Web App, so it can be installed as a standalone desktop or
+home-screen app. The installed app is **the web app, unchanged** — same layout, same
+routes, same behavior — just in its own window without browser chrome.
+
+**Installing.** In Chrome or Edge, use the install icon in the address bar, or the
+**Install** button in the footer (it appears only while the browser reports the app as
+installable, and disappears once installed). On iOS, use Safari's *Share → Add to Home
+Screen*.
+
+A service worker requires a **secure context**: HTTPS, or `localhost`. Behind the Nginx
+setup below with a certificate, this works out of the box; over plain `http://<lan-ip>` the
+app still runs normally but cannot be installed.
+
+**Branding.** The manifest is rendered by Express at `/manifest.webmanifest` from
+`APP_NAME`, so the installed app carries your deployment's own name. The icons are the
+bundled PNGs in `public/` (`pwa-192.png`, `pwa-512.png`, `pwa-maskable-512.png`,
+`apple-touch-icon.png`) — installers require raster icons at declared sizes, so unlike
+`LOGO_URL` they are not taken from a URL. To use your own mark, either replace those files
+or edit `scripts/generate-pwa-icons.mjs` and run:
+
+```bash
+npm run icons:pwa
+```
+
+**Updates.** After a deploy, open clients show a *New version available* notification with
+a **Reload** button. Nothing reloads on its own — an unattended reload would discard open
+editor tabs and any in-flight query.
+
+**What is cached — and what is deliberately not.** Only the app shell is cached (HTML, JS,
+CSS, icons, fonts; ~2.5 MB), plus the Monaco editor and its language workers fetched on
+first use (~10 MB, kept out of the install so it stays lean).
+
+> **No API response is ever cached.** Query results, schema listings, saved queries,
+> exports and audit records all carry PHI, and Cache Storage is unencrypted on disk and
+> survives a logout. Every `/api` call goes to the network every time, which is enforced by
+> a test (`vite.pwa.config.test.ts`). The practical consequence: the installed app is not
+> usable offline — it will load and show its shell, but running a query needs the server.
+> Offline write queueing is likewise absent by design, since replaying writes later would
+> reorder the write workflow's audit trail.
+
+The service worker is disabled in `npm run dev` (it would serve stale modules and break
+HMR). Verify PWA behavior against a production build — `npm run build && npm start`.
 
 ## First-Run Behavior
 

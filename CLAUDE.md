@@ -78,6 +78,15 @@ place. See the README's MCP section.
   direct-write environments live in the SQLite `app_settings`/`phi_field_rules` tables and
   are edited in Settings — not in `.env`. (Legacy `PHI_ALWAYS_MASKED` / `PHI_ADMIN_CAN_UNMASK`
   env vars are no longer read.)
+- **The service worker must never cache `/api`.** D-Pilot installs as a PWA
+  (`vite.pwa.config.ts`), and Cache Storage is unencrypted on disk and outlives a logout —
+  so a cached query result, schema listing or audit record would leak PHI that masking
+  policy says the user cannot see. Only the app shell is cached; every API response is
+  fetched from the network every time. The rule is enforced by `vite.pwa.config.test.ts`,
+  which fails if any `runtimeCaching` pattern matches an `/api` path — do not add one, and
+  do not add Background Sync for writes either, since offline replay would reorder the
+  governed write workflow's audit trail. Same principle `utils/tab-persistence.ts` already
+  follows: persist the workspace, never the results.
 - **Types are duplicated** by design: `src/types/index.ts` (frontend) and
   `server/types/index.ts` (backend) — keep shared shapes (`Environment`, `MaskingType`,
   `WriteRequest`, etc.) in sync when you change one.

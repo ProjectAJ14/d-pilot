@@ -32,7 +32,11 @@ Unknown paths redirect to `/`.
 
 - **`auth/`** — `login-screen.tsx`.
 - **`layout/`** — `top-bar.tsx`, `sidebar.tsx` (schema browser + nav), `footer.tsx`
-  (version, GitHub link, contributors).
+  (version, GitHub link, contributors, install button), `pwa-prompts.tsx`
+  (`PwaUpdatePrompt` — notifies when a new build is waiting and reloads only on
+  confirmation, since an unattended reload would drop open tabs and running queries;
+  `InstallAppButton` — shown in the footer only while the browser reports the app as
+  installable).
 - **`query/`** — `query-workspace.tsx` (orchestrator), `query-tabs.tsx`, `query-editor.tsx`
   (Monaco, dialect-aware, schema-aware autocomplete), `results-grid.tsx` (AG Grid),
   `results-json-view.tsx` (table ↔ JSON toggle), `cell-detail-drawer.tsx` (large-value
