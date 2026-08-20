@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.16.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.15.0...v1.16.0) (2026-08-20)
+
+
+### Features
+
+* **artifacts:** markdown text blocks, and archive instead of delete ([842c1f7](https://github.com/ProjectAJ14/d-pilot/commit/842c1f761e6199fa4280cee787f7abca89be111c))
+
 # [1.15.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.14.0...v1.15.0) (2026-08-20)
 
 
