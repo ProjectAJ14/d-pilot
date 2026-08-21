@@ -238,7 +238,8 @@ function createMcpServer(client: DPilotApiClient): McpServer {
     "describe_table",
     {
       title: "Describe table",
-      description: "Columns, types and nullability for one table.",
+      description:
+        "Columns, types, nullability, primary keys and foreign keys for one table. FK columns carry a `references` field naming the `table.column` they point at — use it to join instead of guessing.",
       inputSchema: {
         connectionId: z.string(),
         table: z.string(),

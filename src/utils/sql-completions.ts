@@ -140,7 +140,8 @@ function findTableColumns(
 }
 
 function columnDetail(owner: string, col: ColumnInfo): string {
-  return `${owner} · ${col.dataType}${col.isPrimaryKey ? " PK" : ""}${
+  const fk = col.references ? ` FK → ${col.references}` : col.isForeignKey ? " FK" : "";
+  return `${owner} · ${col.dataType}${col.isPrimaryKey ? " PK" : ""}${fk}${
     col.isPhiField ? " 🔐 PHI" : ""
   }`;
 }

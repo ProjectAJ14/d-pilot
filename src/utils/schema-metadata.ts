@@ -13,6 +13,21 @@ function quoteIdent(connection: ConnectionInfo, ident: string): string {
   return `"${ident}"`;
 }
 
+/**
+ * Render an FK target (`[schema.]table.column`) as a quoted `REFERENCES` target,
+ * or null when it has no column part to point at.
+ */
+function refClause(connection: ConnectionInfo, reference: string): string | null {
+  const dot = reference.lastIndexOf(".");
+  if (dot <= 0) return null;
+  const table = reference
+    .slice(0, dot)
+    .split(".")
+    .map((part) => quoteIdent(connection, part))
+    .join(".");
+  return `${table}(${quoteIdent(connection, reference.slice(dot + 1))})`;
+}
+
 function qualifiedName(connection: ConnectionInfo, table: TableInfo): string {
   const name = quoteIdent(connection, table.name);
   return table.schema ? `${quoteIdent(connection, table.schema)}.${name}` : name;
@@ -42,6 +57,7 @@ export function buildTableMetadataJson(
       nullable: c.nullable,
       isPrimaryKey: c.isPrimaryKey,
       isForeignKey: c.isForeignKey,
+      references: c.references ?? null,
       defaultValue: c.defaultValue ?? null,
       isPhiField: c.isPhiField,
     })),
@@ -53,10 +69,10 @@ export function buildTableMetadataJson(
 /**
  * Build a best-effort `CREATE TABLE` statement for SQL engines.
  *
- * Introspection gives us name/type/nullable/PK/default but not column
- * length/precision or foreign-key targets, so FK columns are annotated with an
- * inline comment rather than a real REFERENCES clause. Meant as a structure
- * starting point, not a byte-exact schema dump.
+ * Introspection gives us name/type/nullable/PK/default/FK target but not column
+ * length/precision, and an FK whose target is unknown (Mongo/ES, or a
+ * permission-restricted catalogue) falls back to an inline comment. Meant as a
+ * structure starting point, not a byte-exact schema dump.
  */
 export function buildTableDdl(
   connection: ConnectionInfo,
@@ -69,7 +85,9 @@ export function buildTableDdl(
     if (!c.nullable) line += " NOT NULL";
     if (c.defaultValue != null && c.defaultValue !== "") line += ` DEFAULT ${c.defaultValue}`;
     const notes: string[] = [];
-    if (c.isForeignKey) notes.push("FK");
+    const ref = c.references ? refClause(connection, c.references) : null;
+    if (ref) line += ` REFERENCES ${ref}`;
+    else if (c.isForeignKey) notes.push("FK");
     if (c.isPhiField) notes.push("PHI");
     return { line, notes };
   });
@@ -108,7 +126,7 @@ export function buildTableMetadataText(
   const lines = columns.map((c) => {
     const flags: string[] = [];
     if (c.isPrimaryKey) flags.push("PK");
-    if (c.isForeignKey) flags.push("FK");
+    if (c.isForeignKey) flags.push(c.references ? `FK \u2192 ${c.references}` : "FK");
     if (!c.nullable) flags.push("NOT NULL");
     if (c.defaultValue != null && c.defaultValue !== "") flags.push(`DEFAULT ${c.defaultValue}`);
     if (c.isPhiField) flags.push("PHI");

@@ -142,7 +142,10 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
 
     for (const col of result.columns) {
       const def: ColDef = {
-        headerName: col.isMasked ? `${col.name} 🔐` : col.name,
+        // Header glyphs flag PHI masking and foreign keys. The dblclick-to-copy
+        // handler below strips them so the copied name stays usable in SQL.
+        headerName: `${col.name}${col.isMasked ? " 🔐" : ""}${col.references ? " 🔗" : ""}`,
+        headerTooltip: col.references ? `${col.name} → references ${col.references}` : undefined,
         field: col.name,
         sortable: true,
         filter: true,
@@ -272,7 +275,8 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
       const target = (e.target as HTMLElement).closest(".ag-header-cell");
       if (!target) return;
       const textEl = target.querySelector(".ag-header-cell-text");
-      const colName = textEl?.textContent?.trim();
+      // Drop the PHI / FK glyphs — the column name is what belongs on the clipboard.
+      const colName = textEl?.textContent?.replace(/[\s🔐🔗]+$/u, "").trim();
       if (colName && colName !== "#") {
         copyToClipboard(colName, "column");
       }

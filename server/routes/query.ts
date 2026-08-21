@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { resolveReadableConnection } from "../middleware/auth.js";
 import { validateQuery, executeQuery } from "../services/query-executor.js";
 import { maskQueryResults } from "../services/phi-masking.js";
+import { fkTargetsForColumns } from "../services/schema-introspector.js";
 import {
   logAudit,
   getQueryHistory,
@@ -77,8 +78,14 @@ router.post("/execute", async (req: Request, res: Response) => {
       },
     );
 
+    // Label FK columns so the grid can show what a value points at. Best-effort:
+    // empty until the connection's schema cache is warm, never blocks the result.
+    const fkTargets = fkTargetsForColumns(conn, sql, rawResult.columns, schema);
+
     const result: QueryResult = {
-      columns: maskedColumns,
+      columns: maskedColumns.map((c) =>
+        fkTargets.has(c.name) ? { ...c, references: fkTargets.get(c.name) } : c,
+      ),
       rows: maskedRows,
       totalRows: rawResult.totalRows,
       executionTimeMs: rawResult.executionTimeMs,

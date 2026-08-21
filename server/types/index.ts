@@ -52,6 +52,8 @@ export interface QueryColumn {
   type: string;
   isMasked: boolean;
   maskingType?: MaskingType;
+  /** FK target (`table.column`) when the column unambiguously maps to one. */
+  references?: string;
 }
 
 export interface QueryResult {
@@ -174,6 +176,8 @@ export interface ColumnInfo {
   nullable: boolean;
   isPrimaryKey: boolean;
   isForeignKey: boolean;
+  /** FK target as `table.column` (schema-qualified when it differs), when known. */
+  references?: string;
   defaultValue?: string;
   isPhiField: boolean;
 }

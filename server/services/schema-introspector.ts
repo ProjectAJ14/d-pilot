@@ -4,6 +4,7 @@ import { MongoClient } from "mongodb";
 import { Client as EsClient } from "@elastic/elasticsearch";
 import type { ConnectionConfig, TableInfo, ColumnInfo } from "../types/index.js";
 import { findMatchingRule } from "./phi-masking.js";
+import { scanSql } from "./sql-scan.js";
 
 /** The default schema for a connection when none is explicitly selected. */
 export function defaultSchema(conn: ConnectionConfig): string {
@@ -164,6 +165,52 @@ async function getPostgresTables(
   }
 }
 
+/** `table.column` for an FK target, schema-qualified only when it crosses schemas. */
+function fkTarget(schema: string, refSchema: string, refTable: string, refColumn: string): string {
+  const prefix = refSchema && refSchema !== schema ? `${refSchema}.` : "";
+  return `${prefix}${refTable}.${refColumn}`;
+}
+
+/** Postgres FK targets for a schema (optionally one table): keyed `table.column`. */
+const PG_FK_SQL = `SELECT ku.table_name, ku.column_name,
+          tgt.table_schema AS ref_schema, tgt.table_name AS ref_table, tgt.column_name AS ref_column
+   FROM information_schema.table_constraints tc
+   JOIN information_schema.key_column_usage ku
+     ON tc.constraint_name = ku.constraint_name AND tc.constraint_schema = ku.constraint_schema
+   JOIN information_schema.referential_constraints rc
+     ON tc.constraint_name = rc.constraint_name AND tc.constraint_schema = rc.constraint_schema
+   JOIN information_schema.key_column_usage tgt
+     ON rc.unique_constraint_name = tgt.constraint_name
+    AND rc.unique_constraint_schema = tgt.constraint_schema
+    AND tgt.ordinal_position = ku.position_in_unique_constraint
+   WHERE tc.table_schema = $1 AND tc.constraint_type = 'FOREIGN KEY'`;
+
+/**
+ * SQL Server FK targets. INFORMATION_SCHEMA.KEY_COLUMN_USAGE has no
+ * POSITION_IN_UNIQUE_CONSTRAINT here, so the sys catalog views are the only way
+ * to pair each FK column with the column it points at.
+ */
+const MSSQL_FK_SQL = `SELECT tp.name AS table_name, cp.name AS column_name,
+          rs.name AS ref_schema, tr.name AS ref_table, cr.name AS ref_column
+   FROM sys.foreign_key_columns fkc
+   JOIN sys.tables tp ON fkc.parent_object_id = tp.object_id
+   JOIN sys.schemas ps ON tp.schema_id = ps.schema_id
+   JOIN sys.columns cp ON fkc.parent_object_id = cp.object_id AND fkc.parent_column_id = cp.column_id
+   JOIN sys.tables tr ON fkc.referenced_object_id = tr.object_id
+   JOIN sys.schemas rs ON tr.schema_id = rs.schema_id
+   JOIN sys.columns cr ON fkc.referenced_object_id = cr.object_id AND fkc.referenced_column_id = cr.column_id
+   WHERE ps.name = @schema`;
+
+/** Maps `table.column` -> rendered FK target for rows of either query above. */
+function fkMap(rows: any[], schema: string): Map<string, string> {
+  return new Map(
+    rows.map((r) => [
+      `${r.table_name}.${r.column_name}`,
+      fkTarget(schema, r.ref_schema, r.ref_table, r.ref_column),
+    ])
+  );
+}
+
 async function getPostgresColumns(
   conn: ConnectionConfig,
   tableName: string,
@@ -180,10 +227,10 @@ async function getPostgresColumns(
   });
 
   try {
-    const colResult = await pool.query(
-      `SELECT c.column_name, c.data_type, c.is_nullable, c.column_default,
-              CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_pk,
-              CASE WHEN fk.column_name IS NOT NULL THEN true ELSE false END as is_fk
+    const [colResult, fkResult] = await Promise.all([
+      pool.query(
+        `SELECT c.column_name, c.data_type, c.is_nullable, c.column_default,
+              CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_pk
        FROM information_schema.columns c
        LEFT JOIN (
          SELECT ku.column_name
@@ -191,23 +238,22 @@ async function getPostgresColumns(
          JOIN information_schema.key_column_usage ku ON tc.constraint_name = ku.constraint_name
          WHERE tc.table_schema = $1 AND tc.table_name = $2 AND tc.constraint_type = 'PRIMARY KEY'
        ) pk ON c.column_name = pk.column_name
-       LEFT JOIN (
-         SELECT ku.column_name
-         FROM information_schema.table_constraints tc
-         JOIN information_schema.key_column_usage ku ON tc.constraint_name = ku.constraint_name
-         WHERE tc.table_schema = $1 AND tc.table_name = $2 AND tc.constraint_type = 'FOREIGN KEY'
-       ) fk ON c.column_name = fk.column_name
        WHERE c.table_schema = $1 AND c.table_name = $2
        ORDER BY c.ordinal_position`,
-      [schema, tableName]
-    );
+        [schema, tableName]
+      ),
+      pool.query(`${PG_FK_SQL} AND tc.table_name = $2`, [schema, tableName]),
+    ]);
+
+    const fks = fkMap(fkResult.rows, schema);
 
     return colResult.rows.map((r) => ({
       name: r.column_name,
       dataType: r.data_type,
       nullable: r.is_nullable === "YES",
       isPrimaryKey: r.is_pk,
-      isForeignKey: r.is_fk,
+      isForeignKey: fks.has(`${tableName}.${r.column_name}`),
+      references: fks.get(`${tableName}.${r.column_name}`),
       defaultValue: r.column_default,
       isPhiField: !!findMatchingRule(r.column_name, conn.database, tableName),
     }));
@@ -271,14 +317,14 @@ async function getMssqlColumns(
 
   try {
     await pool.connect();
-    const result = await pool
-      .request()
-      .input("table", mssql.VarChar, tableName)
-      .input("schema", mssql.VarChar, schema)
-      .query(
-        `SELECT c.COLUMN_NAME, c.DATA_TYPE, c.IS_NULLABLE, c.COLUMN_DEFAULT,
-              CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as is_pk,
-              CASE WHEN fk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as is_fk
+    const req = () =>
+      pool
+        .request()
+        .input("table", mssql.VarChar, tableName)
+        .input("schema", mssql.VarChar, schema);
+    const result = await req().query(
+      `SELECT c.COLUMN_NAME, c.DATA_TYPE, c.IS_NULLABLE, c.COLUMN_DEFAULT,
+              CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as is_pk
        FROM INFORMATION_SCHEMA.COLUMNS c
        LEFT JOIN (
          SELECT ku.COLUMN_NAME
@@ -286,22 +332,19 @@ async function getMssqlColumns(
          JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
          WHERE tc.TABLE_NAME = @table AND tc.TABLE_SCHEMA = @schema AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
        ) pk ON c.COLUMN_NAME = pk.COLUMN_NAME
-       LEFT JOIN (
-         SELECT ku.COLUMN_NAME
-         FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-         JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
-         WHERE tc.TABLE_NAME = @table AND tc.TABLE_SCHEMA = @schema AND tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
-       ) fk ON c.COLUMN_NAME = fk.COLUMN_NAME
        WHERE c.TABLE_NAME = @table AND c.TABLE_SCHEMA = @schema
        ORDER BY c.ORDINAL_POSITION`
-      );
+    );
+    const fkRes = await req().query(`${MSSQL_FK_SQL} AND tp.name = @table`);
+    const fks = fkMap(fkRes.recordset as any[], schema);
 
     return result.recordset.map((r: any) => ({
       name: r.COLUMN_NAME,
       dataType: r.DATA_TYPE,
       nullable: r.IS_NULLABLE === "YES",
       isPrimaryKey: !!r.is_pk,
-      isForeignKey: !!r.is_fk,
+      isForeignKey: fks.has(`${tableName}.${r.COLUMN_NAME}`),
+      references: fks.get(`${tableName}.${r.COLUMN_NAME}`),
       defaultValue: r.COLUMN_DEFAULT,
       isPhiField: !!findMatchingRule(r.COLUMN_NAME, conn.database, tableName),
     }));
@@ -552,6 +595,89 @@ export async function getCachedFullSchema(
   return { schema, cached: false, cachedAt: new Date(rec?.cachedAt ?? now).toISOString(), ttlHours };
 }
 
+/**
+ * Fresh cached schema, or undefined when the cache is cold — in which case the
+ * introspection is kicked off in the background so the next caller has it. Lets
+ * the query path label FK columns without ever paying introspection latency.
+ */
+export function peekCachedFullSchema(
+  conn: ConnectionConfig,
+  schema?: string
+): FullSchema | undefined {
+  const key = `${conn.id}:${resolveSchema(conn, schema)}`;
+  const hit = schemaCache.get(key);
+  if (hit && hit.expiresAt > Date.now()) return hit.schema;
+  void getCachedFullSchema(conn, { schema }).catch(() => {});
+  return undefined;
+}
+
+/**
+ * Table names read by a query.
+ *
+ * The FROM/JOIN keywords are located in the *masked* script (literals and
+ * comments blanked) so a "join" inside a string can't be mistaken for a real
+ * one, but the name itself is read from the raw SQL at the same offset —
+ * masking blanks char-for-char, and a double-quoted identifier looks like a
+ * string literal to the scanner.
+ */
+function referencedTables(sql: string): string[] {
+  const masked = scanSql(sql).masked;
+  const names = new Set<string>();
+  for (const m of masked.matchAll(/\b(?:from|join)\s+/gi)) {
+    const ident = sql.slice(m.index + m[0].length).match(/^[A-Za-z0-9_."\[\]]+/);
+    // Keep the bare table name — the cache is already scoped to one schema.
+    const bare = ident?.[0].replace(/["\[\]]/g, "").split(".").pop();
+    if (bare) names.add(bare.toLowerCase());
+  }
+  return [...names];
+}
+
+/**
+ * FK targets for result column names, keyed by column name.
+ *
+ * Only unambiguous matches are returned: every table the query reads that has a
+ * column of that name must agree on the same FK target, so a `JOIN` where both
+ * sides carry an `id` never gets labelled with the wrong parent. Aliased select
+ * items (`customer_id AS cid`) simply don't match and stay unlabelled. Empty
+ * when the schema cache is cold.
+ */
+export function fkTargetsForColumns(
+  conn: ConnectionConfig,
+  sql: string,
+  columnNames: string[],
+  schema?: string
+): Map<string, string> {
+  const full = peekCachedFullSchema(conn, schema);
+  return full ? matchFkTargets(full, sql, columnNames) : new Map();
+}
+
+/** Cache-free core of `fkTargetsForColumns` — see its doc comment for the rules. */
+export function matchFkTargets(
+  full: FullSchema,
+  sql: string,
+  columnNames: string[]
+): Map<string, string> {
+  const tables = new Set(referencedTables(sql));
+  const byTable = Object.entries(full.columns).filter(([name]) =>
+    tables.has(name.toLowerCase())
+  );
+  if (!byTable.length) return new Map();
+
+  const out = new Map<string, string>();
+  for (const wanted of columnNames) {
+    const matches = byTable.flatMap(([, cols]) =>
+      cols.filter((c) => c.name.toLowerCase() === wanted.toLowerCase())
+    );
+    const targets = new Set(matches.map((c) => c.references ?? ""));
+    // One column, one agreed target, no plain-column namesake to confuse it.
+    if (targets.size === 1) {
+      const [target] = targets;
+      if (target) out.set(wanted, target);
+    }
+  }
+  return out;
+}
+
 /** Clears cached schemas. Pass a connectionId to clear all of its schemas. */
 export function clearSchemaCache(connectionId?: string): { cleared: number } {
   if (!connectionId) {
@@ -579,7 +705,7 @@ function formatTable(
   const lines = shown.map((c) => {
     const flags: string[] = [];
     if (c.isPrimaryKey) flags.push("PK");
-    if (c.isForeignKey) flags.push("FK");
+    if (c.isForeignKey) flags.push(c.references ? `FK -> ${c.references}` : "FK");
     if (!c.nullable) flags.push("NOT NULL");
     if (c.isPhiField) flags.push("PHI");
     const suffix = flags.length ? ` [${flags.join(", ")}]` : "";
@@ -626,17 +752,11 @@ async function getPostgresFullSchema(
          WHERE tc.table_schema = $1 AND tc.constraint_type = 'PRIMARY KEY'`,
         [schema]
       ),
-      pool.query(
-        `SELECT tc.table_name, ku.column_name
-         FROM information_schema.table_constraints tc
-         JOIN information_schema.key_column_usage ku ON tc.constraint_name = ku.constraint_name
-         WHERE tc.table_schema = $1 AND tc.constraint_type = 'FOREIGN KEY'`,
-        [schema]
-      ),
+      pool.query(PG_FK_SQL, [schema]),
     ]);
 
     const pkSet = new Set(pkRes.rows.map((r) => `${r.table_name}.${r.column_name}`));
-    const fkSet = new Set(fkRes.rows.map((r) => `${r.table_name}.${r.column_name}`));
+    const fks = fkMap(fkRes.rows, schema);
 
     const columns: Record<string, ColumnInfo[]> = {};
     for (const r of colsRes.rows) {
@@ -645,7 +765,8 @@ async function getPostgresFullSchema(
         dataType: r.data_type,
         nullable: r.is_nullable === "YES",
         isPrimaryKey: pkSet.has(`${r.table_name}.${r.column_name}`),
-        isForeignKey: fkSet.has(`${r.table_name}.${r.column_name}`),
+        isForeignKey: fks.has(`${r.table_name}.${r.column_name}`),
+        references: fks.get(`${r.table_name}.${r.column_name}`),
         isPhiField: !!findMatchingRule(r.column_name, conn.database, r.table_name),
       });
     }
@@ -692,15 +813,10 @@ async function getMssqlFullSchema(
        JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
        WHERE tc.TABLE_SCHEMA = @schema AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'`
     );
-    const fkRes = await req().query(
-      `SELECT tc.TABLE_NAME, ku.COLUMN_NAME
-       FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-       JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
-       WHERE tc.TABLE_SCHEMA = @schema AND tc.CONSTRAINT_TYPE = 'FOREIGN KEY'`
-    );
+    const fkRes = await req().query(MSSQL_FK_SQL);
 
     const pkSet = new Set(pkRes.recordset.map((r: any) => `${r.TABLE_NAME}.${r.COLUMN_NAME}`));
-    const fkSet = new Set(fkRes.recordset.map((r: any) => `${r.TABLE_NAME}.${r.COLUMN_NAME}`));
+    const fks = fkMap(fkRes.recordset as any[], schema);
 
     const columns: Record<string, ColumnInfo[]> = {};
     for (const r of colsRes.recordset as any[]) {
@@ -709,7 +825,8 @@ async function getMssqlFullSchema(
         dataType: r.DATA_TYPE,
         nullable: r.IS_NULLABLE === "YES",
         isPrimaryKey: pkSet.has(`${r.TABLE_NAME}.${r.COLUMN_NAME}`),
-        isForeignKey: fkSet.has(`${r.TABLE_NAME}.${r.COLUMN_NAME}`),
+        isForeignKey: fks.has(`${r.TABLE_NAME}.${r.COLUMN_NAME}`),
+        references: fks.get(`${r.TABLE_NAME}.${r.COLUMN_NAME}`),
         isPhiField: !!findMatchingRule(r.COLUMN_NAME, conn.database, r.TABLE_NAME),
       });
     }

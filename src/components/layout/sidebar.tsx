@@ -746,6 +746,8 @@ export function Sidebar() {
                                             >
                                               {col.isPrimaryKey ? (
                                                 <IconPK size={10} color="var(--accent)" style={{ flexShrink: 0 }} />
+                                              ) : col.isForeignKey ? (
+                                                <IconLink size={10} color="var(--accent)" style={{ flexShrink: 0, opacity: 0.7 }} />
                                               ) : (
                                                 <IconColumns size={10} color="var(--muted)" style={{ flexShrink: 0 }} />
                                               )}
@@ -757,7 +759,27 @@ export function Sidebar() {
                                               >
                                                 {col.name}
                                               </Text>
-                                              <Text size="xs" c="dimmed" style={{ fontSize: 9, opacity: 0.7 }}>{col.dataType}</Text>
+                                              {col.references ? (
+                                                <Tooltip label={`${col.dataType} \u2192 references ${col.references}`} withArrow>
+                                                  <Text
+                                                    size="xs"
+                                                    ff="monospace"
+                                                    c="dimmed"
+                                                    style={{
+                                                      fontSize: 9,
+                                                      opacity: 0.8,
+                                                      maxWidth: 110,
+                                                      overflow: "hidden",
+                                                      textOverflow: "ellipsis",
+                                                      whiteSpace: "nowrap",
+                                                    }}
+                                                  >
+                                                    &rarr; {col.references}
+                                                  </Text>
+                                                </Tooltip>
+                                              ) : (
+                                                <Text size="xs" c="dimmed" style={{ fontSize: 9, opacity: 0.7 }}>{col.dataType}</Text>
+                                              )}
                                               {col.isPhiField && <IconShieldLock size={10} color="var(--token)" />}
                                             </div>
                                           ))}
