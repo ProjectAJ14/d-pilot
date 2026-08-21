@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.17.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.16.0...v1.17.0) (2026-08-21)
+
+
+### Features
+
+* **schema:** show foreign key targets, including in results ([0e449c6](https://github.com/ProjectAJ14/d-pilot/commit/0e449c61a322c3ae118976b67fe54cefc176518f))
+
 # [1.16.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.15.0...v1.16.0) (2026-08-20)
 
 
