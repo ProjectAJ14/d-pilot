@@ -46,6 +46,7 @@ import {
 import { buildTableMetadata, supportsDdl, type MetadataFormat } from "../../utils/schema-metadata";
 import type { ConnectionInfo, TableInfo, ColumnInfo, DatabaseType } from "../../types";
 import { envColor, envLabel, useEnvironments } from "../../utils/environments";
+import { FkBadge } from "../query/fk-badge";
 
 const DB_ICONS: Record<DatabaseType, string> = {
   postgres: "🐘", mssql: "🗄️", mongodb: "🍃", elasticsearch: "🔍",
@@ -747,7 +748,7 @@ export function Sidebar() {
                                               {col.isPrimaryKey ? (
                                                 <IconPK size={10} color="var(--accent)" style={{ flexShrink: 0 }} />
                                               ) : col.isForeignKey ? (
-                                                <IconLink size={10} color="var(--accent)" style={{ flexShrink: 0, opacity: 0.7 }} />
+                                                <FkBadge column={col.name} references={col.references} />
                                               ) : (
                                                 <IconColumns size={10} color="var(--muted)" style={{ flexShrink: 0 }} />
                                               )}

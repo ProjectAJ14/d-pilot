@@ -24,6 +24,7 @@ import { ResultsJsonView } from "./results-json-view";
 import { CellDetailDrawer, type CellDetail } from "./cell-detail-drawer";
 import { GridCellTooltip } from "./grid-cell-tooltip";
 import { copyToClipboard } from "../../utils/clipboard";
+import { FkBadge } from "./fk-badge";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -74,6 +75,22 @@ function PhiCellRenderer(props: any) {
       }}
     >
       {props.value ?? ""}
+    </span>
+  );
+}
+
+/**
+ * Header for a foreign-key column: the name plus a clickable FK chip. Keeps the
+ * `ag-header-cell-text` class so the dblclick-to-copy handler below still finds
+ * the plain column name.
+ */
+function FkHeader(props: { displayName: string; column?: string; references?: string }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+      <span className="ag-header-cell-text" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+        {props.displayName}
+      </span>
+      <FkBadge column={props.column ?? props.displayName} references={props.references} />
     </span>
   );
 }
@@ -142,10 +159,9 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
 
     for (const col of result.columns) {
       const def: ColDef = {
-        // Header glyphs flag PHI masking and foreign keys. The dblclick-to-copy
-        // handler below strips them so the copied name stays usable in SQL.
-        headerName: `${col.name}${col.isMasked ? " 🔐" : ""}${col.references ? " 🔗" : ""}`,
-        headerTooltip: col.references ? `${col.name} → references ${col.references}` : undefined,
+        // Header glyphs flag PHI masking. The dblclick-to-copy handler below
+        // strips them so the copied name stays usable in SQL.
+        headerName: `${col.name}${col.isMasked ? " 🔐" : ""}`,
         field: col.name,
         sortable: true,
         filter: true,
@@ -161,6 +177,11 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
           return text.length > 2000 ? text.slice(0, 2000) + "… (click cell for full value)" : text;
         },
       };
+
+      if (col.references) {
+        def.headerComponent = FkHeader;
+        def.headerComponentParams = { column: col.name, references: col.references };
+      }
 
       if (col.isMasked) {
         def.cellRenderer = PhiCellRenderer;
@@ -276,7 +297,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
       if (!target) return;
       const textEl = target.querySelector(".ag-header-cell-text");
       // Drop the PHI / FK glyphs — the column name is what belongs on the clipboard.
-      const colName = textEl?.textContent?.replace(/[\s🔐🔗]+$/u, "").trim();
+      const colName = textEl?.textContent?.replace(/[\s🔐]+$/u, "").trim();
       if (colName && colName !== "#") {
         copyToClipboard(colName, "column");
       }
