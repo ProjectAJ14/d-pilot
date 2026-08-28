@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.18.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.17.0...v1.18.0) (2026-08-28)
+
+
+### Features
+
+* **schema:** clickable FK badge with constraint details ([2629142](https://github.com/ProjectAJ14/d-pilot/commit/262914254db44f4d3eef69b9ffe37c67c47441bd))
+
 # [1.17.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.16.0...v1.17.0) (2026-08-21)
 
 
