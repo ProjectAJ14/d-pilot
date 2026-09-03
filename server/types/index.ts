@@ -8,6 +8,45 @@ export type DatabaseType = "postgres" | "mssql" | "mongodb" | "elasticsearch";
 export type Environment = string;
 export type MaskingType = "FULL" | "PARTIAL" | "HASH" | "REDACT";
 
+// --- Results "Copy as" formats ------------------------------------------------
+// Deployment-configurable via COPY_FORMATS (see config/copy-formats.ts).
+// Mirrored in src/types/index.ts — keep the two in sync.
+
+/** How a template extractor quotes each cell. */
+export type CopyQuote = "none" | "single" | "double";
+
+/** Built-in structural formatters a copy format can reference by name. */
+export type CopyBuiltin = "csv" | "tsv" | "json" | "markdown" | "sql-insert";
+
+/** Separator-based custom extractor (DataGrip-style). */
+export interface CopyTemplate {
+  columnSeparator: string;
+  rowSeparator: string;
+  quote?: CopyQuote;
+  /** When false, the first column is emitted bare (e.g. `code "description"`). */
+  quoteFirstColumn?: boolean;
+  /** Text emitted for null/undefined cells (default ""). */
+  nullText?: string;
+  /** Prepend a row of column names. */
+  header?: boolean;
+  prefix?: string;
+  suffix?: string;
+}
+
+/**
+ * One entry in the results "Copy as" menu. Carries either a `builtin`
+ * structural formatter or a separator `template` — never both.
+ */
+export interface CopyFormat {
+  id: string;
+  label: string;
+  group?: string;
+  example?: string;
+  columnMenu?: boolean;
+  builtin?: CopyBuiltin;
+  template?: CopyTemplate;
+}
+
 // Machine-readable error codes returned by the API (body: { error, code? }).
 export type ApiErrorCode = "CONNECTION_FAILED";
 

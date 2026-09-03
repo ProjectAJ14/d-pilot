@@ -6,6 +6,7 @@ import type {
   WriteRequest,
   WriteAiReview,
   QueryResult,
+  CopyFormat,
 } from "../types";
 
 const BASE_URL = "/api";
@@ -87,6 +88,7 @@ export const api = {
       emailDomain: string | null;
       phiMaskedEnvironments: string[];
       environments: string[];
+      copyFormats?: CopyFormat[];
     }>,
 
   // Auth

@@ -1,5 +1,12 @@
 import { create } from "zustand";
-import type { Artifact, ConnectionInfo, QueryTab, SavedQuery } from "../types";
+import type {
+  Artifact,
+  ConnectionInfo,
+  CopyFormat,
+  QueryTab,
+  SavedQuery,
+} from "../types";
+import { DEFAULT_COPY_FORMATS } from "../utils/data-extractors";
 import {
   loadTabs,
   clearPersistedTabs,
@@ -30,6 +37,8 @@ interface AppConfig {
   phiMaskedEnvironments: string[];
   /** Environments this deployment has, least → most sensitive (from the server). */
   environments: string[];
+  /** Results "Copy as" formats (from the server; falls back to code defaults). */
+  copyFormats: CopyFormat[];
 }
 
 interface AppState {
@@ -223,6 +232,8 @@ export const useStore = create<AppState>((set, get) => ({
     // Empty until /api/config answers — an env picker must never offer an
     // environment this deployment may not have.
     environments: [],
+    // Code defaults until /api/config answers (or if an older server omits it).
+    copyFormats: DEFAULT_COPY_FORMATS,
   },
   setConfig: (config) => set({ config }),
 

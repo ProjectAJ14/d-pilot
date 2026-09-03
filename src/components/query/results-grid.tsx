@@ -1,5 +1,12 @@
-import { useMemo, useCallback, useRef, useEffect, useState } from "react";
-import { Text, Badge, SegmentedControl } from "@mantine/core";
+import {
+  useMemo,
+  useCallback,
+  useRef,
+  useEffect,
+  useState,
+  Fragment,
+} from "react";
+import { Text, Badge, SegmentedControl, Menu, Button } from "@mantine/core";
 import {
   IconShieldLock,
   IconAlertTriangle,
@@ -8,6 +15,8 @@ import {
   IconEye,
   IconClick,
   IconCopyCheck,
+  IconCopy,
+  IconChevronDown,
 } from "@tabler/icons-react";
 import { AgGridReact } from "ag-grid-react";
 import type {
@@ -17,16 +26,45 @@ import type {
   CellDoubleClickedEvent,
   CellClickedEvent,
 } from "ag-grid-community";
-import { AllCommunityModule, ModuleRegistry, themeQuartz } from "ag-grid-community";
+import {
+  AllCommunityModule,
+  ModuleRegistry,
+  themeQuartz,
+} from "ag-grid-community";
+// Enterprise: Excel-style cell (range) selection + native range copy. Running
+// WITHOUT a license key — AG Grid prints a console warning and shows a watermark.
+// Acceptable for internal/dev use; a license is required to ship this cleanly.
+import { CellSelectionModule, ClipboardModule } from "ag-grid-enterprise";
 import { useStore } from "../../store";
 import type { QueryTab, ResultViewMode } from "../../types";
 import { ResultsJsonView } from "./results-json-view";
 import { CellDetailDrawer, type CellDetail } from "./cell-detail-drawer";
 import { GridCellTooltip } from "./grid-cell-tooltip";
 import { copyToClipboard } from "../../utils/clipboard";
+import {
+  renderCopyFormat,
+  DEFAULT_COPY_FORMATS,
+} from "../../utils/data-extractors";
+import type { CopyFormat } from "../../types";
 import { FkBadge } from "./fk-badge";
 
-ModuleRegistry.registerModules([AllCommunityModule]);
+ModuleRegistry.registerModules([
+  AllCommunityModule,
+  CellSelectionModule,
+  ClipboardModule,
+]);
+
+/** Group the configured formats by their `group`, preserving first-seen order. */
+function groupFormats(formats: CopyFormat[]): [string, CopyFormat[]][] {
+  const groups = new Map<string, CopyFormat[]>();
+  for (const f of formats) {
+    const key = f.group ?? "Other";
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(f);
+    else groups.set(key, [f]);
+  }
+  return [...groups.entries()];
+}
 
 const gridTheme = themeQuartz.withParams({
   accentColor: "#1f9196",
@@ -84,13 +122,30 @@ function PhiCellRenderer(props: any) {
  * `ag-header-cell-text` class so the dblclick-to-copy handler below still finds
  * the plain column name.
  */
-function FkHeader(props: { displayName: string; column?: string; references?: string }) {
+function FkHeader(props: {
+  displayName: string;
+  column?: string;
+  references?: string;
+}) {
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-      <span className="ag-header-cell-text" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        minWidth: 0,
+      }}
+    >
+      <span
+        className="ag-header-cell-text"
+        style={{ overflow: "hidden", textOverflow: "ellipsis" }}
+      >
         {props.displayName}
       </span>
-      <FkBadge column={props.column ?? props.displayName} references={props.references} />
+      <FkBadge
+        column={props.column ?? props.displayName}
+        references={props.references}
+      />
     </span>
   );
 }
@@ -98,10 +153,112 @@ function FkHeader(props: { displayName: string; column?: string; references?: st
 export function ResultsGrid({ tab, onViewModeChange }: Props) {
   const phiEnabled = useStore((s) => s.phiEnabled);
   const updateTab = useStore((s) => s.updateTab);
+  // Deployment-configured "Copy as" formats (COPY_FORMATS env), with a code
+  // fallback so the menu always renders even before /api/config answers.
+  const configuredFormats = useStore((s) => s.config.copyFormats);
+  const copyFormats = configuredFormats?.length
+    ? configuredFormats
+    : DEFAULT_COPY_FORMATS;
+  const groupedFormats = useMemo(
+    () => groupFormats(copyFormats),
+    [copyFormats],
+  );
+  const columnFormats = useMemo(
+    () => copyFormats.filter((f) => f.columnMenu),
+    [copyFormats],
+  );
   const viewMode = tab.viewMode ?? "table";
   const gridWrapperRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<AgGridReact>(null);
 
   const { result, error } = tab;
+
+  // How many rows the user has ticked (row checkboxes). Copy falls back to these
+  // when no cell range is selected.
+  const [selectedCount, setSelectedCount] = useState(0);
+  // Rows × cols of the current cell (range) selection — drives the button label.
+  const [rangeSummary, setRangeSummary] = useState<{
+    rows: number;
+    cols: number;
+  } | null>(null);
+  // Right-click a header or data cell to copy just that column in a chosen
+  // format. Anchored at the cursor via a zero-size fixed target below.
+  const [colMenu, setColMenu] = useState<{
+    column: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const allColumnNames = useMemo(
+    () => result?.columns.map((c) => c.name) ?? [],
+    [result],
+  );
+
+  // Selected rows if any are ticked, else the whole result set.
+  const rowsForCopy = useCallback((): Record<string, unknown>[] => {
+    const selected = (gridRef.current?.api?.getSelectedRows?.() ??
+      []) as Record<string, unknown>[];
+    return selected.length ? selected : (result?.rows ?? []);
+  }, [result]);
+
+  /**
+   * The scope a whole-grid "Copy as" acts on, in priority order:
+   *   1. the selected cell range(s) — exact columns × rows the user dragged over;
+   *   2. else the ticked rows (all columns);
+   *   3. else the entire result.
+   * Multiple ranges are unioned into one column set + row set, in grid order.
+   */
+  const getScopedInput = useCallback((): {
+    columns: string[];
+    rows: Record<string, unknown>[];
+  } => {
+    const api = gridRef.current?.api;
+    const ranges = api?.getCellRanges?.() ?? [];
+    if (api && ranges.length) {
+      const colIds = new Set<string>();
+      const rowIdxs = new Set<number>();
+      for (const range of ranges) {
+        for (const col of range.columns) {
+          const id = col.getColId();
+          if (id && id !== "__rownum" && !id.startsWith("ag-Grid-")) {
+            colIds.add(id);
+          }
+        }
+        if (range.startRow && range.endRow) {
+          const lo = Math.min(range.startRow.rowIndex, range.endRow.rowIndex);
+          const hi = Math.max(range.startRow.rowIndex, range.endRow.rowIndex);
+          for (let i = lo; i <= hi; i++) rowIdxs.add(i);
+        }
+      }
+      const columns = allColumnNames.filter((n) => colIds.has(n));
+      const rows = [...rowIdxs]
+        .sort((a, b) => a - b)
+        .map((i) => api.getDisplayedRowAtIndex(i)?.data)
+        .filter((d): d is Record<string, unknown> => !!d);
+      if (columns.length && rows.length) return { columns, rows };
+    }
+    return { columns: allColumnNames, rows: rowsForCopy() };
+  }, [allColumnNames, rowsForCopy]);
+
+  // Copy the whole-grid scope (cell range → ticked rows → all) in a format.
+  const copyScoped = useCallback(
+    (format: CopyFormat, label: string) => {
+      const { columns, rows } = getScopedInput();
+      copyToClipboard(renderCopyFormat(format, { columns, rows }), label);
+    },
+    [getScopedInput],
+  );
+
+  // Copy a single column (from the right-click menu) across ticked/all rows.
+  const copyColumn = useCallback(
+    (format: CopyFormat, column: string, label: string) => {
+      copyToClipboard(
+        renderCopyFormat(format, { columns: [column], rows: rowsForCopy() }),
+        label,
+      );
+    },
+    [rowsForCopy],
+  );
 
   // Cell inspector: single-click a data cell to open/refresh the detail drawer.
   const [cellDetail, setCellDetail] = useState<CellDetail | null>(null);
@@ -174,13 +331,18 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
           const v = p.value;
           if (v === null || v === undefined) return "NULL";
           const text = typeof v === "object" ? JSON.stringify(v) : String(v);
-          return text.length > 2000 ? text.slice(0, 2000) + "… (click cell for full value)" : text;
+          return text.length > 2000
+            ? text.slice(0, 2000) + "… (click cell for full value)"
+            : text;
         },
       };
 
       if (col.references) {
         def.headerComponent = FkHeader;
-        def.headerComponentParams = { column: col.name, references: col.references };
+        def.headerComponentParams = {
+          column: col.name,
+          references: col.references,
+        };
       }
 
       if (col.isMasked) {
@@ -191,15 +353,20 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
         // Color cells by type
         def.cellStyle = (params: CellClassParams): Record<string, string> => {
           const v = params.value;
-          if (v === null || v === undefined) return { color: "var(--muted)", fontStyle: "italic" };
+          if (v === null || v === undefined)
+            return { color: "var(--muted)", fontStyle: "italic" };
           if (typeof v === "number") return { color: "var(--accent)" };
-          if (typeof v === "boolean") return { color: v ? "var(--success)" : "var(--error)" };
-          if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)) return { color: "#7c3aed" };
+          if (typeof v === "boolean")
+            return { color: v ? "var(--success)" : "var(--error)" };
+          if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v))
+            return { color: "#7c3aed" };
           return {};
         };
         def.valueFormatter = (params) => {
-          if (params.value === null || params.value === undefined) return "NULL";
-          if (typeof params.value === "object") return JSON.stringify(params.value);
+          if (params.value === null || params.value === undefined)
+            return "NULL";
+          if (typeof params.value === "object")
+            return JSON.stringify(params.value);
           return String(params.value);
         };
       }
@@ -218,12 +385,12 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
       suppressHeaderMenuButton: false,
       tooltipComponent: GridCellTooltip,
     }),
-    []
+    [],
   );
 
   const getRowId = useCallback(
     (params: GetRowIdParams) => String(params.data._agRowId ?? 0),
-    []
+    [],
   );
 
   // name → isMasked, so the inspector can enforce the same PHI rule as the grid.
@@ -268,7 +435,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
         openTimerRef.current = null;
       }, 250);
     },
-    [maskedByColumn]
+    [maskedByColumn],
   );
 
   const onCellDoubleClicked = useCallback((event: CellDoubleClickedEvent) => {
@@ -304,6 +471,35 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
     };
     wrapper.addEventListener("dblclick", handler);
     return () => wrapper.removeEventListener("dblclick", handler);
+  }, [viewMode, result]);
+
+  // Right-click a header or data cell → per-column "Copy column as" menu. Falls
+  // through to the browser's native menu when the target isn't a real column
+  // (row-number, selection checkbox, empty space).
+  useEffect(() => {
+    const wrapper = gridWrapperRef.current;
+    if (!wrapper || viewMode !== "table") return;
+    const handler = (e: MouseEvent) => {
+      const el = e.target as HTMLElement;
+      const cell = el.closest(".ag-cell");
+      const header = el.closest(".ag-header-cell");
+      let column: string | null = null;
+      if (cell) {
+        const colId = cell.getAttribute("col-id");
+        if (colId && colId !== "__rownum" && !colId.startsWith("ag-Grid-")) {
+          column = colId;
+        }
+      } else if (header) {
+        const textEl = header.querySelector(".ag-header-cell-text");
+        const name = textEl?.textContent?.replace(/[\s🔐]+$/u, "").trim();
+        if (name && name !== "#") column = name;
+      }
+      if (!column) return;
+      e.preventDefault();
+      setColMenu({ column, x: e.clientX, y: e.clientY });
+    };
+    wrapper.addEventListener("contextmenu", handler);
+    return () => wrapper.removeEventListener("contextmenu", handler);
   }, [viewMode, result]);
 
   // Add row IDs for ag-grid
@@ -364,7 +560,8 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
     );
   }
 
-  const { totalRows, executionTimeMs, masked, maskedFields, truncated } = result;
+  const { totalRows, executionTimeMs, masked, maskedFields, truncated } =
+    result;
 
   return (
     <div
@@ -433,6 +630,61 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
           </Badge>
         )}
 
+        {/* Copy the whole result (or the ticked rows/columns) in any format. */}
+        {viewMode === "table" && result.rows.length > 0 && (
+          <Menu shadow="md" position="bottom-start" withinPortal width={260}>
+            <Menu.Target>
+              <Button
+                size="compact-xs"
+                variant="light"
+                color="teal"
+                leftSection={<IconCopy size={13} />}
+                rightSection={<IconChevronDown size={12} />}
+              >
+                {rangeSummary
+                  ? `Copy ${rangeSummary.rows}×${rangeSummary.cols} as`
+                  : selectedCount > 0
+                    ? `Copy ${selectedCount} rows as`
+                    : "Copy as"}
+              </Button>
+            </Menu.Target>
+            <Menu.Dropdown>
+              {groupedFormats.map(([group, formats]) => (
+                <Fragment key={group}>
+                  <Menu.Label>{group}</Menu.Label>
+                  {formats.map((f) => (
+                    <Menu.Item
+                      key={f.id}
+                      onClick={() => copyScoped(f, f.label)}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 1,
+                        }}
+                      >
+                        <span style={{ fontSize: 12 }}>{f.label}</span>
+                        {f.example && (
+                          <span
+                            style={{
+                              fontSize: 10,
+                              color: "var(--muted)",
+                              fontFamily: "IBM Plex Mono, monospace",
+                            }}
+                          >
+                            {f.example}
+                          </span>
+                        )}
+                      </div>
+                    </Menu.Item>
+                  ))}
+                </Fragment>
+              ))}
+            </Menu.Dropdown>
+          </Menu>
+        )}
+
         {/* Discoverability hint — table view only (the JSON view shows full
             values already, so these gestures don't apply there). */}
         {viewMode === "table" && (
@@ -452,19 +704,39 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
               flexShrink: 0,
             }}
           >
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span
+              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+            >
               <IconEye size={13} style={{ color: "var(--accent)" }} />
               hover to peek
             </span>
             <span style={{ opacity: 0.35 }}>·</span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span
+              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+            >
               <IconClick size={13} style={{ color: "var(--accent)" }} />
               click a long value to expand
             </span>
             <span style={{ opacity: 0.35 }}>·</span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span
+              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+            >
               <IconCopyCheck size={13} style={{ color: "var(--accent)" }} />
               double-click to copy
+            </span>
+            <span style={{ opacity: 0.35 }}>·</span>
+            <span
+              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+            >
+              <IconCopy size={13} style={{ color: "var(--accent)" }} />
+              right-click a column to copy as…
+            </span>
+            <span style={{ opacity: 0.35 }}>·</span>
+            <span
+              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+            >
+              <IconCopyCheck size={13} style={{ color: "var(--accent)" }} />
+              drag to select cells, then Copy as
             </span>
           </div>
         )}
@@ -476,6 +748,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
       ) : (
         <div ref={gridWrapperRef} style={{ flex: 1 }}>
           <AgGridReact
+            ref={gridRef}
             theme={gridTheme}
             rowData={rowData}
             columnDefs={columnDefs}
@@ -483,8 +756,50 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
             getRowId={getRowId}
             onCellClicked={onCellClicked}
             onCellDoubleClicked={onCellDoubleClicked}
+            // Tick rows to narrow a copy; clicking a cell must not select the row
+            // (it drives the inspector), so click-selection stays off.
+            rowSelection={{
+              mode: "multiRow",
+              checkboxes: true,
+              headerCheckbox: true,
+              enableClickSelection: false,
+            }}
+            selectionColumnDef={{ pinned: "left", width: 44, resizable: false }}
+            onSelectionChanged={(e) =>
+              setSelectedCount(e.api.getSelectedRows().length)
+            }
+            // Excel-style cell (range) selection — drag to pick an exact block of
+            // cells. Ctrl/Cmd+C copies the range natively; "Copy as" reformats the
+            // same scope. (Enterprise feature; running unlicensed in eval mode.)
+            cellSelection={true}
+            onCellSelectionChanged={(e) => {
+              const ranges = e.api.getCellRanges() ?? [];
+              if (!ranges.length) {
+                setRangeSummary(null);
+                return;
+              }
+              const cols = new Set<string>();
+              const rows = new Set<number>();
+              for (const r of ranges) {
+                for (const c of r.columns) {
+                  const id = c.getColId();
+                  if (id && id !== "__rownum" && !id.startsWith("ag-Grid-")) {
+                    cols.add(id);
+                  }
+                }
+                if (r.startRow && r.endRow) {
+                  const lo = Math.min(r.startRow.rowIndex, r.endRow.rowIndex);
+                  const hi = Math.max(r.startRow.rowIndex, r.endRow.rowIndex);
+                  for (let i = lo; i <= hi; i++) rows.add(i);
+                }
+              }
+              setRangeSummary(
+                cols.size && rows.size
+                  ? { rows: rows.size, cols: cols.size }
+                  : null,
+              );
+            }}
             animateRows={false}
-            enableCellTextSelection={true}
             ensureDomOrder={true}
             suppressCellFocus={false}
             rowBuffer={20}
@@ -518,8 +833,10 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
             PHI Audit
           </Text>
           <Text size="xs" ff="monospace" c="dimmed">
-            {phiEnabled ? "All PHI fields masked" : "PHI shield OFF — access logged"} ·
-            Masked fields:{" "}
+            {phiEnabled
+              ? "All PHI fields masked"
+              : "PHI shield OFF — access logged"}{" "}
+            · Masked fields:{" "}
             <strong style={{ color: "var(--token)" }}>
               {maskedFields.join(", ")}
             </strong>
@@ -527,7 +844,55 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
         </div>
       )}
 
-      <CellDetailDrawer detail={cellDetail} onClose={() => setCellDetail(null)} />
+      <CellDetailDrawer
+        detail={cellDetail}
+        onClose={() => setCellDetail(null)}
+      />
+
+      {/* Per-column copy menu, anchored at the right-click position. */}
+      <Menu
+        opened={!!colMenu}
+        onChange={(open) => !open && setColMenu(null)}
+        position="bottom-start"
+        shadow="md"
+        width={230}
+        withinPortal
+      >
+        <Menu.Target>
+          <div
+            style={{
+              position: "fixed",
+              left: colMenu?.x ?? 0,
+              top: colMenu?.y ?? 0,
+              width: 0,
+              height: 0,
+            }}
+          />
+        </Menu.Target>
+        <Menu.Dropdown>
+          <Menu.Label>
+            Copy column “{colMenu?.column}”
+            {selectedCount > 0 ? ` · ${selectedCount} rows` : ""}
+          </Menu.Label>
+          {columnFormats.map((f) => (
+            <Menu.Item
+              key={f.id}
+              onClick={() => {
+                if (colMenu) {
+                  copyColumn(
+                    f,
+                    colMenu.column,
+                    `${colMenu.column} (${f.label})`,
+                  );
+                }
+                setColMenu(null);
+              }}
+            >
+              {f.label}
+            </Menu.Item>
+          ))}
+        </Menu.Dropdown>
+      </Menu>
     </div>
   );
 }

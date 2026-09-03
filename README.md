@@ -144,6 +144,10 @@ DBFORGE_CONNECTIONS='[
 MAX_ROWS=10000            # hard cap on returned rows
 QUERY_TIMEOUT_MS=90000    # per-query timeout
 
+# Results "Copy as" formats (optional; JSON array). Unset = built-in defaults
+# (CSV, TSV, JSON, Markdown, SQL INSERT, comma, single-quoted, double-quoted).
+# COPY_FORMATS='[{"id":"in-clause","label":"SQL IN","group":"List / SQL","columnMenu":true,"template":{"columnSeparator":",","rowSeparator":",","quote":"single","prefix":"IN (","suffix":")"}}]'
+
 # MCP endpoint for AI agents — rows returned per query (agents may raise per call)
 MCP_MAX_ROWS=1000
 
