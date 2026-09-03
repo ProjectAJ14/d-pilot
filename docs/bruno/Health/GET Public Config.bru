@@ -18,5 +18,9 @@ docs {
   values every other endpoint accepts for an environment (capability lists,
   masked-envs, direct-write envs) — the client renders its pickers from it.
 
+  `copyFormats` lists the results "Copy as" formats (CSV/JSON/SQL-IN/etc.) the
+  client offers. It comes from the `COPY_FORMATS` env var (a JSON array of
+  `CopyFormat`), or code defaults when unset.
+
   **Public** — no auth.
 }

@@ -4,9 +4,17 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 
-import { authMiddleware, handleLogin, handleMe, handleChangePassword, handleUpdateProfile, initAuthTables } from "./middleware/auth.js";
+import {
+  authMiddleware,
+  handleLogin,
+  handleMe,
+  handleChangePassword,
+  handleUpdateProfile,
+  initAuthTables,
+} from "./middleware/auth.js";
 import { initDatabase, getPhiMaskedEnvs } from "./services/sqlite-store.js";
 import { getEnvironments } from "./config/connections.js";
+import { loadCopyFormats } from "./config/copy-formats.js";
 import queryRoutes from "./routes/query.js";
 import connectionRoutes from "./routes/connections.js";
 import savedQueryRoutes from "./routes/saved-queries.js";
@@ -47,6 +55,8 @@ app.get("/api/config", (_req, res) => {
     // The deployment's environments, derived from DBFORGE_CONNECTIONS. The
     // client renders its env pickers from this — never a hardcoded list.
     environments: getEnvironments(),
+    // Results "Copy as" formats — from COPY_FORMATS env, else code defaults.
+    copyFormats: loadCopyFormats(),
   });
 });
 

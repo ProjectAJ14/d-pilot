@@ -8,6 +8,49 @@ export type Environment = string;
 export type MaskingType = "FULL" | "PARTIAL" | "HASH" | "REDACT";
 export type ResultViewMode = "table" | "json";
 
+// --- Results "Copy as" formats ------------------------------------------------
+// Deployment-configurable via the COPY_FORMATS env var, with code defaults. See
+// server/config/copy-formats.ts (loader + defaults) and
+// src/utils/data-extractors.ts (the renderer). Mirrored in server/types.
+
+/** How a template extractor quotes each cell. */
+export type CopyQuote = "none" | "single" | "double";
+
+/** Built-in structural formatters a copy format can reference by name. */
+export type CopyBuiltin = "csv" | "tsv" | "json" | "markdown" | "sql-insert";
+
+/** Separator-based custom extractor (DataGrip-style). */
+export interface CopyTemplate {
+  columnSeparator: string;
+  rowSeparator: string;
+  quote?: CopyQuote;
+  /** When false, the first column is emitted bare (e.g. `code "description"`). */
+  quoteFirstColumn?: boolean;
+  /** Text emitted for null/undefined cells (default ""). */
+  nullText?: string;
+  /** Prepend a row of column names. */
+  header?: boolean;
+  prefix?: string;
+  suffix?: string;
+}
+
+/**
+ * One entry in the results "Copy as" menu. Carries either a `builtin`
+ * structural formatter or a separator `template` — never both.
+ */
+export interface CopyFormat {
+  id: string;
+  label: string;
+  /** Menu section (e.g. "Tabular", "List / SQL"). */
+  group?: string;
+  /** Short example shown under the label in the menu. */
+  example?: string;
+  /** Also offer this format on the per-column right-click menu. */
+  columnMenu?: boolean;
+  builtin?: CopyBuiltin;
+  template?: CopyTemplate;
+}
+
 // Machine-readable error codes returned by the API (body: { error, code? }).
 export type ApiErrorCode = "CONNECTION_FAILED";
 

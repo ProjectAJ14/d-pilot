@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useStore } from "./store";
 import { api } from "./utils/api-client";
+import { DEFAULT_COPY_FORMATS } from "./utils/data-extractors";
 import { LoginScreen } from "./components/auth/login-screen";
 import { TopBar } from "./components/layout/top-bar";
 import { Sidebar } from "./components/layout/sidebar";
@@ -129,7 +130,13 @@ export default function App() {
     api
       .getConfig()
       .then((cfg) => {
-        setConfig(cfg);
+        // An older server may not send copyFormats — fall back to code defaults.
+        setConfig({
+          ...cfg,
+          copyFormats: cfg.copyFormats?.length
+            ? cfg.copyFormats
+            : DEFAULT_COPY_FORMATS,
+        });
         if (cfg.faviconUrl) {
           let link =
             document.querySelector<HTMLLinkElement>('link[rel="icon"]');

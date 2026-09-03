@@ -4,13 +4,13 @@
   --surface2: #f3f6f7;
   --surface3: #e8e8e8;
   --border: #ccd0d2;
-  --border2: #BEC3C6;
+  --border2: #bec3c6;
   --accent: #1f9196;
   --accent2: #4caf50;
   --accent3: #d73636;
   --accent4: #0c2340;
   --text: #0c2340;
-  --muted: #8F9AA7;
+  --muted: #8f9aa7;
   --muted2: #576e75;
   --success: #4caf50;
   --error: #d73636;
@@ -53,11 +53,21 @@ body {
 }
 
 @keyframes pulsered {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
