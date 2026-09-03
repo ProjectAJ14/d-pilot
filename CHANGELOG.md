@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.19.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.18.0...v1.19.0) (2026-09-03)
+
+
+### Features
+
+* **query:** copy results in configurable formats with cell selection ([ceee0cb](https://github.com/ProjectAJ14/d-pilot/commit/ceee0cb70f5ec3b37c35d24563d8efeeaa31ab8e))
+
 # [1.18.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.17.0...v1.18.0) (2026-08-28)
 
 
