@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.21.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.20.0...v1.21.0) (2026-09-05)
+
+
+### Features
+
+* **ui:** add dark/light/system theming on a semantic token system ([4958555](https://github.com/ProjectAJ14/d-pilot/commit/495855568689a0f00f2a3af96924b2c58517d6d2))
+
 # [1.20.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.19.0...v1.20.0) (2026-09-05)
 
 
