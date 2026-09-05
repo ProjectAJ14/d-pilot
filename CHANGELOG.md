@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.20.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.19.0...v1.20.0) (2026-09-05)
+
+
+### Features
+
+* **write:** save write requests as drafts and let MCP create them ([0dfa141](https://github.com/ProjectAJ14/d-pilot/commit/0dfa141a39710178a79f9d7fd9401e0a3942d93e))
+
 # [1.19.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.18.0...v1.19.0) (2026-09-03)
 
 
