@@ -29,10 +29,16 @@ body:json {
 }
 
 docs {
-  Lists the tools exposed to agents: `whoami`, `list_connections`, `list_schemas`,
-  `list_tables`, `describe_table`, `run_query`.
+  Lists the tools exposed to agents.
 
-  All read-only. Write tools are deliberately absent — writes go through the
-  write-approval workflow so a human authors the paired verify SELECT and a second
-  person approves.
+  Database access — `whoami`, `list_connections`, `list_schemas`, `list_tables`,
+  `describe_table`, `run_query` — is read-only.
+
+  `create_artifact` / `update_artifact` / `get_artifact` / `list_artifacts` /
+  `archive_artifact` write D-Pilot's own document store, never a target database.
+
+  `create_write_request` saves a **DRAFT** write request for a human to review; it
+  executes nothing, on any environment. There is deliberately no tool to submit,
+  approve or run one — that step happens in D-Pilot, as a person, so the paired
+  verify SELECT gets read and (off direct-write envs) a second person approves.
 }

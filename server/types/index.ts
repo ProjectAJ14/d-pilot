@@ -247,6 +247,7 @@ export type WriteRequestStatus =
   | "CANCELLED";
 
 export type WriteRequestEventType =
+  | "SAVED"
   | "SUBMITTED"
   | "AI_REVIEWED"
   | "APPROVED"

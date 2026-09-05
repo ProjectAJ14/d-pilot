@@ -21,7 +21,8 @@ body:json {
     "connectionId": "{{connectionId}}",
     "selectSql": "SELECT id, active FROM patients WHERE id = 42",
     "writeSql": "UPDATE patients SET active = true WHERE id = 42",
-    "noTransaction": false
+    "noTransaction": false,
+    "draft": false
   }
 }
 
@@ -32,6 +33,8 @@ docs {
   - **Migration** (multiple statements or any DDL, PostgreSQL/SQL Server only) — `selectSql` is ignored; the whole script runs as one transaction and rolls back atomically on failure. Set `noTransaction: true` only when the script contains a statement that can't run in a transaction (e.g. CREATE INDEX CONCURRENTLY, VACUUM) — it then commits statement-by-statement with NO rollback.
 
   On DIRECT-policy envs an authorized author executes immediately; otherwise it goes PENDING for approval.
+
+  Set `draft: true` to save it instead: the request is stored as DRAFT and neither queued for approval nor executed, whatever the environment's policy says, until someone calls **Submit Write Request**. This is what the MCP `create_write_request` tool sends, so an agent can never reach a target database.
 
   Requires a valid Bearer JWT ({{token}}).
   Requires **write mode** to be enabled.

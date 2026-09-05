@@ -151,6 +151,8 @@ export const api = {
     selectSql?: string;
     writeSql: string;
     noTransaction?: boolean;
+    /** Save only — the request is neither queued for approval nor executed. */
+    draft?: boolean;
   }) =>
     request<WriteRequest>("/write-requests", {
       method: "POST",
@@ -224,6 +226,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ notes }),
     }),
+  // Turn a saved draft into a live request: approval queue, or an immediate run
+  // on a direct-write environment — as the person submitting it.
+  submitWriteRequest: (id: string) =>
+    request<WriteRequest>(`/write-requests/${id}/submit`, { method: "POST" }),
   cancelWriteRequest: (id: string) =>
     request<WriteRequest>(`/write-requests/${id}/cancel`, { method: "POST" }),
   reviseWriteRequest: (

@@ -796,8 +796,8 @@ function AnalyticsTab() {
             Database connections
           </Text>
           <Text size="xs" c="dimmed">
-            {connStatus.filter((c) => c.live).length} live ·{" "}
-            {connStatus.length} configured
+            {connStatus.filter((c) => c.live).length} live · {connStatus.length}{" "}
+            configured
           </Text>
         </Group>
         <Text size="xs" c="dimmed" mb={12}>
@@ -2592,6 +2592,7 @@ const ACTION_COLORS: Record<string, string> = {
   PHI_RULES_IMPORT: "teal",
   PHI_RULES_EXPORT: "teal",
   PHI_RULES_DELETE_ALL: "red",
+  WRITE_SAVE: "gray",
   WRITE_SUBMIT: "grape",
   WRITE_RESUBMIT: "grape",
   WRITE_APPROVE: "green",
@@ -2612,6 +2613,7 @@ const ACTION_LABELS: Record<string, string> = {
   PHI_RULES_IMPORT: "PHI Rules Import",
   PHI_RULES_EXPORT: "PHI Rules Export",
   PHI_RULES_DELETE_ALL: "PHI Rules Purge",
+  WRITE_SAVE: "Write Saved",
   WRITE_SUBMIT: "Write Submitted",
   WRITE_RESUBMIT: "Write Resubmitted",
   WRITE_APPROVE: "Write Approved",

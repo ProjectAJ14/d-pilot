@@ -13,7 +13,13 @@
  * workflow, where a human authors the paired verify SELECT and an approver signs
  * off; an agent holding one credential must not be able to do both.
  *
- * Artifacts are the one exception to "read-only", and only because they are not
+ * `create_write_request` is the one seam, and it stops short of the database: it
+ * saves a DRAFT — a title, the write statement and its verify SELECT, validated
+ * exactly as the UI validates them — which does nothing until a human opens it in
+ * D-Pilot and submits or runs it under their own capabilities. There is no tool to
+ * submit, approve or execute one, on any environment, direct-write included.
+ *
+ * Artifacts are the other exception to "read-only", and only because they are not
  * database state: an artifact stores prose and *unexecuted* read queries in
  * D-Pilot's own SQLite, and an agent may only touch the ones its account owns.
  * The DB boundary is unchanged — nothing an agent writes here can reach a target
@@ -44,10 +50,11 @@ const loopbackUrl = () => `http://127.0.0.1:${process.env.PORT || "3101"}`;
  * link. Falls back to a bare path: an agent pasting `/artifacts/<id>` is mildly
  * annoying, inventing `localhost:3101` for a teammate on the VPN is worse.
  */
-const artifactUrl = (id: string): string => {
+const appUrl = (path: string): string => {
   const base = process.env.APP_BASE_URL?.replace(/\/+$/, "");
-  return `${base ?? ""}/artifacts/${id}`;
+  return `${base ?? ""}${path}`;
 };
+const artifactUrl = (id: string): string => appUrl(`/artifacts/${id}`);
 
 // --- Credentials ---
 
@@ -320,13 +327,69 @@ function createMcpServer(client: DPilotApiClient): McpServer {
       }),
   );
 
+  const writes = { readOnlyHint: false, openWorldHint: true };
+
+  // --- Write requests ---
+  //
+  // Drafting only. The tool posts `draft: true`, so the request is saved in the
+  // approval workflow and executes nothing — the environment's direct-write
+  // policy is not consulted until a human submits it as themselves.
+
+  server.registerTool(
+    "create_write_request",
+    {
+      title: "Save a write request",
+      description:
+        "Saves a DRAFT change request (UPDATE/INSERT/DELETE, or a migration script) for a human to review in D-Pilot. It does NOT run: nothing reaches the database until a teammate opens the request and submits or runs it under their own permissions, even on environments configured for direct writes. Use this instead of asking someone to copy SQL out of chat. Requires write capability on the target connection's environment.",
+      inputSchema: {
+        title: z
+          .string()
+          .describe(
+            "Short summary of the change, e.g. 'Backfill order status'.",
+          ),
+        connectionId: z
+          .string()
+          .describe("Target connection (see list_connections)."),
+        writeSql: z
+          .string()
+          .describe(
+            "The statement to run: a single UPDATE/INSERT/DELETE, or a multi-statement migration script. Always give UPDATE and DELETE a WHERE clause.",
+          ),
+        selectSql: z
+          .string()
+          .optional()
+          .describe(
+            "Required for a single-statement write: a read-only SELECT previewing exactly the rows `writeSql` affects (same table, same WHERE), so the reviewer can see the blast radius. Omit only for a migration script.",
+          ),
+        description: z
+          .string()
+          .optional()
+          .describe("Why the change is needed. Link a ticket if there is one."),
+      },
+      annotations: writes,
+    },
+    (input) =>
+      guard(async () => {
+        const wr = await client.post<any>("/write-requests", {
+          ...input,
+          draft: true,
+        });
+        return json({
+          id: wr.id,
+          url: appUrl(`/write-requests/${wr.id}`),
+          status: wr.status,
+          env: wr.env,
+          connection: wr.connectionName,
+          note: "Saved as a draft — it has not run. Share the link: a teammate submits it for approval, or runs it if the environment allows direct writes.",
+        });
+      }),
+  );
+
   // --- Artifacts ---
   //
   // Not database access — these read and write D-Pilot's own document store, so
   // an agent can leave findings somewhere the whole org can open, instead of in
   // a chat only its author can see. `blocks` carry queries, never result rows.
-
-  const writes = { readOnlyHint: false, openWorldHint: true };
 
   const blocksInput = blocksSchema.describe(
     'The document body, in order. `{"type":"text","body":"..."}` for prose — GitHub-flavoured **markdown**: use `##` headings to structure a long document, `**bold**`, bullet lists, and `|` tables for anything columnar (never hand-aligned ASCII columns, which reflow into mush). Raw HTML is escaped, not rendered. Use a fenced code block when you need monospace alignment preserved. Then `{"type":"sql","sql":"...","label":"short name","connectionId":"..."}` for a query the reader can run from the artifact. Put each query in its own block so it gets its own Run button; omit connectionId to inherit the artifact\'s. Write queries may be stored for discussion but are never runnable from an artifact — the reader is offered the write-approval workflow instead.',

@@ -55,7 +55,8 @@ export function WriteWorkspace() {
           Draft the statement you want to run, then generate an editable verify
           SELECT so a reviewer can see exactly which rows it affects. On
           approval environments it is submitted for a second person to review;
-          on direct environments it runs immediately. Track it under{" "}
+          on direct environments it runs immediately. Or save it for later — a
+          saved request runs nothing until someone submits it. Track it under{" "}
           <Text component="span" fw={600} c="secondary.9">
             Requests
           </Text>
@@ -92,6 +93,17 @@ export function WriteWorkspace() {
                 selectSql: p.selectSql,
                 writeSql: p.writeSql,
                 noTransaction: p.noTransaction,
+              })
+            }
+            onSave={(p) =>
+              api.createWriteRequest({
+                title: p.title,
+                description: p.description,
+                connectionId: p.connectionId,
+                selectSql: p.selectSql,
+                writeSql: p.writeSql,
+                noTransaction: p.noTransaction,
+                draft: true,
               })
             }
             onSubmitted={(wr) => navigate(`/write-requests/${wr.id}`)}

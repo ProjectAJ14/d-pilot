@@ -99,9 +99,21 @@ name rather than one baked in at build time. In production `express.static` also
 ## Write-request lifecycle
 
 Status: `DRAFT → PENDING → APPROVED → EXECUTED` (or `FAILED`/`REJECTED`/`CANCELLED`).
-Each transition appends a `write_request_events` row (`SUBMITTED`, `AI_REVIEWED`,
+Each transition appends a `write_request_events` row (`SAVED`, `SUBMITTED`, `AI_REVIEWED`,
 `APPROVED`/`AUTO_APPROVED`, `REJECTED`, `RESUBMITTED`, `EXECUTED`, `FAILED`, `CANCELLED`)
-for the timeline. Every request carries a paired verify **SELECT** and the **WRITE**.
+for the timeline.
+
+**`DRAFT` is the saved-but-not-running state** (`POST /` with `draft: true`, the composer's
+"Save request", and everything the MCP endpoint creates). A draft is validated exactly like a
+submitted request but skips both the approval queue *and* direct execution — the environment's
+direct-write policy is not consulted at all. `POST /:id/submit` is the only way out of it, and
+it is where an agent-authored change meets a human: `planDraftSubmit` (exported, unit-tested)
+decides refuse / queue for approval / run now, and hands the request's authorship to whoever
+submits it, so the approve route's self-approval block still holds — nobody submits a draft and
+then approves it as "someone else's". Visibility follows write capability as well as approve
+capability, or a draft would be invisible to the people who can act on it.
+
+Every request carries a paired verify **SELECT** and the **WRITE**.
 `WriteAiReview` holds the structured safety verdict (SAFE/CAUTION/DANGEROUS, blast
 radius, select-matches-write, suggested corrections). **PROD always needs a second
 approver** — never auto-approve/direct-execute on PROD.
@@ -128,9 +140,11 @@ There is **no delete** — `setArtifactArchived` is the only removal, exposed as
 archived artifacts, `getArtifactById` still returns them so an old share link opens and says
 "archived" rather than 404ing.
 
-The MCP endpoint may create/update/archive artifacts — the single exception to its read-only
-posture, and only because artifacts are not database state. Keep that boundary: an agent must
-never gain a path that mutates a *target* database, and cannot destroy an artifact either.
+The MCP endpoint may create/update/archive artifacts — an exception to its read-only posture,
+and only because artifacts are not database state. Keep that boundary: an agent must never gain
+a path that mutates a *target* database, and cannot destroy an artifact either. The same reason
+lets it save write-request **drafts** (`create_write_request`): a draft is a document until a
+human submits it. Never add an MCP tool that submits, approves or executes one.
 
 ## Types
 

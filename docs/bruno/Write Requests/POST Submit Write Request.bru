@@ -1,0 +1,20 @@
+meta {
+  name: Submit Write Request
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/api/write-requests/{{writeRequestId}}/submit
+  body: none
+  auth: inherit
+}
+
+docs {
+  Turn a saved DRAFT into a live request: it enters the approval queue, or — on a DIRECT-policy environment — runs immediately as the caller. 409s on any other status.
+
+  Whoever submits becomes the request's requester, so the approve route's self-approval block covers them: you cannot submit a draft and then approve it yourself.
+
+  Requires **write** capability on the request's environment and a valid Bearer JWT ({{token}}).
+  Requires **write mode** to be enabled.
+}

@@ -35,7 +35,8 @@ ever leaving the building in the clear.
 - **Paired verify SELECT** — every write request carries a read-only SELECT to preview affected rows before execution.
 - **AI safety review** — verdict (Safe / Caution / Dangerous), blast-radius estimate, SELECT-matches-write check, and one-click suggested corrections.
 - **Single-statement, scoped writes only** — one INSERT/UPDATE/DELETE (or Mongo/ES equivalent); UPDATE/DELETE must be scoped (WHERE required); transactional where the engine supports it.
-- **Full lifecycle audit** — submit, AI review, approve/reject, execute/fail, cancel, revise & resubmit — each with an activity timeline.
+- **Save without running** — "Save request" stores a request as a draft that executes nothing until someone submits or runs it, on any environment. This is also what the MCP endpoint creates, so an AI agent can propose a change but never make one.
+- **Full lifecycle audit** — save, submit, AI review, approve/reject, execute/fail, cancel, revise & resubmit — each with an activity timeline.
 
 ### AI assistant (Azure OpenAI)
 - **Natural-language → query** for read and write modes, dialect-aware, with a table-selection pass for large schemas and few-shot examples pulled from saved queries.
@@ -43,6 +44,7 @@ ever leaving the building in the clear.
 
 ### AI agents (MCP)
 - **Hosted MCP endpoint** at `/api/mcp` — agents discover connections, browse schema, and run read-only queries through the same API the UI uses, so capabilities, PHI tokenization, row caps and audit logging all apply unchanged. Configure with just a URL, username, and password; nothing to install.
+- **Agents propose, humans dispose** — an agent can save a write request as a draft (statement plus its verify SELECT); it cannot submit, approve or execute one, so nothing an agent writes reaches a database until a person acts on it in D-Pilot.
 
 ### Artifacts
 - **Shareable documents that live next to the data** — prose plus runnable read queries, opened as a tab from `/artifacts/:id` by anyone who can log in. Each query block has its own Run button and its own results.
@@ -219,7 +221,7 @@ Notes:
 
 ## MCP Server (AI agents)
 
-D-Pilot hosts a **read-only** [MCP](https://modelcontextprotocol.io) endpoint at
+D-Pilot hosts a **read-only** (see the write-request exception below) [MCP](https://modelcontextprotocol.io) endpoint at
 **`/api/mcp`**, so AI agents can query the same databases under the same rules as the UI.
 It runs inside the existing server process — nothing extra to deploy, install, or clone.
 Agents just point at the URL everyone already uses.
@@ -241,21 +243,34 @@ cannot be bypassed. Every agent query lands in the audit log under its service a
 | `get_artifact` | Reads one artifact's full body |
 | `list_artifacts` | Artifacts visible to the account (optional `search`) |
 | `archive_artifact` | Archives (or restores) an artifact the service account created |
+| `create_write_request` | Saves a **draft** change request for a human to review — it never runs |
 
 Database writes are deliberately **not** exposed — those stay in the write-approval workflow,
-where a human authors the paired verify SELECT and a second person approves.
+where a human reads the paired verify SELECT and a second person approves.
+
+`create_write_request` is how an agent proposes a change without being able to make one. It
+saves a DRAFT: title, the write statement, and the verify SELECT that previews the affected
+rows, validated by exactly the same rules the UI applies. A draft executes nothing — not even
+on an environment configured for direct writes — until a person opens it in D-Pilot and clicks
+**Submit for approval** or **Run now**. There is no tool to submit, approve or run one, and the
+account still needs Write capability on the target environment to save a draft at all.
+Submitting also makes the submitter the requester, so nobody can have an agent draft a change,
+submit it, and then approve their own work.
 
 The artifact tools are the one exception to read-only, and only because they touch no target
 database: an artifact holds prose and *unexecuted* read queries in D-Pilot's own SQLite, an
 agent may only edit the ones its own account created, and nothing it writes reaches a database
 until a human opens the artifact and runs a block as themselves. Set `APP_BASE_URL` so the
-tools hand back a clickable link instead of a bare `/artifacts/<id>` path.
+tools hand back clickable links instead of bare `/artifacts/<id>` and `/write-requests/<id>`
+paths.
 
 ### Setup
 
-1. **Create a service account** in Settings → User Management. Grant *only* the Read
-   capability, on *only* the environments agents should reach — no Unmask PHI, no Write, no
-   Approve, not an admin. This is what bounds every agent using it.
+1. **Pick the account.** Either create a service account in Settings → User Management, or
+   let each person connect with their own login — then every agent action is audited under
+   that person and bounded by their capabilities. Grant *only* the Read capability, on *only*
+   the environments agents should reach — not an admin. Add Write on an environment only if
+   agents should be able to save draft write requests there (they still cannot run one).
 2. **Point the agent at the URL** with its username and password. For Claude Code:
 
    ```bash
@@ -291,7 +306,7 @@ Optional server-side setting:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `MCP_MAX_ROWS` | `1000` | Rows returned per query. Agents are told this default (via `whoami` and the `run_query` schema) and can raise it per call with `limit`; `MAX_ROWS` remains the hard ceiling. |
-| `APP_BASE_URL` | *(unset)* | The origin users browse D-Pilot on, used to build clickable artifact links in tool output. Unset means agents return a bare `/artifacts/<id>` path. |
+| `APP_BASE_URL` | *(unset)* | The origin users browse D-Pilot on, used to build clickable artifact and write-request links in tool output. Unset means agents return a bare `/artifacts/<id>` path. |
 
 **PHI:** the endpoint never sends the unmask headers, so tokenized columns stay tokenized for
 agents regardless of the account's capabilities. `run_query` names the tokenized columns so an

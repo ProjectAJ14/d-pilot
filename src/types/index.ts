@@ -225,6 +225,7 @@ export interface WriteRequestEvent {
   actorId: string;
   actorEmail: string;
   event:
+    | "SAVED"
     | "SUBMITTED"
     | "AI_REVIEWED"
     | "APPROVED"
@@ -275,6 +276,10 @@ export interface WriteRequest {
   viewerCanApprove?: boolean;
   viewerIsRequester?: boolean;
   viewerCanPreview?: boolean;
+  /** Viewer may turn this saved DRAFT into a live request (write capability on its env). */
+  viewerCanSubmit?: boolean;
+  /** Submitting this request executes it immediately (direct-write environment). */
+  submitRunsImmediately?: boolean;
 }
 
 export interface AiChatLogEntry {

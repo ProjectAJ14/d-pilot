@@ -1373,6 +1373,8 @@ export function updateWriteRequest(
   id: string,
   updates: Partial<{
     status: WriteRequestStatus;
+    requestedBy: string;
+    requestedByEmail: string;
     reviewedBy: string;
     reviewedByEmail: string;
     reviewedAt: string;
@@ -1392,6 +1394,8 @@ export function updateWriteRequest(
   const params: any[] = [];
   const map: Record<string, any> = {
     status: updates.status,
+    requested_by: updates.requestedBy,
+    requested_by_email: updates.requestedByEmail,
     reviewed_by: updates.reviewedBy,
     reviewed_by_email: updates.reviewedByEmail,
     reviewed_at: updates.reviewedAt,
@@ -1431,18 +1435,27 @@ export function updateWriteRequest(
 }
 
 /**
- * Atomically transitions a request from PENDING to APPROVED, returning true only
- * for the caller that won the claim. Prevents double execution when two approvers
- * act on the same request concurrently.
+ * Atomically moves a request between two statuses, returning true only for the
+ * caller that won the claim. Every transition that can end in an execution goes
+ * through this — two people acting on the same request at the same time must not
+ * both run the write.
  */
-export function claimWriteRequestForApproval(id: string): boolean {
-  const now = new Date().toISOString();
+export function claimWriteRequestStatus(
+  id: string,
+  from: WriteRequestStatus,
+  to: WriteRequestStatus,
+): boolean {
   const result = db
     .prepare(
-      "UPDATE write_requests SET status = 'APPROVED', updated_at = ? WHERE id = ? AND status = 'PENDING'",
+      "UPDATE write_requests SET status = ?, updated_at = ? WHERE id = ? AND status = ?",
     )
-    .run(now, id);
+    .run(to, new Date().toISOString(), id, from);
   return result.changes === 1;
+}
+
+/** PENDING → APPROVED, claimed by exactly one approver. */
+export function claimWriteRequestForApproval(id: string): boolean {
+  return claimWriteRequestStatus(id, "PENDING", "APPROVED");
 }
 
 /**

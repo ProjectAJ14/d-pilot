@@ -27,9 +27,13 @@ import { useStore } from "../../store";
 import type { WriteRequest } from "../../types";
 import { StatusBadge, EnvBadge, VerdictBadge, fmtDateTime } from "./shared";
 
-/** Requests that need the current user's attention (approve, or revise their own). */
+/** Requests that need the current user's attention (approve, submit a draft, or revise their own). */
 export function needsMyAction(r: WriteRequest): boolean {
   if (r.viewerCanApprove && r.status === "PENDING") return true;
+  // A saved draft (yours, or one an agent left in an environment you can write
+  // to) sits there doing nothing until someone submits or runs it.
+  if (r.status === "DRAFT" && (r.viewerIsRequester || r.viewerCanSubmit))
+    return true;
   if (r.viewerIsRequester && (r.status === "REJECTED" || r.status === "FAILED"))
     return true;
   return false;

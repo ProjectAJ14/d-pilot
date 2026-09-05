@@ -19,6 +19,7 @@ import {
 import {
   IconPlayerPlay,
   IconSend,
+  IconDeviceFloppy,
   IconBolt,
   IconSparkles,
   IconWand,
@@ -132,6 +133,8 @@ interface WriteComposerProps {
   /** Show a "note to reviewer" field (revise). */
   showNote?: boolean;
   onSubmit: (payload: ComposerSubmit) => Promise<WriteRequest>;
+  /** Save the request without submitting or running it. Shows a "Save request" button. */
+  onSave?: (payload: ComposerSubmit) => Promise<WriteRequest>;
   onSubmitted?: (wr: WriteRequest) => void;
   onCancel?: () => void;
 }
@@ -151,6 +154,7 @@ export function WriteComposer({
   initial,
   showNote,
   onSubmit,
+  onSave,
   onSubmitted,
   onCancel,
 }: WriteComposerProps) {
@@ -191,6 +195,7 @@ export function WriteComposer({
   const [aiLoading, setAiLoading] = useState(false);
   const [genSelecting, setGenSelecting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const conn = connections.find((c) => c.id === connectionId);
   const isDirect = conn ? directEnvs.includes(conn.env) : false;
@@ -374,7 +379,8 @@ export function WriteComposer({
     });
   };
 
-  const handleSubmit = async () => {
+  /** `save: true` stores the request as a draft — nothing is queued or executed. */
+  const handleSubmit = async (save = false) => {
     if (
       !title.trim() ||
       !connectionId ||
@@ -401,9 +407,10 @@ export function WriteComposer({
       });
       return;
     }
-    setSubmitting(true);
+    const setBusy = save ? setSaving : setSubmitting;
+    setBusy(true);
     try {
-      const wr = await onSubmit({
+      const wr = await (save ? onSave! : onSubmit)({
         title: title.trim(),
         description: description.trim() || undefined,
         connectionId,
@@ -413,7 +420,15 @@ export function WriteComposer({
         noTransaction: isMigration ? noTransaction : undefined,
       });
       const verb = isCreate ? "Submitted" : "Resubmitted";
-      if (wr.status === "EXECUTED") {
+      if (wr.status === "DRAFT") {
+        notifications.show({
+          title: "Request saved",
+          message:
+            "It has not run — open it under Requests to submit or run it.",
+          color: "teal",
+          icon: <IconDeviceFloppy size={16} />,
+        });
+      } else if (wr.status === "EXECUTED") {
         notifications.show({
           title: isCreate ? "Write executed" : "Resubmitted & executed",
           message: `${wr.rowsAffected ?? 0} row(s) affected${wr.transactional === false ? " (non-transactional)" : ""}`,
@@ -446,7 +461,7 @@ export function WriteComposer({
     } catch (e: any) {
       notifications.show({ message: e.message, color: "red" });
     } finally {
-      setSubmitting(false);
+      setBusy(false);
     }
   };
 
@@ -881,6 +896,17 @@ export function WriteComposer({
               Cancel
             </Button>
           )}
+          {onSave && (
+            <Button
+              variant="default"
+              leftSection={<IconDeviceFloppy size={16} />}
+              onClick={() => handleSubmit(true)}
+              loading={saving}
+              disabled={submitDisabled || submitting}
+            >
+              Save request
+            </Button>
+          )}
           <Button
             color={!isCreate ? "grape" : isDirect ? "green" : "primary"}
             leftSection={
@@ -890,9 +916,9 @@ export function WriteComposer({
                 <IconSend size={16} />
               )
             }
-            onClick={handleSubmit}
+            onClick={() => handleSubmit()}
             loading={submitting}
-            disabled={submitDisabled}
+            disabled={submitDisabled || saving}
           >
             {submitLabel}
           </Button>

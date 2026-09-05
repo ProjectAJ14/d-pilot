@@ -36,6 +36,7 @@ import {
   updateWriteRequest,
   reviseWriteRequest,
   claimWriteRequestForApproval,
+  claimWriteRequestStatus,
   addWriteRequestEvent,
   getWriteModeEnabled,
   getWriteDirectEnvs,
@@ -68,8 +69,50 @@ function canApproveEnv(user: AuthUser, env: string): boolean {
 }
 function canViewRequest(user: AuthUser, wr: WriteRequest): boolean {
   return (
-    user.isAdmin || wr.requestedBy === user.sub || canApproveEnv(user, wr.env)
+    user.isAdmin ||
+    wr.requestedBy === user.sub ||
+    canApproveEnv(user, wr.env) ||
+    // Write capability sees its environment's requests too — otherwise a saved
+    // DRAFT is invisible to exactly the people who can submit or run it.
+    canAuthorEnv(user, wr.env)
   );
+}
+
+/**
+ * Decides what submitting a saved DRAFT does, without touching the database —
+ * the whole transition in one testable place.
+ *
+ * Ownership transfer is the two-person rule: whoever submits a draft is the
+ * person raising the request, so they become its requester and the approve
+ * route's self-approval block then covers them. Without it, A could ask an
+ * agent to draft a change, submit it, and approve it as "someone else's".
+ */
+export function planDraftSubmit(
+  user: AuthUser,
+  wr: Pick<WriteRequest, "status" | "env" | "requestedBy">,
+  directEnvs: string[],
+):
+  | { ok: false; status: number; error: string }
+  | { ok: true; takeOwnership: boolean; runNow: boolean } {
+  if (wr.status !== "DRAFT") {
+    return {
+      ok: false,
+      status: 409,
+      error: `Request is ${wr.status} — only a saved draft can be submitted.`,
+    };
+  }
+  if (!canAuthorEnv(user, wr.env)) {
+    return {
+      ok: false,
+      status: 403,
+      error: `You are not allowed to author writes in ${wr.env}`,
+    };
+  }
+  return {
+    ok: true,
+    takeOwnership: wr.requestedBy !== user.sub,
+    runNow: directEnvs.includes(wr.env),
+  };
 }
 
 /** Blocks mutating write-workflow actions when the feature is globally disabled. */
@@ -269,6 +312,7 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
     selectSql,
     writeSql,
     noTransaction,
+    draft,
   } = req.body as {
     title?: string;
     description?: string;
@@ -276,6 +320,8 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
     selectSql?: string;
     writeSql?: string;
     noTransaction?: boolean;
+    /** Save only — no approval round, no direct execution, until someone submits it. */
+    draft?: boolean;
   };
 
   if (!title?.trim() || !connectionId || !writeSql?.trim()) {
@@ -312,7 +358,11 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
     return;
   }
 
-  const direct = getWriteDirectEnvs().includes(conn.env);
+  // A draft is saved and stops there: it is neither submitted for approval nor
+  // executed, whatever the environment's policy says. This is what the MCP
+  // endpoint creates, so an agent can never reach a target database.
+  const isDraft = !!draft;
+  const direct = !isDraft && getWriteDirectEnvs().includes(conn.env);
 
   const wr = createWriteRequest({
     title: title.trim(),
@@ -323,18 +373,23 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
     dbType: conn.type,
     selectSql: isMigration ? undefined : selectSql?.trim() || undefined,
     writeSql: writeSql.trim(),
-    status: "PENDING",
+    status: isDraft ? "DRAFT" : "PENDING",
     requestedBy: user.sub,
     requestedByEmail: user.email,
     isMigration,
     noTransaction: noTx,
   });
 
-  addWriteRequestEvent(wr.id, user.sub, user.email, "SUBMITTED");
+  addWriteRequestEvent(
+    wr.id,
+    user.sub,
+    user.email,
+    isDraft ? "SAVED" : "SUBMITTED",
+  );
   logAudit({
     userId: user.sub,
     userEmail: user.email,
-    action: "WRITE_SUBMIT",
+    action: isDraft ? "WRITE_SAVE" : "WRITE_SUBMIT",
     sql: writeSql.trim(),
     connectionId,
     phiAccessed: false,
@@ -353,7 +408,11 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
 
 router.get("/", (req: Request, res: Response) => {
   const user = req.user!;
-  const envs = user.isAdmin ? getEnvironments() : user.approveEnvironments;
+  // Approvers see what they must review; authors see their environment's
+  // requests, including drafts waiting for someone to submit or run them.
+  const envs = user.isAdmin
+    ? getEnvironments()
+    : [...new Set([...user.approveEnvironments, ...user.writeEnvironments])];
   const requests = listWriteRequests({
     requestedBy: user.sub,
     envs,
@@ -365,6 +424,7 @@ router.get("/", (req: Request, res: Response) => {
       viewerCanApprove:
         canApproveEnv(user, wr.env) && wr.requestedBy !== user.sub,
       viewerIsRequester: wr.requestedBy === user.sub,
+      viewerCanSubmit: wr.status === "DRAFT" && canAuthorEnv(user, wr.env),
     })),
   );
 });
@@ -577,6 +637,10 @@ router.get("/:id", (req: Request, res: Response) => {
       canApproveEnv(user, wr.env) && wr.requestedBy !== user.sub,
     viewerIsRequester: wr.requestedBy === user.sub,
     viewerCanPreview: canReadEnv(user, wr.env),
+    viewerCanSubmit: wr.status === "DRAFT" && canAuthorEnv(user, wr.env),
+    // Whether submitting this draft executes it on the spot, so the UI can say
+    // so on the button instead of guessing from a separately-fetched policy.
+    submitRunsImmediately: getWriteDirectEnvs().includes(wr.env),
   });
 });
 
@@ -919,6 +983,88 @@ router.post("/:id/reject", requireWriteMode, (req: Request, res: Response) => {
   });
   res.json(getWriteRequest(wr.id));
 });
+
+// Turn a saved DRAFT into a live request: it enters the approval queue, or —
+// on a direct-write environment — runs immediately as the person submitting it.
+// Drafts are how the MCP endpoint contributes changes, so this human step is the
+// only door between an agent-authored statement and a target database.
+router.post(
+  "/:id/submit",
+  requireWriteMode,
+  async (req: Request, res: Response) => {
+    const user = req.user!;
+    const wr = getWriteRequest(req.params.id as string, false);
+    if (!wr) {
+      res.status(404).json({ error: "Write request not found" });
+      return;
+    }
+
+    const plan = planDraftSubmit(user, wr, getWriteDirectEnvs());
+    if (!plan.ok) {
+      res.status(plan.status).json({ error: plan.error });
+      return;
+    }
+
+    const conn = getConnection(wr.connectionId);
+    if (!conn) {
+      res.status(404).json({ error: "Connection not found" });
+      return;
+    }
+
+    // Re-validate at submit time — the draft may have been sitting for days.
+    const queryError = await validateRequestQueries(
+      conn,
+      wr.selectSql,
+      wr.writeSql,
+      { isMigration: !!wr.isMigration, noTransaction: wr.noTransaction },
+    );
+    if (queryError) {
+      res.status(400).json({ error: queryError });
+      return;
+    }
+
+    // Claim it, so a double-click (or two people on the same draft) cannot both
+    // reach the execution below on a direct-write environment.
+    if (!claimWriteRequestStatus(wr.id, "DRAFT", "PENDING")) {
+      res
+        .status(409)
+        .json({ error: "This draft was already submitted by someone else." });
+      return;
+    }
+    if (plan.takeOwnership) {
+      updateWriteRequest(wr.id, {
+        requestedBy: user.sub,
+        requestedByEmail: user.email,
+      });
+    }
+    addWriteRequestEvent(
+      wr.id,
+      user.sub,
+      user.email,
+      "SUBMITTED",
+      plan.takeOwnership
+        ? `Submitted a draft raised by ${wr.requestedByEmail}`
+        : undefined,
+    );
+    logAudit({
+      userId: user.sub,
+      userEmail: user.email,
+      action: "WRITE_SUBMIT",
+      sql: wr.writeSql,
+      connectionId: wr.connectionId,
+      phiAccessed: false,
+    });
+
+    if (plan.runNow) {
+      await runDirectExecution(wr.id, conn, wr.writeSql, user, {
+        isMigration: !!wr.isMigration,
+        noTransaction: wr.noTransaction,
+      });
+    }
+
+    res.json(getWriteRequest(wr.id));
+  },
+);
 
 router.post("/:id/cancel", (req: Request, res: Response) => {
   const user = req.user!;

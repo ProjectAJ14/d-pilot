@@ -80,6 +80,7 @@ export function WriteRequestDetail() {
   >(null);
   const [notes, setNotes] = useState("");
   const [deciding, setDeciding] = useState(false);
+  const [submittingDraft, setSubmittingDraft] = useState(false);
 
   // Edit & resubmit — reuses the full write composer
   const [editOpen, setEditOpen] = useState(false);
@@ -176,6 +177,44 @@ export function WriteRequestDetail() {
     }
   };
 
+  // Turn a saved draft into a live request. On a direct-write environment the
+  // server runs it as the person clicking — this is the human step an
+  // agent-authored draft cannot take for itself.
+  const handleSubmitDraft = async () => {
+    if (!id) return;
+    setSubmittingDraft(true);
+    try {
+      const updated = await api.submitWriteRequest(id);
+      notifications.show(
+        updated.status === "EXECUTED"
+          ? {
+              title: "Write executed",
+              message: `${updated.rowsAffected ?? 0} row(s) affected`,
+              color: "green",
+              icon: <IconCheck size={16} />,
+            }
+          : updated.status === "FAILED"
+            ? {
+                title: "Write failed",
+                message: updated.executionError || "Execution failed",
+                color: "red",
+              }
+            : {
+                message: "Submitted for approval",
+                color: "teal",
+                icon: <IconArrowBarToUp size={16} />,
+              },
+      );
+      load();
+      refreshBadge();
+    } catch (e: any) {
+      notifications.show({ message: e.message, color: "red" });
+      load();
+    } finally {
+      setSubmittingDraft(false);
+    }
+  };
+
   const handleCancel = async () => {
     if (!id) return;
     try {
@@ -234,7 +273,11 @@ export function WriteRequestDetail() {
   }
 
   const canApprove = wr.viewerCanApprove && wr.status === "PENDING";
-  const canCancel = wr.viewerIsRequester && wr.status === "PENDING";
+  const canCancel =
+    wr.viewerIsRequester && ["PENDING", "DRAFT"].includes(wr.status);
+  const isDraft = wr.status === "DRAFT";
+  // Straight from the server — the write policy can change while a draft sits.
+  const draftRunsNow = isDraft && !!wr.submitRunsImmediately;
   const canRevise =
     wr.viewerIsRequester &&
     ["REJECTED", "CANCELLED", "FAILED"].includes(wr.status);
@@ -412,6 +455,45 @@ export function WriteRequestDetail() {
             title={`Rejected by ${wr.reviewedByEmail || "reviewer"}`}
           >
             {wr.reviewNotes || "No reason provided."}
+          </Alert>
+        )}
+
+        {/* A saved draft does nothing until a human submits or runs it. */}
+        {isDraft && (
+          <Alert
+            color={draftRunsNow ? "teal" : "yellow"}
+            mb="md"
+            variant="light"
+            icon={<IconClock size={16} />}
+            title="Saved — not submitted"
+          >
+            <Group justify="space-between" wrap="nowrap" gap="md">
+              <Text size="sm">
+                {wr.viewerCanSubmit
+                  ? draftRunsNow
+                    ? `Nothing has run yet. Review the statement below, then run it on ${wr.env} — it executes under your account.`
+                    : "Nothing has run yet. Submit it to put it in front of an approver."
+                  : `Waiting for someone with write access to ${wr.env} to submit it.`}
+              </Text>
+              {wr.viewerCanSubmit && (
+                <Button
+                  size="xs"
+                  color={draftRunsNow ? "green" : "primary"}
+                  leftSection={
+                    draftRunsNow ? (
+                      <IconPlayerPlay size={14} />
+                    ) : (
+                      <IconArrowBarToUp size={14} />
+                    )
+                  }
+                  onClick={handleSubmitDraft}
+                  loading={submittingDraft}
+                  style={{ flexShrink: 0 }}
+                >
+                  {draftRunsNow ? "Run now" : "Submit for approval"}
+                </Button>
+              )}
+            </Group>
           </Alert>
         )}
 
@@ -844,6 +926,7 @@ export function WriteRequestDetail() {
 }
 
 const EVENT_COLORS: Record<string, string> = {
+  SAVED: "gray",
   SUBMITTED: "blue",
   AI_REVIEWED: "violet",
   APPROVED: "green",
