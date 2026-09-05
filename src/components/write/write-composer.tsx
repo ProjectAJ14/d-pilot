@@ -39,7 +39,7 @@ import type {
   DatabaseType,
 } from "../../types";
 import { EnvBadge, PreviewTable, AiReviewCard, StepBadge } from "./shared";
-import { baseSqlEditorOptions } from "../../utils/monaco-editor-options";
+import { baseSqlEditorOptions, useEditorTheme } from "../../utils/monaco-editor-options";
 import { useVimMode } from "../../utils/vim-mode";
 
 function monacoLang(dbType?: DatabaseType): string {
@@ -171,6 +171,7 @@ export function WriteComposer({
   );
   const seed = seedRef.current;
 
+  const editorTheme = useEditorTheme();
   const [title, setTitle] = useState(seed?.title ?? initial?.title ?? "");
   const [description, setDescription] = useState(
     seed?.description ?? initial?.description ?? "",
@@ -477,13 +478,13 @@ export function WriteComposer({
         label: "Direct write · runs immediately",
         text: "var(--accent)",
         dot: "var(--accent)",
-        halo: "rgba(31,145,150,0.18)",
+        halo: "color-mix(in srgb, var(--accent) 18%, transparent)",
       }
     : {
         label: "Approval required · second reviewer",
-        text: "#b47707",
-        dot: "#e0a020",
-        halo: "rgba(224,160,32,0.18)",
+        text: "var(--warning)",
+        dot: "var(--warning)",
+        halo: "color-mix(in srgb, var(--warning) 18%, transparent)",
       };
 
   // A light hint mirroring the required-field gating.
@@ -631,9 +632,9 @@ export function WriteComposer({
               gap: 5,
               fontSize: 11,
               fontWeight: 600,
-              color: "var(--accent)",
-              background: "rgba(31,145,150,0.12)",
-              border: "1px solid rgba(31,145,150,0.35)",
+              color: "var(--accent-text)",
+              background: "color-mix(in srgb, var(--accent) 12%, transparent)",
+              border: "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
               borderRadius: 999,
               padding: "1px 9px",
             }}
@@ -647,7 +648,7 @@ export function WriteComposer({
       </Group>
       <div
         style={{
-          border: "1px solid rgba(31,145,150,0.35)",
+          border: "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
           borderRadius: 12,
           overflow: "hidden",
           marginBottom: 20,
@@ -658,7 +659,7 @@ export function WriteComposer({
         <Editor
           height="100%"
           language={monacoLang(dbType)}
-          theme="vs"
+          theme={editorTheme}
           value={writeSql}
           onChange={(v) => {
             setWriteSql(v || "");
@@ -698,8 +699,8 @@ export function WriteComposer({
       {isMigration && requiresNoTransaction && (
         <div
           style={{
-            border: "1px solid rgba(224,160,32,0.5)",
-            background: "rgba(224,160,32,0.08)",
+            border: "1px solid color-mix(in srgb, var(--warning) 50%, transparent)",
+            background: "color-mix(in srgb, var(--warning) 8%, transparent)",
             borderRadius: 11,
             padding: "12px 14px",
             marginBottom: 16,
@@ -710,7 +711,7 @@ export function WriteComposer({
             onChange={(e) => setNoTransaction(e.currentTarget.checked)}
             color="yellow"
             label={
-              <Text size="sm" fw={600} c="#8a5a00">
+              <Text size="sm" fw={600} c="var(--warning)">
                 Run without rollback
               </Text>
             }
@@ -784,7 +785,7 @@ export function WriteComposer({
               <Editor
                 height="100%"
                 language={monacoLang(dbType)}
-                theme="vs"
+                theme={editorTheme}
                 value={selectSql}
                 onChange={(v) => {
                   setSelectSql(v || "");

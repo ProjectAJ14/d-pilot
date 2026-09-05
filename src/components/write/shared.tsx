@@ -24,6 +24,7 @@ import type {
   DatabaseType,
 } from "../../types";
 import { envColor } from "../../utils/environments";
+import { useEditorTheme } from "../../utils/monaco-editor-options";
 
 function monacoLang(dbType?: DatabaseType): string {
   if (dbType === "mongodb") return "javascript";
@@ -40,8 +41,8 @@ export function StepBadge({ n }: { n: number }) {
         width: 20,
         height: 20,
         borderRadius: 999,
-        background: "rgba(31,145,150,0.12)",
-        color: "var(--accent)",
+        background: "color-mix(in srgb, var(--accent) 12%, transparent)",
+        color: "var(--accent-text)",
         fontSize: 12,
         fontWeight: 700,
         display: "inline-flex",
@@ -62,12 +63,13 @@ export function SqlView({
   code: string;
   dbType?: DatabaseType;
 }) {
+  const editorTheme = useEditorTheme();
   const [height, setHeight] = useState(48);
   return (
     <Editor
       height={height}
       language={monacoLang(dbType)}
-      theme="vs"
+      theme={editorTheme}
       value={code}
       onMount={(editor: any) => {
         const update = () =>
@@ -132,9 +134,9 @@ export function SqlBlock({
   const bar =
     barTone === "amber"
       ? {
-          color: "#b47707",
-          background: "rgba(224,160,32,0.10)",
-          border: "rgba(224,160,32,0.28)",
+          color: "var(--warning)",
+          background: "color-mix(in srgb, var(--warning) 10%, transparent)",
+          border: "color-mix(in srgb, var(--warning) 30%, transparent)",
         }
       : {
           color: "var(--muted)",
@@ -440,7 +442,7 @@ function SuggestedSql({ label, code }: { label: string; code: string }) {
         style={{
           margin: 0,
           padding: "8px 10px",
-          background: "var(--surface, #fff)",
+          background: "var(--surface)",
           border: "1px solid var(--border)",
           borderRadius: 6,
           fontSize: 12,
@@ -572,7 +574,7 @@ export function CodeBlock({
         style={{
           margin: 0,
           padding: "12px 14px",
-          background: "var(--surface2, #f7f7f7)",
+          background: "var(--surface2)",
           border: `1px solid var(--mantine-color-${color}-3, var(--border))`,
           borderRadius: 8,
           fontSize: 12.5,

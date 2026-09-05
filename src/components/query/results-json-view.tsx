@@ -6,19 +6,19 @@ import type { ObjectViewHandle } from "react-obj-view";
 import "react-obj-view/dist/react-obj-view.css";
 
 const jsonViewTheme = extendTheme(themeGitHubLight, {
-  "--bigobjview-color": "#0c2340",
-  "--bigobjview-bg-color": "#fafbfc",
+  "--bigobjview-color": "var(--text)",
+  "--bigobjview-bg-color": "var(--surface2)",
   "--bigobjview-fontsize": "12px",
-  "--bigobjview-type-number-color": "#1f9196",
-  "--bigobjview-type-string-color": "#2e7d32",
-  "--bigobjview-type-boolean-color": "#7c3aed",
-  "--bigobjview-type-object-array-color": "#1f9196",
-  "--bigobjview-type-object-object-color": "#576e75",
-  "--bigobjview-type-object-date-color": "#7c3aed",
-  "--bigobjview-type-object-error-color": "#d73636",
-  "--bigobjview-action-btn": "#8F9AA7",
-  "--bigobjview-action-success": "#4caf50",
-  "--bigobjview-action-error": "#d73636",
+  "--bigobjview-type-number-color": "var(--accent)",
+  "--bigobjview-type-string-color": "var(--success)",
+  "--bigobjview-type-boolean-color": "var(--type-special)",
+  "--bigobjview-type-object-array-color": "var(--accent)",
+  "--bigobjview-type-object-object-color": "var(--muted2)",
+  "--bigobjview-type-object-date-color": "var(--type-special)",
+  "--bigobjview-type-object-error-color": "var(--error)",
+  "--bigobjview-action-btn": "var(--muted)",
+  "--bigobjview-action-success": "var(--success)",
+  "--bigobjview-action-error": "var(--error)",
   fontFamily: "IBM Plex Mono, monospace",
 });
 
@@ -113,7 +113,7 @@ export function ResultsJsonView({ rows }: Props) {
           flex: 1,
           overflow: "auto",
           position: "relative",
-          background: "#fafbfc",
+          background: "var(--surface2)",
           minHeight: 0,
         }}
       >

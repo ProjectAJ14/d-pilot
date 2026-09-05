@@ -14,6 +14,7 @@ import { notifications } from "@mantine/notifications";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useStore } from "../../store";
 import { PhiUnmaskModal } from "../phi/phi-unmask-modal";
+import { ColorSchemeToggle } from "./color-scheme-toggle";
 
 export function TopBar() {
   const connections = useStore((s) => s.connections);
@@ -92,12 +93,12 @@ export function TopBar() {
     >
       {/* Logo — click to go to the dashboard */}
       <Tooltip label="Go to dashboard">
-        <Group
-          gap={10}
+        <button
+          type="button"
+          className="dp-btn"
           onClick={() => navigate("/")}
-          style={{ cursor: "pointer" }}
-          role="link"
           aria-label="Go to dashboard"
+          style={{ display: "flex", alignItems: "center", gap: 10 }}
         >
           {logoUrl && (
             <>
@@ -107,10 +108,10 @@ export function TopBar() {
               />
             </>
           )}
-          <Text fw={700} size="sm" c="var(--accent)">
+          <Text fw={700} size="sm" c="var(--accent-text)">
             {appName}
           </Text>
-        </Group>
+        </button>
       </Tooltip>
 
       <div style={{ width: 1, height: 28, background: "var(--border)" }} />
@@ -122,7 +123,7 @@ export function TopBar() {
           gap: 2,
           background: "var(--surface2)",
           border: "1px solid var(--border)",
-          borderRadius: 9,
+          borderRadius: 8,
           padding: 3,
         }}
       >
@@ -161,8 +162,14 @@ export function TopBar() {
             : "PHI fields are VISIBLE — click to re-enable masking"
         }
       >
-        <div
+        <button
+          type="button"
           onClick={handlePhiToggle}
+          aria-pressed={!phiEnabled}
+          aria-label={
+            phiEnabled ? "PHI tokenized — click to unmask" : "PHI visible — click to re-tokenize"
+          }
+          className="dp-btn dp-interactive"
           style={{
             display: "flex",
             alignItems: "center",
@@ -170,10 +177,16 @@ export function TopBar() {
             padding: "6px 12px",
             borderRadius: 8,
             cursor: "pointer",
-            border: `1px solid ${phiEnabled ? "rgba(31,145,150,0.4)" : "rgba(215,54,54,0.4)"}`,
+            // color-mix keeps the tint derived from the token, so it tracks
+            // the color scheme instead of freezing a light-mode rgba().
+            border: `1px solid ${
+              phiEnabled
+                ? "color-mix(in srgb, var(--token) 40%, transparent)"
+                : "color-mix(in srgb, var(--error) 40%, transparent)"
+            }`,
             background: phiEnabled
-              ? "rgba(31,145,150,0.1)"
-              : "rgba(215,54,54,0.1)",
+              ? "color-mix(in srgb, var(--token) 12%, transparent)"
+              : "color-mix(in srgb, var(--error) 12%, transparent)",
             color: phiEnabled ? "var(--token)" : "var(--error)",
             fontSize: 12,
             fontWeight: 700,
@@ -198,7 +211,7 @@ export function TopBar() {
               <IconShieldOff size={14} /> PHI Visible
             </>
           )}
-        </div>
+        </button>
       </Tooltip>
 
       <div style={{ flex: 1 }} />
@@ -206,24 +219,29 @@ export function TopBar() {
       {/* User Dropdown */}
       <Menu shadow="lg" width={210}>
         <Menu.Target>
-          <div
+          <button
+            type="button"
+            className="dp-btn"
+            aria-label={`Account menu for ${user?.name || user?.username || "user"}`}
             style={{
               width: 34,
               height: 34,
               borderRadius: "50%",
-              background: "linear-gradient(135deg, #1f9196, #0c2340)",
+              background:
+                "linear-gradient(135deg, var(--accent), var(--accent4))",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               fontSize: 12,
               fontWeight: 700,
-              color: "#fff",
-              cursor: "pointer",
+              // The gradient is dark in light mode and light in dark mode, so
+              // the initials have to flip with it rather than pin to white.
+              color: "var(--surface)",
               flexShrink: 0,
             }}
           >
             {initials}
-          </div>
+          </button>
         </Menu.Target>
         <Menu.Dropdown>
           <div
@@ -268,6 +286,13 @@ export function TopBar() {
               )}
             </Group>
           </div>
+          <div style={{ padding: "10px 12px 6px" }}>
+            <Text size="xs" c="var(--muted)" fw={600} mb={6}>
+              THEME
+            </Text>
+            <ColorSchemeToggle />
+          </div>
+          <Menu.Divider />
           <Menu.Item
             leftSection={<IconUser size={14} />}
             onClick={() => navigate("/profile")}
@@ -320,7 +345,10 @@ function NavTab({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      className={active ? "dp-btn" : "dp-btn dp-interactive"}
       style={{
         display: "flex",
         alignItems: "center",
@@ -330,14 +358,11 @@ function NavTab({
         fontWeight: 700,
         letterSpacing: 0.2,
         padding: "6px 12px",
-        borderRadius: 7,
-        border: "none",
+        borderRadius: 6,
         background: active ? "var(--surface)" : "transparent",
-        color: active ? "var(--accent)" : "var(--muted2)",
-        boxShadow: active ? "0 1px 2px rgba(0,0,0,0.10)" : "none",
-        cursor: "pointer",
+        color: active ? "var(--accent-text)" : "var(--muted2)",
+        boxShadow: active ? "var(--shadow-1)" : "none",
         whiteSpace: "nowrap",
-        transition: "color 120ms ease, background 120ms ease",
       }}
     >
       {icon}

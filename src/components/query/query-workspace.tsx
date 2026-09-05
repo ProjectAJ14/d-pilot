@@ -99,11 +99,11 @@ export function QueryWorkspace() {
                 width: 32,
                 height: 4,
                 borderRadius: 2,
-                background: "rgba(0,0,0,0.15)",
+                background: "var(--border2)",
                 transition: "background 0.15s",
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--accent, #1f9196)")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(0,0,0,0.15)")}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--accent)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "var(--border2)")}
             />
           </div>
           <ResultsGrid tab={activeTab} />

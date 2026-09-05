@@ -232,7 +232,7 @@ export function RequestsPage() {
                 miw={860}
               >
                 <Table.Thead
-                  style={{ background: "var(--surface-2, rgba(0,0,0,0.02))" }}
+                  style={{ background: "var(--surface2)" }}
                 >
                   <Table.Tr>
                     <Table.Th style={{ width: 40 }}></Table.Th>

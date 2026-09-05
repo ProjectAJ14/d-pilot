@@ -125,7 +125,7 @@ export function Footer() {
         >
           <IconBrandGithub size={13} />
           GitHub
-          <IconStar size={12} style={{ color: "#e3b341" }} />
+          <IconStar size={12} style={{ color: "var(--warning)" }} />
         </a>
       </Tooltip>
 

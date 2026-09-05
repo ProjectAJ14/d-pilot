@@ -43,8 +43,11 @@ export function FkBadge({ column, references, size = 9 }: Props) {
           style={{
             display: "inline-flex",
             alignItems: "center",
-            background: "var(--accent)",
-            color: "#fff",
+            // Reserved semantics: the FK chip is brand accent, not the PHI
+            // token teal — they resolve to the same hue today, see the design
+            // skill's note on that collision.
+            background: "var(--accent-text)",
+            color: "var(--surface)",
             borderRadius: 3,
             padding: "1px 4px",
             fontSize: size,

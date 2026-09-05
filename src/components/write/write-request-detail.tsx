@@ -532,7 +532,7 @@ export function WriteRequestDetail() {
             borderRadius: 16,
             padding: 26,
             boxShadow:
-              "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -18px rgba(15,23,42,0.18)",
+              "var(--shadow-2)",
           }}
         >
           {/* Queries — write first, verify second */}

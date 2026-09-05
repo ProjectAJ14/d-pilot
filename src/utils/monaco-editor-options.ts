@@ -1,3 +1,4 @@
+import { useComputedColorScheme } from "@mantine/core";
 import type { editor } from "monaco-editor";
 
 /**
@@ -40,3 +41,20 @@ export const baseSqlEditorOptions: editor.IStandaloneEditorConstructionOptions =
       snippetsPreventQuickSuggestions: false,
     },
   };
+
+/**
+ * The Monaco theme matching the current color scheme.
+ *
+ * Monaco's theme is global to the Monaco instance, but every <Editor> sets it
+ * on mount from its `theme` prop — so the prop has to be passed at each call
+ * site rather than set once, or whichever editor mounts last wins. The themes
+ * themselves are registered in `monaco-setup.ts`.
+ *
+ * `useComputedColorScheme` resolves `auto` down to light/dark; Monaco has no
+ * concept of following the system.
+ */
+export function useEditorTheme(): "d-pilot-light" | "d-pilot-dark" {
+  return useComputedColorScheme("light") === "dark"
+    ? "d-pilot-dark"
+    : "d-pilot-light";
+}

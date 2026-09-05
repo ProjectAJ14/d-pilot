@@ -3,13 +3,49 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Applies the saved color scheme BEFORE first paint so a dark-mode user
+         never sees a white flash. Mirrors Mantine's <ColorSchemeScript>, which
+         cannot help here: this is a client-only SPA, so anything React renders
+         runs after the stylesheet has already painted. Key and semantics must
+         stay in sync with @mantine/core's localStorageColorSchemeManager. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("mantine-color-scheme-value");
+          var choice =
+            stored === "light" || stored === "dark" || stored === "auto"
+              ? stored
+              : "auto";
+          var resolved =
+            choice !== "auto"
+              ? choice
+              : window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          document.documentElement.setAttribute(
+            "data-mantine-color-scheme",
+            resolved
+          );
+        } catch (e) {}
+      })();
+    </script>
+
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <title>D-Pilot — Internal Query Tool</title>
 
     <!-- PWA. The manifest is rendered by Express from APP_NAME so an installed
          app carries the deployment's own name; see server/index.ts. -->
     <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="theme-color" content="#0c2340" />
+    <meta
+      name="theme-color"
+      media="(prefers-color-scheme: light)"
+      content="#f3f6f7"
+    />
+    <meta
+      name="theme-color"
+      media="(prefers-color-scheme: dark)"
+      content="#0b1620"
+    />
     <meta name="mobile-web-app-capable" content="yes" />
     <!-- iOS ignores the manifest: it takes the home-screen icon and name from
          these tags instead. App.tsx overwrites the title with APP_NAME. -->
@@ -17,10 +53,6 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="D-Pilot" />
-    <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&display=swap"
-      rel="stylesheet"
-    />
   </head>
   <body>
     <div id="root"></div>

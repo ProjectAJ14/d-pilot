@@ -92,8 +92,8 @@ export function PhiConfigPanel() {
             display: "flex",
             alignItems: "flex-start",
             gap: 10,
-            background: "rgba(31,145,150,0.08)",
-            border: "1px solid rgba(31,145,150,0.25)",
+            background: "color-mix(in srgb, var(--token) 8%, transparent)",
+            border: "1px solid color-mix(in srgb, var(--token) 25%, transparent)",
             borderRadius: 10,
             padding: 14,
             marginBottom: 14,
@@ -114,7 +114,7 @@ export function PhiConfigPanel() {
                 fontFamily: "IBM Plex Mono, monospace",
                 fontSize: 10,
                 color: "var(--token)",
-                background: "rgba(31,145,150,0.1)",
+                background: "color-mix(in srgb, var(--token) 10%, transparent)",
                 borderRadius: 4,
                 padding: "6px 8px",
                 marginTop: 8,
@@ -171,7 +171,7 @@ export function PhiConfigPanel() {
               ff="monospace"
               style={{
                 color: "var(--token)",
-                background: "rgba(31,145,150,0.1)",
+                background: "color-mix(in srgb, var(--token) 10%, transparent)",
                 borderRadius: 4,
                 padding: "2px 6px",
                 whiteSpace: "nowrap",

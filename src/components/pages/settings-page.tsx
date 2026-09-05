@@ -190,7 +190,7 @@ export function SettingsPage() {
           <Group gap={8} px={8} mb={2} wrap="nowrap">
             <IconSettings
               size={20}
-              color="var(--mantine-color-primary-6, #1f9196)"
+              color="var(--accent)"
             />
             <Text fw={700} size="lg" c="secondary.9">
               Settings
@@ -956,7 +956,7 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
           layout="fixed"
         >
           <Table.Thead
-            style={{ background: "var(--surface-2, rgba(0,0,0,0.02))" }}
+            style={{ background: "var(--surface2)" }}
           >
             <Table.Tr>
               <Table.Th style={{ width: "26%" }}>User</Table.Th>
@@ -1358,7 +1358,7 @@ function CapabilityFields({
           borderRadius: 8,
           padding: "10px 12px",
           marginBottom: isAdmin ? 4 : 10,
-          background: "var(--surface-2, rgba(0,0,0,0.02))",
+          background: "var(--surface2)",
         }}
       >
         <Switch
@@ -1758,7 +1758,7 @@ function CredentialsModal({
           border: "1px solid var(--border)",
           borderRadius: 10,
           padding: "12px 14px",
-          background: "var(--surface-2, rgba(0,0,0,0.02))",
+          background: "var(--surface2)",
           display: "flex",
           flexDirection: "column",
           gap: 10,
@@ -1888,8 +1888,8 @@ function WriteModeTab() {
           display: "flex",
           alignItems: "flex-start",
           gap: 12,
-          background: "rgba(31,145,150,0.06)",
-          border: "1px solid rgba(31,145,150,0.2)",
+          background: "color-mix(in srgb, var(--accent) 6%, transparent)",
+          border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
           borderRadius: 10,
           padding: 16,
           marginBottom: 20,
@@ -2156,8 +2156,8 @@ function PhiManagementTab() {
           display: "flex",
           alignItems: "flex-start",
           gap: 12,
-          background: "rgba(31,145,150,0.06)",
-          border: "1px solid rgba(31,145,150,0.2)",
+          background: "color-mix(in srgb, var(--accent) 6%, transparent)",
+          border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
           borderRadius: 10,
           padding: 16,
           marginBottom: 20,
@@ -2809,7 +2809,7 @@ function AuditLogTab() {
             layout="fixed"
           >
             <Table.Thead
-              style={{ background: "var(--surface-2, rgba(0,0,0,0.02))" }}
+              style={{ background: "var(--surface2)" }}
             >
               <Table.Tr>
                 <Table.Th style={{ width: 190 }}>Timestamp</Table.Th>
@@ -3037,9 +3037,9 @@ function AuditDetailModal({
           <div
             style={{
               background: entry.phiAccessed
-                ? "rgba(215,54,54,0.06)"
-                : "rgba(240,136,62,0.06)",
-              border: `1px solid ${entry.phiAccessed ? "rgba(215,54,54,0.2)" : "rgba(240,136,62,0.2)"}`,
+                ? "color-mix(in srgb, var(--error) 6%, transparent)"
+                : "color-mix(in srgb, var(--warning) 6%, transparent)",
+              border: `1px solid ${entry.phiAccessed ? "color-mix(in srgb, var(--error) 20%, transparent)" : "color-mix(in srgb, var(--warning) 20%, transparent)"}`,
               borderRadius: 8,
               padding: 14,
             }}
@@ -3149,8 +3149,8 @@ function AzureOpenAiTab() {
           display: "flex",
           alignItems: "flex-start",
           gap: 12,
-          background: "rgba(31,145,150,0.06)",
-          border: "1px solid rgba(31,145,150,0.2)",
+          background: "color-mix(in srgb, var(--accent) 6%, transparent)",
+          border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
           borderRadius: 10,
           padding: 16,
           marginBottom: 20,
@@ -3197,18 +3197,18 @@ function AzureOpenAiTab() {
             alignItems: "flex-start",
             gap: 12,
             background: result.success
-              ? "rgba(46,160,67,0.06)"
-              : "rgba(215,54,54,0.06)",
-            border: `1px solid ${result.success ? "rgba(46,160,67,0.25)" : "rgba(215,54,54,0.25)"}`,
+              ? "color-mix(in srgb, var(--success) 6%, transparent)"
+              : "color-mix(in srgb, var(--error) 6%, transparent)",
+            border: `1px solid ${result.success ? "color-mix(in srgb, var(--success) 25%, transparent)" : "color-mix(in srgb, var(--error) 25%, transparent)"}`,
             borderRadius: 10,
             padding: 16,
           }}
         >
           <div style={{ flexShrink: 0, marginTop: 2 }}>
             {result.success ? (
-              <IconCheck size={20} color="var(--success, #2ea043)" />
+              <IconCheck size={20} color="var(--success)" />
             ) : (
-              <IconX size={20} color="var(--error, #d73636)" />
+              <IconX size={20} color="var(--error)" />
             )}
           </div>
           <div style={{ flex: 1 }}>
@@ -3360,7 +3360,7 @@ function AiChatLogTab() {
             layout="fixed"
           >
             <Table.Thead
-              style={{ background: "var(--surface-2, rgba(0,0,0,0.02))" }}
+              style={{ background: "var(--surface2)" }}
             >
               <Table.Tr>
                 <Table.Th style={{ width: 180 }}>Timestamp</Table.Th>
@@ -3730,8 +3730,8 @@ function AiChatDetailModal({
         {entry.errorMessage && (
           <div
             style={{
-              background: "rgba(215,54,54,0.06)",
-              border: "1px solid rgba(215,54,54,0.2)",
+              background: "color-mix(in srgb, var(--error) 6%, transparent)",
+              border: "1px solid color-mix(in srgb, var(--error) 20%, transparent)",
               borderRadius: 8,
               padding: 12,
             }}

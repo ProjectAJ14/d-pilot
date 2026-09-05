@@ -25,7 +25,7 @@ import {
 } from "@tabler/icons-react";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
-import { baseSqlEditorOptions } from "../../utils/monaco-editor-options";
+import { baseSqlEditorOptions, useEditorTheme } from "../../utils/monaco-editor-options";
 import { copyArtifactShareLink } from "../../utils/share-links";
 import { envColor } from "../../utils/environments";
 import type {
@@ -111,6 +111,7 @@ interface Props {
  * checks, their own PHI masking and their own audit entry, not the author's.
  */
 export function ArtifactView({ tab }: Props) {
+  const editorTheme = useEditorTheme();
   const navigate = useNavigate();
   const connections = useStore((s) => s.connections);
   const activeConnectionId = useStore((s) => s.activeConnectionId);
@@ -393,7 +394,7 @@ export function ArtifactView({ tab }: Props) {
                 <Editor
                   height={`${editorHeight}px`}
                   language={monacoLanguageForDb(conn?.type ?? null)}
-                  theme="vs"
+                  theme={editorTheme}
                   value={block.sql}
                   loading={null}
                   options={{

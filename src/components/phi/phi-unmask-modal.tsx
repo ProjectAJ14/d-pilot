@@ -82,8 +82,8 @@ export function PhiUnmaskModal() {
       {/* HIPAA Warning */}
       <div
         style={{
-          background: "rgba(215,54,54,0.08)",
-          border: "1px solid rgba(215,54,54,0.25)",
+          background: "color-mix(in srgb, var(--error) 8%, transparent)",
+          border: "1px solid color-mix(in srgb, var(--error) 25%, transparent)",
           borderRadius: 8,
           padding: "12px 14px",
           fontSize: 12,
@@ -99,8 +99,8 @@ export function PhiUnmaskModal() {
       {/* Token note */}
       <div
         style={{
-          background: "rgba(31,145,150,0.08)",
-          border: "1px solid rgba(31,145,150,0.25)",
+          background: "color-mix(in srgb, var(--token) 8%, transparent)",
+          border: "1px solid color-mix(in srgb, var(--token) 25%, transparent)",
           borderRadius: 8,
           padding: "10px 14px",
           fontSize: 11,

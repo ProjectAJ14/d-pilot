@@ -56,6 +56,9 @@ export function LoginScreen() {
         <div
           style={{
             flex: 1,
+            // Intentionally literal, not tokenized: this panel is the brand
+            // surface and stays navy in both schemes — the form beside it is
+            // what switches. Its contents are always light-on-dark.
             background:
               "linear-gradient(160deg, #143656 0%, #102a45 50%, #143656 100%)",
             display: "flex",
@@ -117,8 +120,8 @@ export function LoginScreen() {
             {error && (
               <div
                 style={{
-                  background: "rgba(215,54,54,0.08)",
-                  border: "1px solid rgba(215,54,54,0.3)",
+                  background: "color-mix(in srgb, var(--error) 8%, transparent)",
+                  border: "1px solid color-mix(in srgb, var(--error) 30%, transparent)",
                   color: "var(--error)",
                   fontSize: 12,
                   padding: "10px 14px",

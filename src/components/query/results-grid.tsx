@@ -6,7 +6,14 @@ import {
   useState,
   Fragment,
 } from "react";
-import { Text, Badge, SegmentedControl, Menu, Button } from "@mantine/core";
+import {
+  Text,
+  Badge,
+  SegmentedControl,
+  Menu,
+  Button,
+  useComputedColorScheme,
+} from "@mantine/core";
 import {
   IconShieldLock,
   IconAlertTriangle,
@@ -66,23 +73,71 @@ function groupFormats(formats: CopyFormat[]): [string, CopyFormat[]][] {
   return [...groups.entries()];
 }
 
-const gridTheme = themeQuartz.withParams({
-  accentColor: "#1f9196",
-  backgroundColor: "#FFFFFF",
-  borderColor: "#ccd0d2",
-  browserColorScheme: "light",
-  chromeBackgroundColor: "#f3f6f7",
-  foregroundColor: "#0c2340",
-  headerBackgroundColor: "#f3f6f7",
+/**
+ * AG Grid renders into its own CSS-variable namespace and does NOT inherit the
+ * app's `--surface`/`--text` tokens, so the grid needs its own light and dark
+ * definitions. These values must stay in step with `src/styles/global.css`.
+ *
+ * The mode is selected by `data-ag-theme-mode` on <html> — see `useAgThemeMode`
+ * below. Params shared by both schemes go in the un-scoped `withParams` call.
+ */
+const sharedGridParams = {
   headerFontSize: 11,
   headerFontWeight: 700,
   fontSize: 12,
   fontFamily: "IBM Plex Mono, monospace",
-  rowBorder: { color: "#e8e8e8", style: "solid", width: 1 },
-  columnBorder: { color: "#e8e8e8", style: "solid", width: 1 },
   spacing: 6,
   wrapperBorderRadius: 0,
-});
+};
+
+const gridTheme = themeQuartz
+  .withParams(sharedGridParams)
+  .withParams(
+    {
+      accentColor: "#1f9196",
+      backgroundColor: "#FFFFFF",
+      borderColor: "#ccd0d2",
+      browserColorScheme: "light",
+      chromeBackgroundColor: "#f3f6f7",
+      foregroundColor: "#0c2340",
+      headerBackgroundColor: "#f3f6f7",
+      rowHoverColor: "rgba(12, 35, 64, 0.045)",
+      selectedRowBackgroundColor: "rgba(31, 145, 150, 0.12)",
+      rowBorder: { color: "#e8e8e8", style: "solid", width: 1 },
+      columnBorder: { color: "#e8e8e8", style: "solid", width: 1 },
+    },
+    "light",
+  )
+  .withParams(
+    {
+      accentColor: "#43d0d6",
+      backgroundColor: "#121e2a",
+      borderColor: "#2a3b4a",
+      browserColorScheme: "dark",
+      chromeBackgroundColor: "#182633",
+      foregroundColor: "#e4ebf1",
+      headerBackgroundColor: "#182633",
+      rowHoverColor: "rgba(255, 255, 255, 0.055)",
+      selectedRowBackgroundColor: "rgba(67, 208, 214, 0.16)",
+      // On dark the row grid lines have to be lighter than the surface, not
+      // darker, or the table reads as a solid block.
+      rowBorder: { color: "#21313f", style: "solid", width: 1 },
+      columnBorder: { color: "#21313f", style: "solid", width: 1 },
+    },
+    "dark",
+  );
+
+/**
+ * Mirror Mantine's resolved color scheme onto the attribute AG Grid reads.
+ * `useComputedColorScheme` collapses `auto` to the concrete light/dark value,
+ * which is what the grid needs — it has no notion of "follow the system".
+ */
+function useAgThemeMode() {
+  const scheme = useComputedColorScheme("light");
+  useEffect(() => {
+    document.documentElement.dataset.agThemeMode = scheme;
+  }, [scheme]);
+}
 
 // Short values render fully in the cell, so opening the inspector for them is
 // just friction. Only values longer than this get a click-to-expand panel.
@@ -102,8 +157,8 @@ function PhiCellRenderer(props: any) {
   return (
     <span
       style={{
-        background: "rgba(31,145,150,0.12)",
-        border: "1px solid rgba(31,145,150,0.3)",
+        background: "color-mix(in srgb, var(--token) 12%, transparent)",
+        border: "1px solid color-mix(in srgb, var(--token) 30%, transparent)",
         color: "var(--token)",
         padding: "2px 8px",
         borderRadius: 4,
@@ -151,6 +206,7 @@ function FkHeader(props: {
 }
 
 export function ResultsGrid({ tab, onViewModeChange }: Props) {
+  useAgThemeMode();
   const phiEnabled = useStore((s) => s.phiEnabled);
   const updateTab = useStore((s) => s.updateTab);
   // Deployment-configured "Copy as" formats (COPY_FORMATS env), with a code
@@ -355,11 +411,11 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
           const v = params.value;
           if (v === null || v === undefined)
             return { color: "var(--muted)", fontStyle: "italic" };
-          if (typeof v === "number") return { color: "var(--accent)" };
+          if (typeof v === "number") return { color: "var(--accent-text)" };
           if (typeof v === "boolean")
             return { color: v ? "var(--success)" : "var(--error)" };
           if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v))
-            return { color: "#7c3aed" };
+            return { color: "var(--type-special)" };
           return {};
         };
         def.valueFormatter = (params) => {
@@ -531,10 +587,10 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
           style={{
             maxWidth: 500,
             textAlign: "center",
-            background: "rgba(215,54,54,0.08)",
+            background: "color-mix(in srgb, var(--error) 8%, transparent)",
             padding: "10px 16px",
             borderRadius: 8,
-            border: "1px solid rgba(215,54,54,0.25)",
+            border: "1px solid color-mix(in srgb, var(--error) 25%, transparent)",
             whiteSpace: "pre-wrap",
           }}
         >
@@ -696,8 +752,8 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
               gap: 8,
               padding: "3px 10px",
               borderRadius: 999,
-              background: "rgba(31,145,150,0.07)",
-              border: "1px solid rgba(31,145,150,0.16)",
+              background: "color-mix(in srgb, var(--token) 7%, transparent)",
+              border: "1px solid color-mix(in srgb, var(--token) 16%, transparent)",
               color: "var(--muted)",
               fontSize: 11,
               whiteSpace: "nowrap",
@@ -815,8 +871,8 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
         <div
           style={{
             height: 30,
-            background: "rgba(31,145,150,0.06)",
-            borderTop: "1px solid rgba(31,145,150,0.2)",
+            background: "color-mix(in srgb, var(--token) 6%, transparent)",
+            borderTop: "1px solid color-mix(in srgb, var(--token) 20%, transparent)",
             display: "flex",
             alignItems: "center",
             padding: "0 14px",

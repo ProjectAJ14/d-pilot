@@ -8,6 +8,7 @@ import {
   IconBraces,
   IconLetterCase,
 } from "@tabler/icons-react";
+import { useEditorTheme } from "../../utils/monaco-editor-options";
 
 export interface CellDetail {
   column: string;
@@ -69,6 +70,7 @@ function resolveContent(value: unknown): { text: string; isJson: boolean } {
 }
 
 export function CellDetailDrawer({ detail, onClose }: Props) {
+  const editorTheme = useEditorTheme();
   const content = useMemo(
     () => (detail ? resolveContent(detail.value) : null),
     [detail]
@@ -124,7 +126,7 @@ export function CellDetailDrawer({ detail, onClose }: Props) {
         content: {
           display: "flex",
           flexDirection: "column",
-          boxShadow: "-8px 0 24px rgba(0,0,0,0.08)",
+          boxShadow: "var(--shadow-2)",
         },
         body: { flex: 1, minHeight: 0, padding: 0, display: "flex", flexDirection: "column" },
       }}
@@ -152,7 +154,7 @@ export function CellDetailDrawer({ detail, onClose }: Props) {
             <Editor
               height="100%"
               language={content.isJson ? "json" : "plaintext"}
-              theme="vs"
+              theme={editorTheme}
               value={content.text}
               loading={null}
               options={{

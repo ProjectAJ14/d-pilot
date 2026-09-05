@@ -109,7 +109,6 @@ export function Sidebar() {
   const [historySearch, setHistorySearch] = useState("");
   const [loadingConn, setLoadingConn] = useState<string | null>(null);
   const [loadingTable, setLoadingTable] = useState<string | null>(null);
-  const [hovered, setHovered] = useState<string | null>(null);
   // Right-click context menu for a table row (position + target table).
   const [tableMenu, setTableMenu] = useState<
     { x: number; y: number; connId: string; table: TableInfo } | null
@@ -347,7 +346,7 @@ export function Sidebar() {
       style={{
         width: 280,
         flexShrink: 0,
-        background: "#f7f7f7",
+        background: "var(--surface2)",
         borderRight: "1px solid var(--border)",
         display: "flex",
         flexDirection: "column",
@@ -420,7 +419,7 @@ export function Sidebar() {
           }}
           styles={{
             input: {
-              background: "#ffffff",
+              background: "var(--surface)",
               border: "1px solid var(--border)",
               borderRadius: 6,
               fontSize: 12,
@@ -439,6 +438,7 @@ export function Sidebar() {
                 {/* Env header */}
                 <div
                   onClick={() => toggleEnv(env)}
+                  className="dp-row"
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -446,11 +446,7 @@ export function Sidebar() {
                     padding: "8px 10px",
                     borderRadius: 6,
                     cursor: "pointer",
-                    transition: "background-color 150ms ease",
-                    background: "transparent",
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(0,0,0,0.03)")}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                 >
                   <Badge
                     size="xs"
@@ -479,7 +475,6 @@ export function Sidebar() {
                   <div style={{ padding: "2px 0 2px 8px" }}>
                     {conns.map((conn) => {
                       const isActive = conn.id === activeConnectionId;
-                      const isHovered = hovered === `conn-${conn.id}`;
                       const sch = schemaByConnection[conn.id] ?? "";
                       const tKey = keyFor(conn.id, sch);
                       const connSchemaList = connSchemas[conn.id];
@@ -491,8 +486,7 @@ export function Sidebar() {
                         <div key={conn.id}>
                           <div
                             onClick={() => selectConn(conn.id)}
-                            onMouseEnter={() => setHovered(`conn-${conn.id}`)}
-                            onMouseLeave={() => setHovered(null)}
+                            className="dp-row"
                             style={{
                               display: "flex",
                               alignItems: "center",
@@ -502,22 +496,19 @@ export function Sidebar() {
                               cursor: "pointer",
                               marginBottom: 3,
                               border: isActive
-                                ? "1px solid rgba(31,145,150,0.35)"
+                                ? "1px solid color-mix(in srgb, var(--accent) 35%, transparent)"
                                 : "1px solid transparent",
                               borderLeft: isActive
                                 ? "3px solid var(--accent)"
                                 : "3px solid transparent",
+                              // Active wins over hover; the `.dp-row` hover fill
+                              // only shows through where this is transparent.
+                              // `undefined`, never "transparent": an inline
+                              // background would outrank `.dp-row:hover`.
                               background: isActive
-                                ? "linear-gradient(90deg, rgba(31,145,150,0.16), rgba(31,145,150,0.03))"
-                                : isHovered
-                                  ? "rgba(0,0,0,0.02)"
-                                  : "transparent",
-                              boxShadow: isActive
-                                ? "0 2px 10px 0 rgba(31,145,150,0.16)"
-                                : isHovered
-                                  ? "0 1px 2px 0 rgba(0,0,0,0.06)"
-                                  : "none",
-                              transition: "all 150ms ease",
+                                ? "linear-gradient(90deg, color-mix(in srgb, var(--accent) 16%, transparent), color-mix(in srgb, var(--accent) 3%, transparent))"
+                                : undefined,
+                              boxShadow: isActive ? "var(--shadow-1)" : "none",
                             }}
                           >
                             <div style={{ flex: 1, minWidth: 0 }}>
@@ -537,8 +528,8 @@ export function Sidebar() {
                                       display: "inline-flex",
                                       alignItems: "center",
                                       gap: 4,
-                                      background: "var(--accent)",
-                                      color: "#fff",
+                                      background: "var(--accent-text)",
+                                      color: "var(--surface)",
                                       fontSize: 8,
                                       fontWeight: 800,
                                       letterSpacing: 0.7,
@@ -554,8 +545,8 @@ export function Sidebar() {
                                         width: 5,
                                         height: 5,
                                         borderRadius: "50%",
-                                        background: "#fff",
-                                        boxShadow: "0 0 5px rgba(255,255,255,0.9)",
+                                        background: "var(--surface)",
+                                        boxShadow: "0 0 5px color-mix(in srgb, var(--surface) 90%, transparent)",
                                         animation: "pulse 1.8s ease-in-out infinite",
                                       }}
                                     />
@@ -575,7 +566,7 @@ export function Sidebar() {
                                 flexShrink: 0,
                                 padding: isActive ? "2px 4px" : undefined,
                                 borderRadius: 6,
-                                background: isActive ? "rgba(31,145,150,0.10)" : undefined,
+                                background: isActive ? "color-mix(in srgb, var(--accent) 10%, transparent)" : undefined,
                               }}
                             >
                               <span style={{ fontSize: 22, lineHeight: 1 }}>{DB_ICONS[conn.type]}</span>
@@ -605,7 +596,7 @@ export function Sidebar() {
                                 comboboxProps={{ withinPortal: true }}
                                 styles={{
                                   input: {
-                                    background: "#ffffff",
+                                    background: "var(--surface)",
                                     fontFamily: "IBM Plex Mono, monospace",
                                     fontSize: 11,
                                     minHeight: 28,
@@ -667,7 +658,6 @@ export function Sidebar() {
                                 .filter((t) => !explorerSearch || t.name.toLowerCase().includes(explorerSearch.toLowerCase()))
                                 .map((table) => {
                                   const tableKey = keyFor(conn.id, sch, table.name);
-                                  const isTableHovered = hovered === `table-${tableKey}`;
                                   return (
                                     <div key={table.name}>
                                       <div
@@ -677,8 +667,7 @@ export function Sidebar() {
                                           e.preventDefault();
                                           setTableMenu({ x: e.clientX, y: e.clientY, connId: conn.id, table });
                                         }}
-                                        onMouseEnter={() => setHovered(`table-${tableKey}`)}
-                                        onMouseLeave={() => setHovered(null)}
+                                        className="dp-row"
                                         style={{
                                           display: "flex",
                                           alignItems: "center",
@@ -686,35 +675,38 @@ export function Sidebar() {
                                           padding: "6px 10px",
                                           borderRadius: 5,
                                           cursor: "pointer",
-                                          background: isTableHovered ? "rgba(0,0,0,0.03)" : "transparent",
-                                          transition: "background-color 150ms ease",
                                         }}
                                       >
                                         <IconTable size={13} color="var(--accent)" style={{ flexShrink: 0 }} />
-                                        <Text size="xs" ff="monospace" style={{ flex: 1, fontSize: 11 }} c={isTableHovered ? "secondary.9" : "dimmed"}>
+                                        <Text size="xs" ff="monospace" className="dp-row-label" style={{ flex: 1, fontSize: 11 }}>
                                           {table.name}
                                         </Text>
                                         {table.type === "VIEW" && (
                                           <Badge size="xs" variant="light" color="gray" styles={{ root: { fontSize: 8 } }}>VIEW</Badge>
                                         )}
-                                        {(isTableHovered ||
-                                          (tableMenu?.connId === conn.id && tableMenu?.table.name === table.name)) && (
-                                          <Tooltip label="Actions" openDelay={400} withArrow>
-                                            <ActionIcon
-                                              size="xs"
-                                              variant="subtle"
-                                              color="gray"
-                                              style={{ flexShrink: 0 }}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                const r = e.currentTarget.getBoundingClientRect();
-                                                setTableMenu({ x: r.left, y: r.bottom, connId: conn.id, table });
-                                              }}
-                                            >
-                                              <IconDots size={13} />
-                                            </ActionIcon>
-                                          </Tooltip>
-                                        )}
+                                        <Tooltip label="Actions" openDelay={400} withArrow>
+                                          <ActionIcon
+                                            size="xs"
+                                            variant="subtle"
+                                            color="gray"
+                                            className="dp-row-actions"
+                                            aria-label={`Actions for ${table.name}`}
+                                            data-pinned={
+                                              tableMenu?.connId === conn.id &&
+                                              tableMenu?.table.name === table.name
+                                                ? ""
+                                                : undefined
+                                            }
+                                            style={{ flexShrink: 0 }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              const r = e.currentTarget.getBoundingClientRect();
+                                              setTableMenu({ x: r.left, y: r.bottom, connId: conn.id, table });
+                                            }}
+                                          >
+                                            <IconDots size={13} />
+                                          </ActionIcon>
+                                        </Tooltip>
                                       </div>
 
                                       {expandedTable === tableKey && loadingTable === tableKey && (
@@ -817,14 +809,12 @@ export function Sidebar() {
                   .includes(savedSearch.toLowerCase()),
               )
               .map((artifact) => {
-                const isHovered = hovered === `artifact-${artifact.id}`;
                 const blockCount = artifact.blocks.filter((b) => b.type === "sql").length;
                 return (
                   <div
                     key={artifact.id}
                     onClick={() => openArtifactTab(artifact)}
-                    onMouseEnter={() => setHovered(`artifact-${artifact.id}`)}
-                    onMouseLeave={() => setHovered(null)}
+                    className="dp-row dp-row-raised"
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -833,11 +823,6 @@ export function Sidebar() {
                       borderRadius: 6,
                       cursor: "pointer",
                       marginBottom: 2,
-                      background: isHovered ? "#ffffff" : "transparent",
-                      boxShadow: isHovered
-                        ? "0 1px 2px 0 rgba(0,0,0,0.08), 0 1px 3px 0 rgba(0,0,0,0.04)"
-                        : "none",
-                      transition: "all 150ms ease",
                     }}
                   >
                     <IconFileText size={15} color="var(--accent4)" style={{ flexShrink: 0, alignSelf: "flex-start", marginTop: 2 }} />
@@ -852,7 +837,7 @@ export function Sidebar() {
                         size="xs"
                         variant="subtle"
                         color="gray"
-                        style={{ opacity: isHovered ? 1 : 0, transition: "opacity 150ms ease" }}
+                        className="dp-row-actions"
                         onClick={(e) => { e.stopPropagation(); copyArtifactShareLink(artifact); }}
                       >
                         <IconLink size={12} />
@@ -864,7 +849,7 @@ export function Sidebar() {
                           size="xs"
                           variant="subtle"
                           color="gray"
-                          style={{ opacity: isHovered ? 1 : 0, transition: "opacity 150ms ease" }}
+                          className="dp-row-actions"
                           onClick={(e) => { e.stopPropagation(); handleArchiveArtifact(artifact.id); }}
                         >
                           <IconArchive size={12} />
@@ -880,13 +865,11 @@ export function Sidebar() {
                 q.sql.toLowerCase().includes(savedSearch.toLowerCase())
               )
               .map((query) => {
-                const isQueryHovered = hovered === `query-${query.id}`;
                 return (
                   <div
                     key={query.id}
                     onClick={() => loadSavedQuery(query.name, query.sql, query.connectionId)}
-                    onMouseEnter={() => setHovered(`query-${query.id}`)}
-                    onMouseLeave={() => setHovered(null)}
+                    className="dp-row dp-row-raised"
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -895,11 +878,6 @@ export function Sidebar() {
                       borderRadius: 6,
                       cursor: "pointer",
                       marginBottom: 2,
-                      background: isQueryHovered ? "#ffffff" : "transparent",
-                      boxShadow: isQueryHovered
-                        ? "0 1px 2px 0 rgba(0,0,0,0.08), 0 1px 3px 0 rgba(0,0,0,0.04)"
-                        : "none",
-                      transition: "all 150ms ease",
                     }}
                   >
                     <IconBookmark size={15} color="var(--accent)" style={{ flexShrink: 0, alignSelf: "flex-start", marginTop: 2 }} />
@@ -914,10 +892,7 @@ export function Sidebar() {
                         size="xs"
                         variant="subtle"
                         color="gray"
-                        style={{
-                          opacity: isQueryHovered ? 1 : 0,
-                          transition: "opacity 150ms ease",
-                        }}
+                        className="dp-row-actions"
                         onClick={(e) => { e.stopPropagation(); copySavedQueryShareLink(query); }}
                       >
                         <IconLink size={12} />
@@ -928,10 +903,7 @@ export function Sidebar() {
                         size="xs"
                         variant="subtle"
                         color="red"
-                        style={{
-                          opacity: isQueryHovered ? 1 : 0,
-                          transition: "opacity 150ms ease",
-                        }}
+                        className="dp-row-actions"
                         onClick={(e) => { e.stopPropagation(); handleDeleteSaved(query.id); }}
                       >
                         <IconTrash size={12} />
@@ -957,13 +929,11 @@ export function Sidebar() {
             {history
               .filter((h) => !historySearch || h.sql?.toLowerCase().includes(historySearch.toLowerCase()))
               .map((entry) => {
-                const isEntryHovered = hovered === `hist-${entry.id}`;
                 return (
                   <div
                     key={entry.id}
                     onClick={() => loadHistoryQuery(entry.sql, entry.connectionId)}
-                    onMouseEnter={() => setHovered(`hist-${entry.id}`)}
-                    onMouseLeave={() => setHovered(null)}
+                    className="dp-row dp-row-raised"
                     style={{
                       display: "flex",
                       alignItems: "flex-start",
@@ -972,11 +942,6 @@ export function Sidebar() {
                       borderRadius: 6,
                       cursor: "pointer",
                       marginBottom: 2,
-                      background: isEntryHovered ? "#ffffff" : "transparent",
-                      boxShadow: isEntryHovered
-                        ? "0 1px 2px 0 rgba(0,0,0,0.08), 0 1px 3px 0 rgba(0,0,0,0.04)"
-                        : "none",
-                      transition: "all 150ms ease",
                     }}
                   >
                     <IconClock size={14} color="var(--muted)" style={{ flexShrink: 0, marginTop: 2 }} />

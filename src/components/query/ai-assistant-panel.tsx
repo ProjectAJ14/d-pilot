@@ -275,7 +275,7 @@ export function AiAssistantPanel() {
       trapFocus={false}
       title={
         <Group gap={8}>
-          <IconSparkles size={18} color="var(--accent, #1f9196)" />
+          <IconSparkles size={18} color="var(--accent)" />
           <Text fw={700} size="sm">
             AI Query Assistant
           </Text>
@@ -288,7 +288,7 @@ export function AiAssistantPanel() {
           flexDirection: "column",
           padding: 0,
         },
-        content: { boxShadow: "-4px 0 24px rgba(0,0,0,0.12)" },
+        content: { boxShadow: "var(--shadow-2)" },
       }}
     >
       {/* Connection context + New chat */}
@@ -340,7 +340,7 @@ export function AiAssistantPanel() {
               <Group gap={6} wrap="nowrap">
                 <IconAlertTriangle
                   size={14}
-                  color="var(--warning, #f0883e)"
+                  color="var(--warning)"
                   style={{ flexShrink: 0 }}
                 />
                 <Text size="xs" c="dimmed">
@@ -429,7 +429,7 @@ export function AiAssistantPanel() {
               >
                 <div
                   style={{
-                    background: "var(--accent, #1f9196)",
+                    background: "var(--accent)",
                     color: "white",
                     padding: "8px 12px",
                     borderRadius: "12px 12px 2px 12px",
@@ -453,8 +453,8 @@ export function AiAssistantPanel() {
                 {msg.isError ? (
                   <div
                     style={{
-                      background: "rgba(215,54,54,0.06)",
-                      border: "1px solid rgba(215,54,54,0.25)",
+                      background: "color-mix(in srgb, var(--error) 6%, transparent)",
+                      border: "1px solid color-mix(in srgb, var(--error) 25%, transparent)",
                       borderRadius: 10,
                       padding: "10px 12px",
                     }}
@@ -462,7 +462,7 @@ export function AiAssistantPanel() {
                     <Group gap={6} mb={2}>
                       <IconAlertTriangle
                         size={14}
-                        color="var(--error, #d73636)"
+                        color="var(--error)"
                       />
                       <Text size="xs" fw={700} c="red">
                         Generation failed
@@ -475,7 +475,7 @@ export function AiAssistantPanel() {
                 ) : (
                   <div
                     style={{
-                      background: "var(--surface, #fff)",
+                      background: "var(--surface)",
                       border: "1px solid var(--border)",
                       borderRadius: 10,
                       overflow: "hidden",
@@ -499,7 +499,7 @@ export function AiAssistantPanel() {
                         lineHeight: 1.6,
                         whiteSpace: "pre-wrap",
                         wordBreak: "break-word",
-                        background: "var(--surface2, #f6f8fa)",
+                        background: "var(--surface2)",
                         maxHeight: 320,
                         overflow: "auto",
                       }}

@@ -1,21 +1,120 @@
-:root {
+/**
+ * D-Pilot semantic design tokens.
+ *
+ * Every color in the app resolves through one of these — components must never
+ * hardcode a hex (see `.claude/skills/design/SKILL.md`). Each token is defined
+ * in BOTH schemes here, so a component that reads `var(--surface)` is already
+ * dark-mode correct and never needs to branch on the color scheme in JS.
+ *
+ * Mantine owns the scheme: it writes `data-mantine-color-scheme="light|dark"`
+ * onto <html> (and an inline script in index.html sets it before first paint so
+ * there is no flash). "System" is Mantine's `auto`, which resolves to one of the
+ * two — there is no third block below by design.
+ */
+
+:root,
+[data-mantine-color-scheme="light"] {
+  color-scheme: light;
+
+  /* Surfaces — canvas → raised → recessed → sunken */
   --bg: #f3f6f7;
   --surface: #ffffff;
   --surface2: #f3f6f7;
   --surface3: #e8e8e8;
+
+  /* Lines.
+     `--border` is decorative — separators, panel edges — and stays hairline.
+     `--border2` is the boundary of a CONTROL (input, select, scrollbar thumb),
+     which WCAG 1.4.11 requires to be identifiable at 3:1, so it is deliberately
+     heavier than it looks like it should be. IBM Carbon's field border sits at
+     the same ratio for the same reason. Do not swap the two. */
   --border: #ccd0d2;
-  --border2: #bec3c6;
-  --accent: #1f9196;
-  --accent2: #4caf50;
-  --accent3: #d73636;
-  --accent4: #0c2340;
+  --border2: #878f97;
+
+  /* Text — primary / secondary / tertiary */
   --text: #0c2340;
-  --muted: #8f9aa7;
   --muted2: #576e75;
-  --success: #4caf50;
-  --error: #d73636;
-  --phi: #f0c432;
+  /* Was #8f9aa7 — 2.6:1 on --surface2, i.e. tertiary text nobody could read.
+     Darkened to the minimum that clears 4.5:1 against the lighter surface. */
+  --muted: #667281;
+
+  /* Brand.
+     `--accent` is the brand teal and stays exactly as it is. At 3.8:1 on white
+     it clears the 3:1 bar for UI shapes and icons but NOT the 4.5:1 bar for
+     text, so anything that renders *words* in the brand color — or white words
+     on top of it — uses `--accent-text` instead. Same hue, one step darker. */
+  --accent: #1f9196;
+  --accent-text: #1b7c81;
+  --accent2: #4caf50;
+  --accent4: #0c2340;
+
+  /* State */
+  --success: #2e7d32;
+  --error: #d52e2e;
+  /* #b47707 measured 3.8:1 on white; this is the nearest passing shade. */
+  --warning: #9b6606;
+
+  /* Reserved semantics — teal means PHI tokenization, never brand decoration */
   --token: #1f9196;
+
+  /* Value-type accent for JSON/grid rendering: booleans, dates, non-scalars. */
+  --type-special: #7c3aed;
+
+  /* Interaction */
+  --hover: rgba(12, 35, 64, 0.045);
+  --active: rgba(12, 35, 64, 0.08);
+  --focus-ring: #1f9196;
+
+  /* Elevation — real shadows read on a light canvas */
+  --shadow-1: 0 1px 2px rgba(12, 35, 64, 0.1);
+  --shadow-2: 0 4px 14px rgba(12, 35, 64, 0.12);
+
+  /* Selection / highlight */
+  --selected: rgba(31, 145, 150, 0.12);
+}
+
+[data-mantine-color-scheme="dark"] {
+  color-scheme: dark;
+
+  /* Not an inversion: the dark surfaces are the brand navy desaturated down,
+     and each step up is *lighter* — on dark, elevation is surface, not shadow. */
+  --bg: #0b1620;
+  --surface: #121e2a;
+  --surface2: #182633;
+  --surface3: #21313f;
+
+  --border: #2a3b4a;
+  --border2: #547189;
+
+  --text: #e4ebf1;
+  --muted2: #a9bac8;
+  --muted: #7d90a1;
+
+  /* Saturated brand colors go muddy on dark — each of these steps a few shades
+     lighter than its light-mode twin to hold 4.5:1 against --surface. The teal
+     clears 9:1 up here, so unlike in light mode text and fill can share it. */
+  --accent: #43d0d6;
+  --accent-text: #43d0d6;
+  --accent2: #66bb6a;
+  --accent4: #e4ebf1;
+
+  --success: #66bb6a;
+  --error: #e86f6f;
+  --warning: #f3ce52;
+
+  --token: #43d0d6;
+
+  --type-special: #b48cff;
+
+  --hover: rgba(255, 255, 255, 0.055);
+  --active: rgba(255, 255, 255, 0.09);
+  --focus-ring: #43d0d6;
+
+  /* Shadows are nearly invisible on dark; keep them faint and lean on borders. */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.5);
+
+  --selected: rgba(67, 208, 214, 0.16);
 }
 
 * {
@@ -38,14 +137,146 @@ body {
   flex-direction: column;
 }
 
+/**
+ * App-wide focus ring.
+ *
+ * `:where()` gives this zero specificity, so Mantine's own focus styles still
+ * win on Mantine components and this only fills the gap on the app's hand-rolled
+ * controls — which is most of them. Never override it with `outline: none`.
+ */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: var(--selected);
+}
+
+/**
+ * Interaction utilities.
+ *
+ * The app styles most of its controls inline, so hover/active/disabled kept
+ * getting re-invented per component — or skipped, which is why so much of the
+ * old UI did not react to the cursor at all. Put `dp-btn dp-interactive` on a
+ * hand-rolled control and it gets all three, in CSS, with no React state and no
+ * re-render on mouse move.
+ *
+ * `--hover`/`--active` are translucent overlays, so they compose over whatever
+ * background the element already has and work in both schemes.
+ */
+.dp-btn {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-align: inherit;
+}
+
+.dp-interactive {
+  transition:
+    box-shadow 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease,
+    opacity 120ms ease;
+}
+
+.dp-interactive:hover:not(:disabled):not([aria-disabled="true"]) {
+  box-shadow: inset 0 0 0 999px var(--hover);
+}
+
+.dp-interactive:active:not(:disabled):not([aria-disabled="true"]) {
+  box-shadow: inset 0 0 0 999px var(--active);
+}
+
+.dp-interactive:disabled,
+.dp-interactive[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/**
+ * List rows (sidebar connections, tables, artifacts, saved queries, history).
+ *
+ * These used to track hover in React state — one `useState` for the whole
+ * sidebar, so moving the mouse down a list of tables re-rendered the entire
+ * tree per row. It is all presentation, so it is all CSS now.
+ *
+ * `.dp-row-actions` is the reveal-on-hover action cluster. It also appears on
+ * `:focus-within`, so the buttons are reachable by keyboard — opacity:0 alone
+ * would leave them focusable but invisible. `data-pinned` keeps them showing
+ * while a menu they opened is still up.
+ */
+.dp-row {
+  transition:
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.dp-row:hover {
+  background-color: var(--hover);
+}
+
+.dp-row-raised:hover {
+  background-color: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+
+.dp-row-actions {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+.dp-row:hover .dp-row-actions,
+.dp-row:focus-within .dp-row-actions,
+.dp-row-actions[data-pinned] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Secondary label that firms up when its row is hovered. */
+.dp-row-label {
+  color: var(--muted);
+  transition: color 150ms ease;
+}
+
+.dp-row:hover .dp-row-label {
+  color: var(--text);
+}
+
+/* Figures in a column only line up if the digits are the same width. */
+.dp-tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Firefox honours these two; WebKit needs the pseudo-elements below. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--border2);
-  border-radius: 3px;
+  border-radius: 5px;
+  /* Inset the thumb so the track reads as padding rather than a second line. */
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+  background-clip: padding-box;
+  border: 3px solid transparent;
 }
 
 ::-webkit-scrollbar-track {
@@ -69,5 +300,15 @@ body {
   }
   50% {
     opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

@@ -182,13 +182,13 @@ function Avatar({ initials, size }: { initials: string; size: number }) {
         width: size,
         height: size,
         borderRadius: "50%",
-        background: "linear-gradient(135deg, #1f9196, #0c2340)",
+        background: "linear-gradient(135deg, var(--accent), var(--accent4))",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         fontSize: size / 3,
         fontWeight: 700,
-        color: "#fff",
+        color: "var(--surface)",
         flexShrink: 0,
       }}
     >
@@ -313,7 +313,7 @@ function AccountTab({ initials }: { initials: string }) {
       <div
         style={{
           background:
-            "linear-gradient(135deg, rgba(31,145,150,0.12), transparent 60%)",
+            "linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%)",
           border: "1px solid var(--border)",
           borderRadius: 12,
           padding: 24,

@@ -4,6 +4,21 @@ React 19 + TypeScript, built with Vite. Mantine v8 for UI, Tabler Icons, AG Grid
 table), Monaco (SQL/query editor). Entry `src/main.tsx` → `src/App.tsx`. Read the root
 `CLAUDE.md` first for the cross-cutting rules.
 
+## Design system
+
+**Before touching any UI, read `.claude/skills/design/SKILL.md`.** In short: colors come
+from the semantic tokens in `src/styles/global.css` (never a hex or a brand `rgba()` in a
+component); the palette is defined in both light and dark and is WCAG-AA verified, so
+changing a token means re-running the contrast math; Mantine owns the color scheme via
+`data-mantine-color-scheme` on `<html>`, with `index.html` applying it before first paint
+and `<ColorSchemeToggle>` (top-bar account menu) offering Light/Dark/System.
+
+AG Grid, Monaco and react-obj-view cannot see the CSS variables and each carry a mirrored
+copy of the token values (`results-grid.tsx`, `utils/monaco-setup.ts`,
+`query/results-json-view.tsx`) — **change a token, change the mirrors.** Interaction
+states come from the `dp-*` utility classes in `global.css`; never track hover in React
+state.
+
 ## State — Zustand (`store/index.ts`)
 
 Single store. Slices: `config` (public branding/PHI config), **auth** (`token`, `user`,

@@ -46,7 +46,7 @@ import {
   pushKeywordItems,
   type SqlDialect,
 } from "../../utils/sql-completions";
-import { baseSqlEditorOptions } from "../../utils/monaco-editor-options";
+import { baseSqlEditorOptions, useEditorTheme } from "../../utils/monaco-editor-options";
 import { useVimMode } from "../../utils/vim-mode";
 
 interface Props {
@@ -477,6 +477,7 @@ function ensureCompletionProvidersRegistered(monaco: any) {
 const TOOLBAR_HEIGHT = 56;
 
 export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
+  const editorTheme = useEditorTheme();
   const updateTab = useStore((s) => s.updateTab);
   const setSchemaForConnection = useStore((s) => s.setSchemaForConnection);
   const connections = useStore((s) => s.connections);
@@ -1049,7 +1050,7 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
               position: "absolute",
               inset: 0,
               zIndex: 2,
-              background: "#ffffff",
+              background: "var(--surface)",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -1071,7 +1072,7 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
               height ? `${Math.max(60, height - TOOLBAR_HEIGHT)}px` : "150px"
             }
             language={monacoLanguageForDb(activeConn?.type ?? null)}
-            theme="vs"
+            theme={editorTheme}
             value={tab.sql}
             onChange={(value) => updateTab(tab.id, { sql: value || "" })}
             onMount={handleEditorMount}
