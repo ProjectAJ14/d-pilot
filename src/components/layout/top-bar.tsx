@@ -1,5 +1,12 @@
 import type { ReactNode } from "react";
-import { Menu, Badge, Group, Text, Tooltip } from "@mantine/core";
+import {
+  Menu,
+  Badge,
+  Group,
+  Text,
+  Tooltip,
+  useComputedColorScheme,
+} from "@mantine/core";
 import {
   IconShieldLock,
   IconShieldOff,
@@ -28,7 +35,24 @@ export function TopBar() {
   const navigate = useNavigate();
   const location = useLocation();
   const actionRequiredCount = useStore((s) => s.actionRequiredCount);
-  const { appName, logoUrl, phiMaskedEnvironments } = useStore((s) => s.config);
+  const { appName, logoUrl, lightLogoUrl, phiMaskedEnvironments } = useStore(
+    (s) => s.config,
+  );
+
+  /**
+   * A logo is artwork with a baked-in ink colour, so it cannot follow the
+   * theme the way a token does — the deployment supplies both cuts:
+   * `LOGO_URL` is the dark mark that reads on a light bar, `LIGHT_LOGO_URL`
+   * the light mark for a dark one. Without this the dark-ink wordmark sat on
+   * the dark bar and effectively disappeared.
+   *
+   * Either may be unset, so each falls back to the other: a slightly
+   * low-contrast mark still beats no mark at all, and the app name renders
+   * beside it either way.
+   */
+  const scheme = useComputedColorScheme("light");
+  const barLogoUrl =
+    scheme === "dark" ? (lightLogoUrl ?? logoUrl) : (logoUrl ?? lightLogoUrl);
   const activeConn = connections.find((c) => c.id === activeConnectionId);
   const maskedEnvs = phiMaskedEnvironments;
   const isEnvMasked = activeConn ? maskedEnvs.includes(activeConn.env) : false;
@@ -100,9 +124,9 @@ export function TopBar() {
           aria-label="Go to dashboard"
           style={{ display: "flex", alignItems: "center", gap: 10 }}
         >
-          {logoUrl && (
+          {barLogoUrl && (
             <>
-              <img src={logoUrl} alt={appName} style={{ height: 32 }} />
+              <img src={barLogoUrl} alt={appName} style={{ height: 32 }} />
               <div
                 style={{ width: 1, height: 28, background: "var(--border)" }}
               />

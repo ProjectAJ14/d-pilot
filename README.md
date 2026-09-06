@@ -116,8 +116,8 @@ JWT_EXPIRES_IN=24h
 
 # Branding
 APP_NAME="Your App Name"
-LOGO_URL=/logo/your-logo.svg          # dark-background logo (or leave empty for text-only)
-LIGHT_LOGO_URL=/logo/your-logo-light.svg  # optional light-background variant
+LOGO_URL=/logo/your-logo.svg              # dark-ink mark, shown on the light theme (empty = text-only)
+LIGHT_LOGO_URL=/logo/your-logo-light.svg  # light-ink mark, shown on the dark theme and the login panel
 FAVICON_URL=/logo/favicon.svg         # optional
 
 # Email domain — enforced on user creation, used for the default admin seed
