@@ -29,6 +29,37 @@ export function PwaUpdatePrompt() {
     },
   });
 
+  const reloadNow = useCallback(async () => {
+    notifications.update({
+      id: UPDATE_NOTIFICATION_ID,
+      title: "Reloading\u2026",
+      message: null,
+      loading: true,
+      autoClose: false,
+      withCloseButton: false,
+    });
+
+    // `updateServiceWorker` only *asks* the waiting worker to activate — the
+    // reload is left to vite-plugin-pwa's `controlling` listener, which never
+    // fires when there is no waiting worker to activate (another tab already
+    // took the update, or the worker never took control), so the button reads
+    // as dead. Wait for control to change, then reload regardless.
+    const controllerChanged = new Promise<void>((resolve) => {
+      navigator.serviceWorker?.addEventListener(
+        "controllerchange",
+        () => resolve(),
+        { once: true },
+      );
+    });
+    await updateServiceWorker(true);
+    await Promise.race([
+      controllerChanged,
+      new Promise((resolve) => setTimeout(resolve, 2000)),
+    ]);
+
+    window.location.reload();
+  }, [updateServiceWorker]);
+
   useEffect(() => {
     if (!needRefresh) return;
 
@@ -46,14 +77,7 @@ export function PwaUpdatePrompt() {
             Reload to pick it up. Open tabs are restored; unsaved results are
             not.
           </Text>
-          <Button
-            size="compact-xs"
-            onClick={() => {
-              notifications.hide(UPDATE_NOTIFICATION_ID);
-              // `true` activates the waiting worker and reloads the page.
-              void updateServiceWorker(true);
-            }}
-          >
+          <Button size="compact-xs" onClick={() => void reloadNow()}>
             Reload
           </Button>
         </Group>
@@ -64,7 +88,7 @@ export function PwaUpdatePrompt() {
       // notifications.hide returns the id, which is not a valid cleanup value.
       notifications.hide(UPDATE_NOTIFICATION_ID);
     };
-  }, [needRefresh, setNeedRefresh, updateServiceWorker]);
+  }, [needRefresh, setNeedRefresh, reloadNow]);
 
   return null;
 }
