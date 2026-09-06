@@ -89,31 +89,18 @@ export const pwaOptions: Partial<VitePWAOptions> = {
         },
       },
       {
-        // Barlow (public/fonts) plus Monaco's codicon face in /assets. Scoped to
-        // .ttf so it cannot shadow the gstatic rule below, which serves woff2.
-        urlPattern: /\.ttf$/i,
+        // Every font face the app serves itself: Barlow (.ttf) and IBM Plex
+        // Mono (.woff2) under public/fonts, plus Monaco's codicon face in
+        // /assets. The woff2 arm matters — Plex Mono used to come from Google's
+        // CDN and was covered by a gstatic rule; now that it is self-hosted, a
+        // .ttf-only pattern would leave it uncached on every load. There is no
+        // longer any Google Fonts request to cache, so those rules are gone.
+        urlPattern: /\.(?:ttf|woff2?)$/i,
         handler: "CacheFirst",
         options: {
           cacheName: "dpilot-fonts",
-          expiration: { maxEntries: 24, maxAgeSeconds: YEAR_IN_SECONDS },
+          expiration: { maxEntries: 40, maxAgeSeconds: YEAR_IN_SECONDS },
           cacheableResponse: { statuses: [200] },
-        },
-      },
-      {
-        // IBM Plex Mono is the one font still loaded from Google (index.html);
-        // the stylesheet is revalidated in the background.
-        urlPattern: /^https:\/\/fonts\.googleapis\.com\//,
-        handler: "StaleWhileRevalidate",
-        options: { cacheName: "google-fonts-stylesheets" },
-      },
-      {
-        urlPattern: /^https:\/\/fonts\.gstatic\.com\//,
-        handler: "CacheFirst",
-        options: {
-          cacheName: "google-fonts-webfonts",
-          expiration: { maxEntries: 20, maxAgeSeconds: YEAR_IN_SECONDS },
-          // Font files come back opaque (no CORS), hence status 0.
-          cacheableResponse: { statuses: [0, 200] },
         },
       },
     ],

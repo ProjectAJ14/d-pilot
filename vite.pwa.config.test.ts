@@ -87,9 +87,12 @@ describe("service worker caching rules", () => {
     }
   });
 
-  it("caches both local and Monaco font faces", () => {
+  it("caches every self-hosted font face, whatever the format", () => {
     for (const font of [
       "/fonts/Barlow/Barlow-Regular.ttf",
+      // Plex Mono is self-hosted woff2. A .ttf-only rule silently misses it,
+      // which is exactly how it regressed once already.
+      "/fonts/IBMPlexMono/IBMPlexMono-400-latin.woff2",
       "/assets/codicon-a1b2.ttf",
     ]) {
       expect(
