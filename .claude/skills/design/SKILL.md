@@ -46,6 +46,20 @@ literal cannot follow the color scheme:
 background: "color-mix(in srgb, var(--accent) 12%, transparent)"
 ```
 
+**A Mantine palette index is just as frozen as a hex.** `c="secondary.9"` is the
+light-mode navy and stays navy on a dark canvas — this is what made the sidebar
+and settings unreadable in the first dark-mode pass. Text colors come from
+tokens, not shades:
+
+```jsx
+c="secondary.9"  ->  c="var(--text)"          // primary text
+c="primary.8"    ->  c="var(--accent-text)"   // brand text
+c="primary"      ->  c="var(--accent-text)"   // unshaded resolves per shade too
+```
+
+`c="dimmed"` is safe — Mantine flips it — but only because `global.css` pins
+`--mantine-color-dimmed` to `--muted`; see §3.
+
 **Reserved meanings — do not reuse decoratively:**
 - **Teal** = PHI/tokenized data. A teal thing on screen must mean "this is masked".
 - **Red** = production, destructive, or unmasked-PHI danger. Never "primary button".
@@ -69,7 +83,18 @@ Same reason `--border2` looks heavier than you'd expect: it is the boundary that
 makes an input identifiable, so it is held at 3:1 (IBM Carbon's field border sits
 at the same ratio). `--border` is decorative and stays hairline. Don't swap them.
 
-Changing any token means re-running the contrast math, not eyeballing it.
+Changing any token means re-running the contrast math, not eyeballing it. The
+reliable way is to audit the **rendered** page: walk every leaf text node,
+composite its real background, and compare — static greps miss colors that only
+appear once React has resolved a theme.
+
+Two known gaps, both pre-existing and both a product decision rather than a bug:
+
+- **Env badges** (`PROD`, `STG`, `UAT`…) and other `variant="filled"` controls in
+  Mantine's stock palette render white at ~2.4-4:1. Mantine's `autoContrast`
+  does **not** rescue them, so fixing this means changing the badge treatment —
+  which changes how loud `PROD` looks. Don't do it silently.
+- A few labels sit at 4.1-4.4:1 on tinted backgrounds.
 
 ## 3. Theming: light / dark / system
 
@@ -81,6 +106,13 @@ control, in the top-bar account menu. "System" is Mantine's `auto`.
 
 Write theme-aware color **once**, at the token layer in `global.css`. In component
 CSS, `light-dark()` also works — `postcss-preset-mantine` compiles it.
+
+`global.css` also pins two Mantine-derived variables to the solved tokens:
+`--mantine-color-dimmed` (backs ~157 `c="dimmed"` uses) and
+`--mantine-color-primary-light-color`. Those overrides need a `:root:root`
+selector — Mantine writes palette-derived variables from a `<style>` tag it
+injects at **runtime**, so merely matching its specificity loses to source
+order.
 
 Rules:
 - A color defined in only one scheme is a bug — define both.

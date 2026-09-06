@@ -192,7 +192,7 @@ export function SettingsPage() {
               size={20}
               color="var(--accent)"
             />
-            <Text fw={700} size="lg" c="secondary.9">
+            <Text fw={700} size="lg" c="var(--text)">
               Settings
             </Text>
           </Group>
@@ -234,7 +234,7 @@ export function SettingsPage() {
           <div
             style={{ maxWidth: 1180, margin: "0 auto", padding: "28px 32px" }}
           >
-            <Text fw={700} size="xl" mb={2} c="secondary.9">
+            <Text fw={700} size="xl" mb={2} c="var(--text)">
               {active.label}
             </Text>
             <Text size="sm" c="dimmed" mb="lg">
@@ -377,7 +377,7 @@ function StatCard({
           {icon}
         </div>
       </Group>
-      <Text fw={700} style={{ fontSize: 28, lineHeight: 1.1 }} c="secondary.9">
+      <Text fw={700} style={{ fontSize: 28, lineHeight: 1.1 }} c="var(--text)">
         {value}
       </Text>
       {sub && (
@@ -406,7 +406,7 @@ function BarChart({
   return (
     <div>
       <Group justify="space-between" mb={10}>
-        <Text size="sm" fw={600} c="secondary.9">
+        <Text size="sm" fw={600} c="var(--text)">
           {label}
         </Text>
         <Text size="xs" c="dimmed">
@@ -646,7 +646,7 @@ function AnalyticsTab() {
 
         {/* Activity breakdown */}
         <Panel>
-          <Text size="sm" fw={600} c="secondary.9" mb={12}>
+          <Text size="sm" fw={600} c="var(--text)" mb={12}>
             Activity breakdown (30d)
           </Text>
           {data.actionBreakdown.length === 0 && (
@@ -667,7 +667,7 @@ function AnalyticsTab() {
                   >
                     {ACTION_LABELS[a.action] || a.action}
                   </Badge>
-                  <Text size="xs" fw={600} c="secondary.9">
+                  <Text size="xs" fw={600} c="var(--text)">
                     {fmtNum(a.count)}
                   </Text>
                 </Group>
@@ -697,7 +697,7 @@ function AnalyticsTab() {
       {/* Top users + role distribution */}
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
         <Panel>
-          <Text size="sm" fw={600} c="secondary.9" mb={12}>
+          <Text size="sm" fw={600} c="var(--text)" mb={12}>
             Top users by queries (30d)
           </Text>
           {data.topUsers.length === 0 && (
@@ -716,7 +716,7 @@ function AnalyticsTab() {
                     <Text size="xs" fw={600} truncate>
                       {u.email}
                     </Text>
-                    <Text size="xs" fw={700} c="secondary.9">
+                    <Text size="xs" fw={700} c="var(--text)">
                       {fmtNum(u.queries)}
                     </Text>
                   </Group>
@@ -744,13 +744,13 @@ function AnalyticsTab() {
         </Panel>
 
         <Panel>
-          <Text size="sm" fw={600} c="secondary.9" mb={12}>
+          <Text size="sm" fw={600} c="var(--text)" mb={12}>
             Users by capability
           </Text>
           <Group gap="lg" mb="lg">
             {data.capabilityDistribution.map((r) => (
               <div key={r.capability}>
-                <Text fw={700} style={{ fontSize: 24 }} c="secondary.9">
+                <Text fw={700} style={{ fontSize: 24 }} c="var(--text)">
                   {fmtNum(r.count)}
                 </Text>
                 <Badge
@@ -766,7 +766,7 @@ function AnalyticsTab() {
             ))}
           </Group>
 
-          <Text size="sm" fw={600} c="secondary.9" mb={12}>
+          <Text size="sm" fw={600} c="var(--text)" mb={12}>
             Queries by connection (30d)
           </Text>
           {data.byConnection.length === 0 && (
@@ -780,7 +780,7 @@ function AnalyticsTab() {
                 <Text size="xs" ff="monospace" c="dimmed" truncate>
                   {c.connectionId}
                 </Text>
-                <Text size="xs" fw={600} c="secondary.9">
+                <Text size="xs" fw={600} c="var(--text)">
                   {fmtNum(c.count)}
                 </Text>
               </Group>
@@ -792,7 +792,7 @@ function AnalyticsTab() {
       {/* Live database connections */}
       <Panel>
         <Group justify="space-between" mb={12}>
-          <Text size="sm" fw={600} c="secondary.9">
+          <Text size="sm" fw={600} c="var(--text)">
             Database connections
           </Text>
           <Text size="xs" c="dimmed">
@@ -929,7 +929,7 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
   return (
     <>
       <Group justify="space-between" mb="md">
-        <Text fw={600} size="sm" c="secondary.9">
+        <Text fw={600} size="sm" c="var(--text)">
           {users.length} user{users.length !== 1 ? "s" : ""}
         </Text>
         <Button
@@ -1897,7 +1897,7 @@ function WriteModeTab() {
       >
         <div style={{ fontSize: 24, flexShrink: 0 }}>✍️</div>
         <div>
-          <Text fw={700} size="sm" c="primary.8" mb={4}>
+          <Text fw={700} size="sm" c="var(--accent-text)" mb={4}>
             Write Mode &amp; Approvals
           </Text>
           <Text size="xs" c="dimmed" style={{ lineHeight: 1.6 }}>
@@ -1912,7 +1912,7 @@ function WriteModeTab() {
 
       <Group justify="space-between" mb="lg" style={{ maxWidth: 520 }}>
         <div>
-          <Text fw={700} size="sm" c="secondary.9">
+          <Text fw={700} size="sm" c="var(--text)">
             Enable write mode
           </Text>
           <Text size="xs" c="dimmed">
@@ -1929,7 +1929,7 @@ function WriteModeTab() {
         />
       </Group>
 
-      <Text fw={700} size="sm" c="secondary.9" mb="xs">
+      <Text fw={700} size="sm" c="var(--text)" mb="xs">
         Direct-write Environments
       </Text>
       <Text size="xs" c="dimmed" mb="sm">
@@ -2165,7 +2165,7 @@ function PhiManagementTab() {
       >
         <div style={{ fontSize: 24, flexShrink: 0 }}>🪙</div>
         <div>
-          <Text fw={700} size="sm" c="primary.8" mb={4}>
+          <Text fw={700} size="sm" c="var(--accent-text)" mb={4}>
             Tokenized Placeholder Strategy
           </Text>
           <Text size="xs" c="dimmed" style={{ lineHeight: 1.6 }}>
@@ -2177,7 +2177,7 @@ function PhiManagementTab() {
       </div>
 
       {/* Masked Environments */}
-      <Text fw={700} size="sm" c="secondary.9" mb="xs">
+      <Text fw={700} size="sm" c="var(--text)" mb="xs">
         Masked Environments
       </Text>
       <Text size="xs" c="dimmed" mb="sm">
@@ -2236,7 +2236,7 @@ function PhiManagementTab() {
       </Group>
 
       <Group justify="space-between" mb="md">
-        <Text fw={600} size="sm" c="secondary.9">
+        <Text fw={600} size="sm" c="var(--text)">
           {rules.length} tokenization rule{rules.length !== 1 ? "s" : ""}
         </Text>
         <Group gap={8}>
@@ -3158,7 +3158,7 @@ function AzureOpenAiTab() {
       >
         <div style={{ fontSize: 24, flexShrink: 0 }}>✨</div>
         <div>
-          <Text fw={700} size="sm" c="primary.8" mb={4}>
+          <Text fw={700} size="sm" c="var(--accent-text)" mb={4}>
             Azure OpenAI Connection
           </Text>
           <Text size="xs" c="dimmed" style={{ lineHeight: 1.6 }}>
@@ -3405,7 +3405,7 @@ function AiChatLogTab() {
                   <Table.Td style={{ verticalAlign: "top" }}>
                     <Text
                       size="xs"
-                      c="secondary.9"
+                      c="var(--text)"
                       style={{
                         display: "-webkit-box",
                         WebkitLineClamp: 2,
@@ -3470,7 +3470,7 @@ function SectionLabel({ children }: { children: string }) {
       size="xs"
       fw={800}
       tt="uppercase"
-      c="secondary.9"
+      c="var(--text)"
       style={{
         letterSpacing: 0.5,
         borderBottom: "1px solid var(--border)",
@@ -3705,7 +3705,7 @@ function AiChatDetailModal({
         <CodeBlock
           label="User Prompt (plain English)"
           value={entry.prompt}
-          accent="primary.7"
+          accent="var(--accent-text)"
         />
 
         <SectionLabel>2 · What we sent to the model</SectionLabel>
@@ -3745,7 +3745,7 @@ function AiChatDetailModal({
         <CodeBlock
           label="Generated Query"
           value={entry.generatedQuery}
-          accent="primary.7"
+          accent="var(--accent-text)"
         />
         {entry.explanation && (
           <CodeBlock label="Explanation" value={entry.explanation} />

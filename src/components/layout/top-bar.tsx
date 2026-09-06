@@ -216,6 +216,11 @@ export function TopBar() {
 
       <div style={{ flex: 1 }} />
 
+      {/* Theme */}
+      <ColorSchemeToggle />
+
+      <div style={{ width: 1, height: 28, background: "var(--border)" }} />
+
       {/* User Dropdown */}
       <Menu shadow="lg" width={210}>
         <Menu.Target>
@@ -227,16 +232,16 @@ export function TopBar() {
               width: 34,
               height: 34,
               borderRadius: "50%",
-              background:
-                "linear-gradient(135deg, var(--accent), var(--accent4))",
+              // Brand mark: fixed teal->navy in BOTH schemes. Using --accent4 here
+              // inverted the circle in dark mode (that token is near-white there),
+              // which dragged the initials' color along with it.
+              background: "linear-gradient(135deg, #1f9196, #0c2340)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               fontSize: 12,
               fontWeight: 700,
-              // The gradient is dark in light mode and light in dark mode, so
-              // the initials have to flip with it rather than pin to white.
-              color: "var(--surface)",
+              color: "#fff",
               flexShrink: 0,
             }}
           >
@@ -286,13 +291,6 @@ export function TopBar() {
               )}
             </Group>
           </div>
-          <div style={{ padding: "10px 12px 6px" }}>
-            <Text size="xs" c="var(--muted)" fw={600} mb={6}>
-              THEME
-            </Text>
-            <ColorSchemeToggle />
-          </div>
-          <Menu.Divider />
           <Menu.Item
             leftSection={<IconUser size={14} />}
             onClick={() => navigate("/profile")}

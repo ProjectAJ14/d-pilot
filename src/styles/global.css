@@ -117,6 +117,32 @@
   --selected: rgba(67, 208, 214, 0.16);
 }
 
+/**
+ * Mantine derives a few of its own colors from the palette rather than from the
+ * tokens above, and those derivations are not contrast-checked. Pin them to the
+ * solved tokens.
+ *
+ *  - `--mantine-color-dimmed` backs `c="dimmed"` (~157 uses). It resolves to
+ *    gray[6]; since `gray` is aliased to the brand neutrals in main.tsx that
+ *    landed at 3.2:1 on the canvas.
+ *  - `--mantine-color-primary-light-color` is the label color of every
+ *    `variant="light"` primary control, which resolved to the brand teal at
+ *    3.1:1 rather than the darker text step.
+ *
+ * Selector specificity is load-bearing here. Mantine writes the palette-derived
+ * variables (anything `-light-color`, `-filled`, …) from a <style> tag it
+ * injects at RUNTIME, which always lands after this file — so matching its
+ * `:root[data-mantine-color-scheme=...]` only ties, and a tie loses to the
+ * later sheet. `:root:root` outranks it. The plain `:root` fallback covers the
+ * variables Mantine ships in its static stylesheet instead.
+ */
+:root:root[data-mantine-color-scheme="light"],
+:root:root[data-mantine-color-scheme="dark"],
+:root {
+  --mantine-color-dimmed: var(--muted);
+  --mantine-color-primary-light-color: var(--accent-text);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;

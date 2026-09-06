@@ -148,7 +148,7 @@ export function SqlBlock({
       {step != null ? (
         <Group gap={8} mb={7} align="center">
           <StepBadge n={step} />
-          <Text size="sm" fw={600} c="secondary.9">
+          <Text size="sm" fw={600} c="var(--text)">
             {label}
           </Text>
           {hint && (
@@ -345,7 +345,7 @@ export function AiReviewCard({
       </Group>
       <Text
         size="sm"
-        c="secondary.9"
+        c="var(--text)"
         mb={review.risks.length ? 10 : 0}
         style={{ lineHeight: 1.6 }}
       >
@@ -360,7 +360,7 @@ export function AiReviewCard({
                 color={`var(--mantine-color-${meta.color}-6)`}
                 style={{ marginTop: 2, flexShrink: 0 }}
               />
-              <Text size="xs" c="secondary.9">
+              <Text size="xs" c="var(--text)">
                 {r}
               </Text>
             </Group>
@@ -385,7 +385,7 @@ export function AiReviewCard({
                 size={14}
                 color={`var(--mantine-color-${meta.color}-7)`}
               />
-              <Text size="xs" fw={700} c="secondary.9">
+              <Text size="xs" fw={700} c="var(--text)">
                 Suggested correction
               </Text>
             </Group>

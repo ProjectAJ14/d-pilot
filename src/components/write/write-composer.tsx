@@ -616,7 +616,7 @@ export function WriteComposer({
       {/* 1 · Write statement */}
       <Group gap={8} mb={9} align="center">
         <StepBadge n={1} />
-        <Text size="sm" fw={600} c="secondary.9">
+        <Text size="sm" fw={600} c="var(--text)">
           {isMigration ? "Migration script" : "Write statement"}
         </Text>
         <Text size="xs" c="dimmed">
@@ -725,7 +725,7 @@ export function WriteComposer({
         <>
           <Group gap={8} mb={9} align="center">
             <StepBadge n={2} />
-            <Text size="sm" fw={600} c="secondary.9">
+            <Text size="sm" fw={600} c="var(--text)">
               Verify SELECT
             </Text>
             <Text size="xs" c="red" fw={600}>

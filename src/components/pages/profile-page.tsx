@@ -115,7 +115,7 @@ export function ProfilePage() {
           <Group gap={10} px={8} mb={2} wrap="nowrap">
             <Avatar initials={initials} size={38} />
             <div style={{ minWidth: 0 }}>
-              <Text fw={700} size="sm" c="secondary.9" truncate>
+              <Text fw={700} size="sm" c="var(--text)" truncate>
                 {user?.name || user?.username}
               </Text>
               <Text size="xs" c="dimmed" truncate ff="monospace">
@@ -158,7 +158,7 @@ export function ProfilePage() {
           <div
             style={{ maxWidth: 820, margin: "0 auto", padding: "28px 32px" }}
           >
-            <Text fw={700} size="xl" mb={2} c="secondary.9">
+            <Text fw={700} size="xl" mb={2} c="var(--text)">
               {active.label}
             </Text>
             <Text size="sm" c="dimmed" mb="lg">
@@ -182,13 +182,16 @@ function Avatar({ initials, size }: { initials: string; size: number }) {
         width: size,
         height: size,
         borderRadius: "50%",
-        background: "linear-gradient(135deg, var(--accent), var(--accent4))",
+        // Brand mark: fixed teal->navy in BOTH schemes. Using --accent4 here
+        // inverted the circle in dark mode (that token is near-white there),
+        // which dragged the initials' color along with it.
+        background: "linear-gradient(135deg, #1f9196, #0c2340)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         fontSize: size / 3,
         fontWeight: 700,
-        color: "var(--surface)",
+        color: "#fff",
         flexShrink: 0,
       }}
     >
@@ -220,7 +223,7 @@ function Card({
     >
       <Group gap={8} mb={desc ? 2 : "md"}>
         {icon}
-        <Text fw={600} size="sm" c="secondary.9">
+        <Text fw={600} size="sm" c="var(--text)">
           {title}
         </Text>
       </Group>
@@ -256,7 +259,7 @@ function EnvRow({
     >
       <Group gap={8} wrap="nowrap">
         {icon}
-        <Text size="sm" c="secondary.9">
+        <Text size="sm" c="var(--text)">
           {label}
         </Text>
       </Group>
@@ -324,7 +327,7 @@ function AccountTab({ initials }: { initials: string }) {
           <Avatar initials={initials} size={64} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <Group gap="sm" mb={4}>
-              <Text fw={700} size="lg" c="secondary.9">
+              <Text fw={700} size="lg" c="var(--text)">
                 {user?.name}
               </Text>
               {user?.isAdmin && (
@@ -555,7 +558,7 @@ function PreferencesTab() {
     >
       <Group justify="space-between" wrap="nowrap" gap="lg">
         <div>
-          <Text fw={600} size="sm" c="secondary.9">
+          <Text fw={600} size="sm" c="var(--text)">
             Vim keybindings
           </Text>
           <Text size="xs" c="dimmed">

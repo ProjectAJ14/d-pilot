@@ -456,7 +456,7 @@ export function Sidebar() {
                   >
                     {env}
                   </Badge>
-                  <Text size="xs" fw={600} style={{ flex: 1 }} c="secondary.9">
+                  <Text size="xs" fw={600} style={{ flex: 1 }} c="var(--text)">
                     {envLabel(env)}
                   </Text>
                   <Text size="xs" c="dimmed" ff="monospace" style={{ fontSize: 10 }}>{conns.length}</Text>
@@ -517,7 +517,7 @@ export function Sidebar() {
                                   size="xs"
                                   fw={isActive ? 700 : 600}
                                   ff="monospace"
-                                  c={isActive ? "primary.8" : "secondary.9"}
+                                  c={isActive ? "var(--accent-text)" : "var(--text)"}
                                   style={{ fontSize: 12, wordBreak: "break-word", lineHeight: 1.4 }}
                                 >
                                   {conn.name}
@@ -572,7 +572,7 @@ export function Sidebar() {
                               <span style={{ fontSize: 22, lineHeight: 1 }}>{DB_ICONS[conn.type]}</span>
                               <Text
                                 ff="monospace"
-                                c={isActive ? "primary.7" : "dimmed"}
+                                c={isActive ? "var(--accent-text)" : "dimmed"}
                                 style={{ fontSize: 9, marginTop: 2, fontWeight: isActive ? 700 : 400 }}
                               >
                                 {DB_SHORT[conn.type]}
@@ -747,7 +747,7 @@ export function Sidebar() {
                                               <Text
                                                 size="xs"
                                                 ff="monospace"
-                                                c={col.isPrimaryKey ? "primary.8" : "dimmed"}
+                                                c={col.isPrimaryKey ? "var(--accent-text)" : "dimmed"}
                                                 style={{ flex: 1, fontSize: 11 }}
                                               >
                                                 {col.name}
@@ -827,7 +827,7 @@ export function Sidebar() {
                   >
                     <IconFileText size={15} color="var(--accent4)" style={{ flexShrink: 0, alignSelf: "flex-start", marginTop: 2 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <Text size="xs" fw={600} c="secondary.9" style={{ fontSize: 12, lineHeight: 1.4, wordBreak: "break-word" }}>{artifact.title}</Text>
+                      <Text size="xs" fw={600} c="var(--text)" style={{ fontSize: 12, lineHeight: 1.4, wordBreak: "break-word" }}>{artifact.title}</Text>
                       <Text c="dimmed" style={{ marginTop: 3, fontSize: 10, lineHeight: 1.4 }}>
                         {blockCount} {blockCount === 1 ? "query" : "queries"} · {artifact.createdByEmail}
                       </Text>
@@ -882,7 +882,7 @@ export function Sidebar() {
                   >
                     <IconBookmark size={15} color="var(--accent)" style={{ flexShrink: 0, alignSelf: "flex-start", marginTop: 2 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <Text size="xs" fw={600} c="secondary.9" style={{ fontSize: 12, lineHeight: 1.4, wordBreak: "break-word" }}>{query.name}</Text>
+                      <Text size="xs" fw={600} c="var(--text)" style={{ fontSize: 12, lineHeight: 1.4, wordBreak: "break-word" }}>{query.name}</Text>
                       <Text c="dimmed" ff="monospace" style={{ marginTop: 4, fontSize: 9, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-all", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                         {query.sql.trim()}
                       </Text>
@@ -946,7 +946,7 @@ export function Sidebar() {
                   >
                     <IconClock size={14} color="var(--muted)" style={{ flexShrink: 0, marginTop: 2 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <Text size="xs" ff="monospace" truncate c="secondary.9" style={{ fontSize: 11 }}>
+                      <Text size="xs" ff="monospace" truncate c="var(--text)" style={{ fontSize: 11 }}>
                         {entry.sql?.slice(0, 80)}
                       </Text>
                       <div style={{ display: "flex", gap: 6, marginTop: 4, alignItems: "center" }}>

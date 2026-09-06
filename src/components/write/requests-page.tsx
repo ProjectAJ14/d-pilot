@@ -150,7 +150,7 @@ export function RequestsPage() {
         <Group justify="space-between" mb={4}>
           <Group gap={10}>
             <IconGitPullRequest size={22} color="var(--accent)" />
-            <Text fw={700} size="xl" c="secondary.9">
+            <Text fw={700} size="xl" c="var(--text)">
               Requests
             </Text>
             {counts.action > 0 && (
@@ -282,7 +282,7 @@ export function RequestsPage() {
                           <Text
                             size="sm"
                             fw={600}
-                            c="secondary.9"
+                            c="var(--text)"
                             truncate
                             style={{ maxWidth: 340 }}
                           >

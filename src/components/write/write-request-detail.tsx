@@ -360,7 +360,7 @@ export function WriteRequestDetail() {
         <Group gap={12} mb={10} align="center" wrap="wrap">
           <Text
             fw={700}
-            c="secondary.9"
+            c="var(--text)"
             style={{ fontSize: 26, lineHeight: 1.2, letterSpacing: "-0.02em" }}
           >
             {wr.title}
@@ -416,7 +416,7 @@ export function WriteRequestDetail() {
         </Group>
 
         {wr.description && (
-          <Text size="sm" c="secondary.9" mb="md" style={{ lineHeight: 1.6 }}>
+          <Text size="sm" c="var(--text)" mb="md" style={{ lineHeight: 1.6 }}>
             {wr.description}
           </Text>
         )}
@@ -761,7 +761,7 @@ export function WriteRequestDetail() {
                       {ev.event}
                     </Badge>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <Text size="xs" c="secondary.9">
+                      <Text size="xs" c="var(--text)">
                         {ev.actorEmail}
                         {ev.notes ? (
                           <Text component="span" size="xs" c="dimmed">
@@ -817,7 +817,7 @@ export function WriteRequestDetail() {
                 <IconThumbUp size={20} />
               )}
             </div>
-            <Text fw={700} size="md" c="secondary.9">
+            <Text fw={700} size="md" c="var(--text)">
               {decisionModal === "approve"
                 ? "Approve & run write"
                 : "Reject write request"}

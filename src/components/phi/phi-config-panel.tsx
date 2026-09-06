@@ -101,7 +101,7 @@ export function PhiConfigPanel() {
         >
           <div style={{ fontSize: 22, flexShrink: 0, marginTop: 1 }}>🪙</div>
           <div>
-            <Text fw={700} size="xs" c="primary" mb={4}>
+            <Text fw={700} size="xs" c="var(--accent-text)" mb={4}>
               Tokenized Placeholder Strategy
             </Text>
             <Text size="xs" c="dimmed" style={{ lineHeight: 1.6 }}>
@@ -260,7 +260,7 @@ export function PhiConfigPanel() {
               {unmaskedEnvs.map((env, i) => (
                 <span key={env}>
                   {i > 0 && " and "}
-                  <span style={{ color: "var(--accent2)" }}>{env}</span>
+                  <span style={{ color: "var(--success)" }}>{env}</span>
                 </span>
               ))}{" "}
               connections return real values.

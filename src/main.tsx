@@ -1,6 +1,13 @@
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
-import { MantineProvider, createTheme, Text, Button, TextInput, type MantineColorsTuple } from "@mantine/core";
+import {
+  MantineProvider,
+  createTheme,
+  Text,
+  Button,
+  TextInput,
+  type MantineColorsTuple,
+} from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
 import { createRoot } from "react-dom/client";
 import "./utils/monaco-setup";
@@ -75,8 +82,11 @@ const theme = createTheme({
     xl: "16px",
   },
   defaultRadius: "sm",
-  // Auto-flip label text to black/white on filled backgrounds that would
-  // otherwise fail contrast — mostly badges over the mid palette shades.
+  // Flips label text to black on filled backgrounds too light to carry white.
+  // Note: this does NOT reach the env badges (PROD/STG/UAT) — Mantine only
+  // applies it to `filled` variants and those still resolve to white here, so
+  // white-on-orange/teal remains ~2.5:1. Fixing that means changing the env
+  // badge treatment, which is a product decision about how loud PROD looks.
   autoContrast: true,
   cursorType: "pointer",
   colors: {

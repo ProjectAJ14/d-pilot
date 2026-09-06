@@ -45,7 +45,7 @@ export function WriteWorkspace() {
           <Text
             fw={700}
             size="xl"
-            c="secondary.9"
+            c="var(--text)"
             style={{ letterSpacing: "-0.02em" }}
           >
             Write &amp; Request
@@ -57,7 +57,7 @@ export function WriteWorkspace() {
           approval environments it is submitted for a second person to review;
           on direct environments it runs immediately. Or save it for later — a
           saved request runs nothing until someone submits it. Track it under{" "}
-          <Text component="span" fw={600} c="secondary.9">
+          <Text component="span" fw={600} c="var(--text)">
             Requests
           </Text>
           .
