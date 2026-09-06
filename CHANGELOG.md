@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [1.21.2](https://github.com/ProjectAJ14/d-pilot/compare/v1.21.1...v1.21.2) (2026-09-06)
+
+
+### Bug Fixes
+
+* **pwa:** cache self-hosted woff2 fonts and drop the dead Google Fonts rules ([f0879d2](https://github.com/ProjectAJ14/d-pilot/commit/f0879d23fceca9c41083bee5e9bdd475f672e24a))
+
 ## [1.21.1](https://github.com/ProjectAJ14/d-pilot/compare/v1.21.0...v1.21.1) (2026-09-06)
 
 
