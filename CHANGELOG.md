@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [1.21.1](https://github.com/ProjectAJ14/d-pilot/compare/v1.21.0...v1.21.1) (2026-09-06)
+
+
+### Bug Fixes
+
+* **ui:** make text readable in dark mode and surface the theme switcher ([3877abb](https://github.com/ProjectAJ14/d-pilot/commit/3877abb2dc2900478aebcfe65f90b647fcc5ecd6)), closes [#788e96](https://github.com/ProjectAJ14/d-pilot/issues/788e96)
+
 # [1.21.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.20.0...v1.21.0) (2026-09-05)
 
 
