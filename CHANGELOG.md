@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [1.21.3](https://github.com/ProjectAJ14/d-pilot/compare/v1.21.2...v1.21.3) (2026-09-06)
+
+
+### Bug Fixes
+
+* **ui:** use the light-ink logo on the dark theme ([e26e265](https://github.com/ProjectAJ14/d-pilot/commit/e26e26569b671c7c2db37821cd0dc14c9c2d34d4))
+
 ## [1.21.2](https://github.com/ProjectAJ14/d-pilot/compare/v1.21.1...v1.21.2) (2026-09-06)
 
 
