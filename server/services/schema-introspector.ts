@@ -624,9 +624,9 @@ function referencedTables(sql: string): string[] {
   const masked = scanSql(sql).masked;
   const names = new Set<string>();
   for (const m of masked.matchAll(/\b(?:from|join)\s+/gi)) {
-    const ident = sql.slice(m.index + m[0].length).match(/^[A-Za-z0-9_."\[\]]+/);
+    const ident = sql.slice(m.index + m[0].length).match(/^[A-Za-z0-9_."[\]]+/);
     // Keep the bare table name — the cache is already scoped to one schema.
-    const bare = ident?.[0].replace(/["\[\]]/g, "").split(".").pop();
+    const bare = ident?.[0].replace(/["[\]]/g, "").split(".").pop();
     if (bare) names.add(bare.toLowerCase());
   }
   return [...names];

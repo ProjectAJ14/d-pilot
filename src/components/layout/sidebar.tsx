@@ -82,7 +82,6 @@ export function Sidebar() {
   const openArtifactTab = useStore((s) => s.openArtifactTab);
   const removeSavedQuery = useStore((s) => s.removeSavedQuery);
   const updateTab = useStore((s) => s.updateTab);
-  const activeTabId = useStore((s) => s.activeTabId);
   const addTab = useStore((s) => s.addTab);
   const schemaByConnection = useStore((s) => s.schemaByConnection);
   const setSchemaForConnection = useStore((s) => s.setSchemaForConnection);
@@ -120,7 +119,8 @@ export function Sidebar() {
   const toggleEnv = (env: string) => {
     setExpandedEnvs((prev) => {
       const next = new Set(prev);
-      next.has(env) ? next.delete(env) : next.add(env);
+      if (next.has(env)) next.delete(env);
+      else next.add(env);
       return next;
     });
   };

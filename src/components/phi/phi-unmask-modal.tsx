@@ -13,8 +13,6 @@ const UNMASK_REASONS = [
 ];
 
 export function PhiUnmaskModal() {
-  const phiEnabled = useStore((s) => s.phiEnabled);
-  const user = useStore((s) => s.user);
   const setPhi = useStore((s) => s.setPhi);
   const connections = useStore((s) => s.connections);
   const activeConnectionId = useStore((s) => s.activeConnectionId);

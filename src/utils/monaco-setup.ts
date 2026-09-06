@@ -20,7 +20,6 @@ import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker"
  */
 
 declare global {
-  // eslint-disable-next-line no-var
   var MonacoEnvironment: monaco.Environment | undefined;
 }
 

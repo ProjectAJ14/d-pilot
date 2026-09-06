@@ -717,12 +717,6 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
     }
   };
 
-  const openSaveAsNew = () => {
-    setEditingSavedId(null);
-    setSaveName("");
-    setSaveModalOpen(true);
-  };
-
   // The saved query backing this tab, if any (tabs opened from / saved to the
   // library carry the query name as their title).
   const savedMatch = savedQueries.find((q) => q.name === tab.title);

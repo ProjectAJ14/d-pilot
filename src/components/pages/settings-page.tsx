@@ -314,7 +314,7 @@ function fmtNum(n: number): string {
 
 function fmtDay(iso: string): string {
   // iso = YYYY-MM-DD (UTC). Render as "Jun 5"
-  const [y, m, d] = iso.split("-").map(Number);
+  const [, m, d] = iso.split("-").map(Number);
   const months = [
     "Jan",
     "Feb",

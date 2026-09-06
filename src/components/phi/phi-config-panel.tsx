@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Text, ScrollArea, ActionIcon, Switch } from "@mantine/core";
+import { Text, ScrollArea, ActionIcon } from "@mantine/core";
 import { IconX, IconShieldLock } from "@tabler/icons-react";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
@@ -26,11 +26,6 @@ const FIELD_ICONS: Record<string, string> = {
 
 function getIcon(pattern: string): string {
   return FIELD_ICONS[pattern] || "🔐";
-}
-
-function getTokenLabel(pattern: string): string {
-  const clean = pattern.replace(/\*/g, "").toUpperCase();
-  return `${clean}_TOKEN_#####`;
 }
 
 export function PhiConfigPanel() {
