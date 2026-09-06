@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [1.21.4](https://github.com/ProjectAJ14/d-pilot/compare/v1.21.3...v1.21.4) (2026-09-06)
+
+
+### Bug Fixes
+
+* **pwa:** reload the app when the update prompt's Reload is clicked ([ffeec4c](https://github.com/ProjectAJ14/d-pilot/commit/ffeec4cf6bbc54da4fc137033e8ecb5dc2ee9a8a))
+
 ## [1.21.3](https://github.com/ProjectAJ14/d-pilot/compare/v1.21.2...v1.21.3) (2026-09-06)
 
 
