@@ -367,7 +367,7 @@ function StatCard({
         </Text>
         <div
           style={{
-            color: `var(--mantine-color-${accent}-6)`,
+            color: `var(--mantine-color-${accent}-light-color)`,
             display: "flex",
             opacity: 0.85,
           }}
@@ -620,14 +620,14 @@ function AnalyticsTab() {
         <Panel>
           <BarChart
             label="Queries per day (30d)"
-            color="var(--mantine-color-blue-5)"
+            color="var(--mantine-color-blue-filled)"
             data={data.daily.map((d) => ({ date: d.date, value: d.queries }))}
           />
         </Panel>
         <Panel>
           <BarChart
             label="Daily active users (30d)"
-            color="var(--mantine-color-teal-5)"
+            color="var(--mantine-color-teal-filled)"
             data={data.daily.map((d) => ({
               date: d.date,
               value: d.activeUsers,
@@ -637,7 +637,7 @@ function AnalyticsTab() {
         <Panel>
           <BarChart
             label="AI generations per day (30d)"
-            color="var(--mantine-color-violet-5)"
+            color="var(--mantine-color-violet-filled)"
             data={data.daily.map((d) => ({ date: d.date, value: d.aiQueries }))}
           />
         </Panel>
@@ -672,7 +672,7 @@ function AnalyticsTab() {
                 <div
                   style={{
                     height: 6,
-                    background: "var(--mantine-color-gray-2)",
+                    background: "var(--surface2)",
                     borderRadius: 4,
                     overflow: "hidden",
                   }}
@@ -681,7 +681,7 @@ function AnalyticsTab() {
                     style={{
                       height: "100%",
                       width: `${(a.count / maxAction) * 100}%`,
-                      background: `var(--mantine-color-${ACTION_COLORS[a.action] || "gray"}-5)`,
+                      background: `var(--mantine-color-${ACTION_COLORS[a.action] || "gray"}-filled)`,
                       borderRadius: 4,
                     }}
                   />
@@ -721,7 +721,7 @@ function AnalyticsTab() {
                   <div
                     style={{
                       height: 5,
-                      background: "var(--mantine-color-gray-2)",
+                      background: "var(--surface2)",
                       borderRadius: 4,
                       overflow: "hidden",
                     }}
@@ -730,7 +730,7 @@ function AnalyticsTab() {
                       style={{
                         height: "100%",
                         width: `${(u.queries / maxTopUser) * 100}%`,
-                        background: "var(--mantine-color-primary-5)",
+                        background: "var(--accent)",
                         borderRadius: 4,
                       }}
                     />
@@ -832,8 +832,8 @@ function AnalyticsTab() {
                             borderRadius: "50%",
                             flexShrink: 0,
                             background: c.live
-                              ? "var(--mantine-color-teal-5)"
-                              : "var(--mantine-color-gray-4)",
+                              ? "var(--success)"
+                              : "var(--muted)",
                           }}
                         />
                         <Text size="xs" fw={600} truncate>

@@ -45,6 +45,11 @@
      on top of it — uses `--accent-text` instead. Same hue, one step darker. */
   --accent: #1f9196;
   --accent-text: #1b7c81;
+  /* Ink for words sitting ON a filled brand surface. Light mode fills with the
+     dark teal, so white reads; dark mode fills with the light teal, where white
+     collapses to 1.9:1 and the navy scores 8.4:1. Mantine cannot pick this
+     itself — see the variantColorResolver note in main.tsx. */
+  --on-accent: #ffffff;
   --accent2: #4caf50;
   --accent4: #0c2340;
 
@@ -95,6 +100,7 @@
      clears 9:1 up here, so unlike in light mode text and fill can share it. */
   --accent: #43d0d6;
   --accent-text: #43d0d6;
+  --on-accent: #0c2340;
   --accent2: #66bb6a;
   --accent4: #e4ebf1;
 

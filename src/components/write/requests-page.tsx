@@ -43,6 +43,31 @@ export function countActionRequired(requests: WriteRequest[]): number {
   return requests.filter(needsMyAction).length;
 }
 
+/**
+ * What the row wants from the viewer. A draft cannot be reviewed or approved —
+ * the only move is to submit it — so a teammate's draft must not claim to be
+ * "To review", and a row you can do nothing about must not claim either.
+ */
+function rowRole(r: WriteRequest): { label: string; color: string } {
+  if (r.viewerIsRequester) return { label: "Mine", color: "blue" };
+  if (r.status === "DRAFT" && r.viewerCanSubmit)
+    return { label: "To submit", color: "grape" };
+  if (r.viewerCanApprove && r.status === "PENDING")
+    return { label: "To review", color: "grape" };
+  return { label: "Theirs", color: "gray" };
+}
+
+/** Why the attention dot is lit — mirrors the branches in needsMyAction. */
+function actionLabel(r: WriteRequest): string {
+  if (r.viewerCanApprove && r.status === "PENDING")
+    return "Awaiting your review";
+  if (r.status === "DRAFT")
+    return r.viewerIsRequester
+      ? "Your saved draft — submit or run it"
+      : "A saved draft you can submit";
+  return "Needs your revision";
+}
+
 type Filter = "action" | "mine" | "all";
 
 const PAGE_SIZE = 12;
@@ -245,6 +270,7 @@ export function RequestsPage() {
                 <Table.Tbody>
                   {paged.map((r) => {
                     const act = needsMyAction(r);
+                    const role = rowRole(r);
                     return (
                       <Table.Tr
                         key={r.id}
@@ -252,25 +278,19 @@ export function RequestsPage() {
                         style={{
                           cursor: "pointer",
                           borderLeft: act
-                            ? "3px solid var(--mantine-color-red-5)"
+                            ? "3px solid var(--mantine-color-red-filled)"
                             : "3px solid transparent",
                         }}
                       >
                         <Table.Td>
                           {act ? (
-                            <Tooltip
-                              label={
-                                r.viewerCanApprove
-                                  ? "Awaiting your review"
-                                  : "Needs your revision"
-                              }
-                            >
+                            <Tooltip label={actionLabel(r)}>
                               <div
                                 style={{
                                   width: 8,
                                   height: 8,
                                   borderRadius: "50%",
-                                  background: "var(--mantine-color-red-5)",
+                                  background: "var(--mantine-color-red-filled)",
                                 }}
                               />
                             </Tooltip>
@@ -287,12 +307,8 @@ export function RequestsPage() {
                             {r.title}
                           </Text>
                           <Group gap={6} mt={2} wrap="nowrap">
-                            <Badge
-                              size="xs"
-                              variant="light"
-                              color={r.viewerIsRequester ? "blue" : "grape"}
-                            >
-                              {r.viewerIsRequester ? "Mine" : "To review"}
+                            <Badge size="xs" variant="light" color={role.color}>
+                              {role.label}
                             </Badge>
                             <Text
                               size="xs"

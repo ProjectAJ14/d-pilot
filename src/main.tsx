@@ -6,6 +6,8 @@ import {
   Text,
   Button,
   TextInput,
+  defaultVariantColorsResolver,
+  type VariantColorsResolver,
   type MantineColorsTuple,
 } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
@@ -117,6 +119,26 @@ const dark: MantineColorsTuple = [
   "#060e15",
 ];
 
+/**
+ * Mantine picks the ink for a `filled` control once, from the palette shade it
+ * resolves without knowing the color scheme — so it reads the *light* mode
+ * brand shade (a dark teal), concludes white is right, and emits
+ * `--button-color: white` inline for both schemes. In dark mode the brand fill
+ * is the light teal, where white collapses to 1.9:1.
+ *
+ * Handing back a token instead moves the decision to CSS, which does know the
+ * scheme: white on the dark teal (light), navy on the light teal (dark, 8.4:1).
+ * Only the brand fill is overridden — the stock red/orange badges keep their
+ * documented treatment.
+ */
+const variantColorResolver: VariantColorsResolver = (input) => {
+  const resolved = defaultVariantColorsResolver(input);
+  if (input.variant === "filled" && input.color === "primary") {
+    return { ...resolved, color: "var(--on-accent)" };
+  }
+  return resolved;
+};
+
 const theme = createTheme({
   fontFamily: "Barlow, sans-serif",
   fontFamilyMonospace: "IBM Plex Mono, monospace",
@@ -144,6 +166,7 @@ const theme = createTheme({
   // white-on-orange/teal remains ~2.5:1. Fixing that means changing the env
   // badge treatment, which is a product decision about how loud PROD looks.
   autoContrast: true,
+  variantColorResolver,
   cursorType: "pointer",
   colors: {
     primary,
