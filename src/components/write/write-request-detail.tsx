@@ -373,8 +373,8 @@ export function WriteRequestDetail() {
                 leftSection={<IconTrash size={14} />}
                 onClick={() => setDeleteOpen(true)}
                 style={{
-                  color: "var(--mantine-color-red-7)",
-                  borderColor: "var(--mantine-color-red-3)",
+                  color: "var(--mantine-color-red-light-color)",
+                  borderColor: "var(--mantine-color-red-outline)",
                 }}
               >
                 Delete
@@ -416,8 +416,8 @@ export function WriteRequestDetail() {
               fontWeight: 700,
               letterSpacing: "0.04em",
               textTransform: "uppercase",
-              color: `var(--mantine-color-${statusMeta.color}-8)`,
-              background: `var(--mantine-color-${statusMeta.color}-1)`,
+              color: `var(--mantine-color-${statusMeta.color}-light-color)`,
+              background: `var(--mantine-color-${statusMeta.color}-light)`,
               borderRadius: 999,
               padding: "4px 11px",
             }}
@@ -427,7 +427,7 @@ export function WriteRequestDetail() {
                 width: 7,
                 height: 7,
                 borderRadius: "50%",
-                background: `var(--mantine-color-${statusMeta.color}-6)`,
+                background: `var(--mantine-color-${statusMeta.color}-filled)`,
               }}
             />
             {statusMeta.label}
@@ -716,8 +716,8 @@ export function WriteRequestDetail() {
                           setDecisionModal("reject");
                         }}
                         style={{
-                          color: "var(--mantine-color-red-7)",
-                          borderColor: "var(--mantine-color-red-3)",
+                          color: "var(--mantine-color-red-light-color)",
+                          borderColor: "var(--mantine-color-red-outline)",
                         }}
                       >
                         Reject
@@ -790,7 +790,7 @@ export function WriteRequestDetail() {
                         height: 8,
                         marginTop: 5,
                         borderRadius: "50%",
-                        background: `var(--mantine-color-${EVENT_COLORS[ev.event] || "gray"}-6)`,
+                        background: `var(--mantine-color-${EVENT_COLORS[ev.event] || "gray"}-filled)`,
                       }}
                     />
                     <Badge
@@ -844,12 +844,12 @@ export function WriteRequestDetail() {
                 justifyContent: "center",
                 background:
                   decisionModal === "reject"
-                    ? "var(--mantine-color-red-1)"
-                    : "var(--mantine-color-green-1)",
+                    ? "var(--mantine-color-red-light)"
+                    : "var(--mantine-color-green-light)",
                 color:
                   decisionModal === "reject"
-                    ? "var(--mantine-color-red-7)"
-                    : "var(--mantine-color-green-7)",
+                    ? "var(--mantine-color-red-light-color)"
+                    : "var(--mantine-color-green-light-color)",
               }}
             >
               {decisionModal === "reject" ? (

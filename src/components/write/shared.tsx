@@ -171,7 +171,7 @@ export function SqlBlock({
       )}
       <div
         style={{
-          border: `1px solid var(--mantine-color-${accent}-3, var(--border))`,
+          border: `1px solid var(--mantine-color-${accent}-outline, var(--border))`,
           borderRadius: 12,
           overflow: "hidden",
           background: "var(--surface)",
@@ -311,8 +311,12 @@ export function AiReviewCard({
   return (
     <div
       style={{
-        border: `1px solid var(--mantine-color-${meta.color}-4)`,
-        background: `var(--mantine-color-${meta.color}-0)`,
+        // Mantine's `-light`/`-outline` variant colors, not a palette index:
+        // index 0-9 is frozen per palette, so `-0` stayed a light pink tint on
+        // the dark canvas while the text on it flipped to near-white. The
+        // variant colors are recomputed per scheme.
+        border: `1px solid var(--mantine-color-${meta.color}-outline)`,
+        background: `var(--mantine-color-${meta.color}-light)`,
         borderRadius: 10,
         padding: 16,
       }}
@@ -338,7 +342,7 @@ export function AiReviewCard({
           )}
         </Group>
         {review.model && (
-          <Text size="10px" c="dimmed" ff="monospace">
+          <Text size="10px" c="var(--muted2)" ff="monospace">
             {review.model}
           </Text>
         )}
@@ -357,7 +361,7 @@ export function AiReviewCard({
             <Group key={i} gap={6} wrap="nowrap" align="flex-start">
               <IconAlertTriangle
                 size={13}
-                color={`var(--mantine-color-${meta.color}-6)`}
+                color={`var(--mantine-color-${meta.color}-light-color)`}
                 style={{ marginTop: 2, flexShrink: 0 }}
               />
               <Text size="xs" c="var(--text)">
@@ -367,7 +371,9 @@ export function AiReviewCard({
           ))}
         </div>
       )}
-      <Text size="xs" c="dimmed" mt={10}>
+      {/* `dimmed` is solved against --surface; this card sits on a verdict tint,
+          where --muted lands at 3.99:1. --muted2 is the next step up. */}
+      <Text size="xs" c="var(--muted2)" mt={10}>
         Recommendation: <strong>{review.recommendation}</strong>
       </Text>
 
@@ -376,14 +382,14 @@ export function AiReviewCard({
           style={{
             marginTop: 12,
             paddingTop: 12,
-            borderTop: `1px dashed var(--mantine-color-${meta.color}-3)`,
+            borderTop: `1px dashed var(--mantine-color-${meta.color}-outline)`,
           }}
         >
           <Group justify="space-between" mb={6} wrap="nowrap">
             <Group gap={6}>
               <IconWand
                 size={14}
-                color={`var(--mantine-color-${meta.color}-7)`}
+                color={`var(--mantine-color-${meta.color}-light-color)`}
               />
               <Text size="xs" fw={700} c="var(--text)">
                 Suggested correction
@@ -511,10 +517,7 @@ export function PreviewTable({ result }: { result: QueryResult }) {
                     </Text>
                     {c.isMasked && (
                       <Tooltip label={`Masked (${c.maskingType})`}>
-                        <IconShieldLock
-                          size={11}
-                          color="var(--mantine-color-teal-6)"
-                        />
+                        <IconShieldLock size={11} color="var(--token)" />
                       </Tooltip>
                     )}
                   </Group>
@@ -575,7 +578,7 @@ export function CodeBlock({
           margin: 0,
           padding: "12px 14px",
           background: "var(--surface2)",
-          border: `1px solid var(--mantine-color-${color}-3, var(--border))`,
+          border: `1px solid var(--mantine-color-${color}-outline, var(--border))`,
           borderRadius: 8,
           fontSize: 12.5,
           fontFamily: "IBM Plex Mono, monospace",

@@ -58,7 +58,23 @@ c="primary"      ->  c="var(--accent-text)"   // unshaded resolves per shade too
 ```
 
 `c="dimmed"` is safe — Mantine flips it — but only because `global.css` pins
-`--mantine-color-dimmed` to `--muted`; see §3.
+`--mantine-color-dimmed` to `--muted`; see §3. It is solved against `--surface`,
+so on a **tinted** panel it can fall under 4.5:1 — use `--muted2` there.
+
+**`var(--mantine-color-red-0)` is the same trap wearing a token's clothes.** The
+numeric indices `-0`…`-9` are one frozen ramp; only the _variant_ colors are
+recomputed per scheme. Reach for those:
+
+| Want                      | Use                               | Not        |
+| ------------------------- | --------------------------------- | ---------- |
+| tinted panel / chip fill  | `--mantine-color-<c>-light`       | `-0`, `-1` |
+| text or icon on that tint | `--mantine-color-<c>-light-color` | `-7`, `-8` |
+| border / hairline         | `--mantine-color-<c>-outline`     | `-3`, `-4` |
+| solid fill, dot, bar      | `--mantine-color-<c>-filled`      | `-5`, `-6` |
+
+`src/styles/color-tokens.test.ts` fails the build on any new numeric index, and
+checks every color token is defined in both schemes. A verdict card painting
+`-0` under `var(--text)` is what that test exists to stop: 1.1:1 in dark mode.
 
 **Reserved meanings — do not reuse decoratively:**
 
@@ -92,9 +108,19 @@ appear once React has resolved a theme.
 Two known gaps, both pre-existing and both a product decision rather than a bug:
 
 - **Env badges** (`PROD`, `STG`, `UAT`…) and other `variant="filled"` controls in
-  Mantine's stock palette render white at ~2.4-4:1. Mantine's `autoContrast`
-  does **not** rescue them, so fixing this means changing the badge treatment —
-  which changes how loud `PROD` looks. Don't do it silently.
+  Mantine's stock palette render white at ~2.4-4:1, in **both** schemes (the
+  green `Run` button is 3.5:1 light, 2.4:1 dark). Mantine's `autoContrast` does
+  **not** rescue them, so fixing this means changing the badge treatment — which
+  changes how loud `PROD` looks. Don't do it silently.
+
+  The reason `autoContrast` misses them: Mantine resolves the filled-variant ink
+  **once**, from the palette shade it picks without knowing the scheme, and bakes
+  the result into `--button-color` inline. For the brand color that verdict was
+  "white" (correct for the dark teal of light mode, 1.9:1 against the light teal
+  of dark mode). `variantColorResolver` in `main.tsx` hands filled brand controls
+  `var(--on-accent)` instead, moving the choice to CSS, which does know the
+  scheme. Any other palette needing the same treatment goes through there.
+
 - A few labels sit at 4.1-4.4:1 on tinted backgrounds.
 
 ## 3. Theming: light / dark / system
@@ -194,6 +220,10 @@ color/background only, never on layout.
 
 - [ ] No new hex or brand-color `rgba()` outside `main.tsx` / `global.css`
 - [ ] Renders correctly in dark **and** light (toggle it, don't assume)
+- [ ] No `--mantine-color-<name>-<digit>` — the color-tokens test enforces this
+- [ ] Audited **rendered**, not grepped: walk the leaf text nodes, composite the
+      real background, compare. See the auditor pattern in the dark-mode fix —
+      a static read cannot see a tint two elements up
 - [ ] If a token changed: contrast re-checked, and the AG Grid / Monaco /
       react-obj-view mirrors updated
 - [ ] Tab to every control — visible focus ring, correct order, Enter/Space work
