@@ -1,0 +1,3 @@
+# Format staged files so CI's `prettier --check` never fails on style alone.
+git diff --cached --name-only --diff-filter=ACM -z | xargs -0 npx prettier --write --ignore-unknown
+git diff --cached --name-only --diff-filter=ACM -z | xargs -0 git add
