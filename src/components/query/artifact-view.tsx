@@ -25,7 +25,10 @@ import {
 } from "@tabler/icons-react";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
-import { baseSqlEditorOptions, useEditorTheme } from "../../utils/monaco-editor-options";
+import {
+  baseSqlEditorOptions,
+  useEditorTheme,
+} from "../../utils/monaco-editor-options";
 import { copyArtifactShareLink } from "../../utils/share-links";
 import { envColor } from "../../utils/environments";
 import type {

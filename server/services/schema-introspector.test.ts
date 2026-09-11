@@ -27,7 +27,11 @@ const full: FullSchema = {
 
 describe("matchFkTargets", () => {
   it("labels an FK column of a table the query reads", () => {
-    const m = matchFkTargets(full, "SELECT * FROM orders", ["id", "customer_id", "status"]);
+    const m = matchFkTargets(full, "SELECT * FROM orders", [
+      "id",
+      "customer_id",
+      "status",
+    ]);
     expect(m.get("customer_id")).toBe("customers.id");
     expect(m.has("id")).toBe(false);
     expect(m.has("status")).toBe(false);
@@ -53,16 +57,19 @@ describe("matchFkTargets", () => {
   });
 
   it("ignores table names that only appear inside a string literal", () => {
-    const m = matchFkTargets(full, "SELECT 'from orders' AS note FROM customers", [
-      "customer_id",
-      "region_id",
-    ]);
+    const m = matchFkTargets(
+      full,
+      "SELECT 'from orders' AS note FROM customers",
+      ["customer_id", "region_id"],
+    );
     expect(m.has("customer_id")).toBe(false);
     expect(m.get("region_id")).toBe("geo.regions.id");
   });
 
   it("matches schema-qualified and quoted table references", () => {
-    const m = matchFkTargets(full, 'SELECT * FROM public."orders"', ["customer_id"]);
+    const m = matchFkTargets(full, 'SELECT * FROM public."orders"', [
+      "customer_id",
+    ]);
     expect(m.get("customer_id")).toBe("customers.id");
   });
 

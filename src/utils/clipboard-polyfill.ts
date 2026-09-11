@@ -58,7 +58,8 @@ function legacyWriteText(text: string): Promise<void> {
 }
 
 export function installClipboardFallback(): void {
-  if (typeof navigator === "undefined" || typeof document === "undefined") return;
+  if (typeof navigator === "undefined" || typeof document === "undefined")
+    return;
 
   const nav = navigator as Navigator & {
     clipboard?: { writeText?: (text: string) => Promise<void> };
@@ -67,7 +68,8 @@ export function installClipboardFallback(): void {
   // Native, secure-context clipboard already present — leave it alone.
   if (nav.clipboard && typeof nav.clipboard.writeText === "function") return;
 
-  const clipboard = nav.clipboard ?? ({} as { writeText?: (text: string) => Promise<void> });
+  const clipboard =
+    nav.clipboard ?? ({} as { writeText?: (text: string) => Promise<void> });
   clipboard.writeText = legacyWriteText;
 
   try {

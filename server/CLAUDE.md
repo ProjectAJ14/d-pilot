@@ -36,12 +36,12 @@ submission/rejection when write mode is off.
 - Local JWT (bcrypt hashing, `jsonwebtoken`). No external IdP.
 - **Capability model** — `deriveUserProfile` turns a user row into `isAdmin` + four env
   lists (read/unmask/write/approve). Admin ⇒ all envs on every list.
-- **`resolveReadableConnection(req, res, connectionId)`** — the *only* way a route may turn a
+- **`resolveReadableConnection(req, res, connectionId)`** — the _only_ way a route may turn a
   caller-supplied `connectionId` into a `ConnectionConfig`. It 400/404/403s for you and
   enforces read access for that connection's environment. A bare `getConnection()` in a route
   is a bug: it hands the caller any environment (this is exactly how `/export` and `/schema`
   once leaked data from environments the user could not read). Routes needing a stronger
-  capability (write/approve/unmask) check that *in addition*.
+  capability (write/approve/unmask) check that _in addition_.
 - `initAuthTables` creates/migrates the `users` table, backfills capability columns, does
   the one-time **`role` → capabilities** migration (then drops `role`), and seeds the
   default admin (`admin@$EMAIL_DOMAIN`) when the table is empty.
@@ -55,21 +55,21 @@ name rather than one baked in at build time. In production `express.static` also
 
 ## Routes (`routes/`) — all under `/api`
 
-| Mount | File | Notes |
-|-------|------|-------|
-| `/query` | `query.ts` | `POST /execute` (read-only), `GET /history` |
-| `/connections` | `connections.ts` | list / `writable` / `grouped` / `:id/test` |
-| `/schema` | `schema.ts` | `:connectionId` full / schemas / tables / columns |
-| `/saved-queries` | `saved-queries.ts` | CRUD; shared-by-default; `GET /:id` backs share links |
-| `/artifacts` | `artifacts.ts` | CRUD; shared-by-default; `GET /:id` backs share links. `parseBlocks` is the only gate on document shape |
-| `/phi-config` | `phi-config.ts` | masked-envs, `POST /unmask` (audited), rule CRUD (admin), CSV `GET /export` / `POST /import` + `DELETE /` bulk delete (admin, audited) |
-| `/audit` | `audit.ts` | log + archive read, manual archive (admin) |
-| `/export` | `export.ts` | `POST /csv`, `POST /json` (masking enforced + audited) |
-| `/users` | `users.ts` | user CRUD + reset-password (admin) |
-| `/azure-ai` | `azure-ai.ts` | `test`, `generate-query`, chat, `chat-log` (admin) |
-| `/analytics` | `analytics.ts` | admin usage dashboard |
-| `/write-requests` | `write-requests.ts` | write lifecycle + policy + AI review/suggest |
-| `/mcp` | `mcp.ts` | **read-only MCP endpoint for AI agents — mounted *before* `authMiddleware`** (HTTP Basic, not Bearer) |
+| Mount             | File                | Notes                                                                                                                                  |
+| ----------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `/query`          | `query.ts`          | `POST /execute` (read-only), `GET /history`                                                                                            |
+| `/connections`    | `connections.ts`    | list / `writable` / `grouped` / `:id/test`                                                                                             |
+| `/schema`         | `schema.ts`         | `:connectionId` full / schemas / tables / columns                                                                                      |
+| `/saved-queries`  | `saved-queries.ts`  | CRUD; shared-by-default; `GET /:id` backs share links                                                                                  |
+| `/artifacts`      | `artifacts.ts`      | CRUD; shared-by-default; `GET /:id` backs share links. `parseBlocks` is the only gate on document shape                                |
+| `/phi-config`     | `phi-config.ts`     | masked-envs, `POST /unmask` (audited), rule CRUD (admin), CSV `GET /export` / `POST /import` + `DELETE /` bulk delete (admin, audited) |
+| `/audit`          | `audit.ts`          | log + archive read, manual archive (admin)                                                                                             |
+| `/export`         | `export.ts`         | `POST /csv`, `POST /json` (masking enforced + audited)                                                                                 |
+| `/users`          | `users.ts`          | user CRUD + reset-password (admin)                                                                                                     |
+| `/azure-ai`       | `azure-ai.ts`       | `test`, `generate-query`, chat, `chat-log` (admin)                                                                                     |
+| `/analytics`      | `analytics.ts`      | admin usage dashboard                                                                                                                  |
+| `/write-requests` | `write-requests.ts` | write lifecycle + policy + AI review/suggest                                                                                           |
+| `/mcp`            | `mcp.ts`            | **read-only MCP endpoint for AI agents — mounted _before_ `authMiddleware`** (HTTP Basic, not Bearer)                                  |
 
 ## Services (`services/`)
 
@@ -77,7 +77,7 @@ name rather than one baked in at build time. In production `express.static` also
   block DML/DDL; `applyDefaultLimit` injects a LIMIT when absent (default 500, hard cap
   `MAX_ROWS`). Connection pools are cached and reused. `validateSqlSyntax` does a dry
   parse; `testConnection` powers the connection tester.
-- **`write-executor.ts`** — the *only* write path. `validateWriteQuery` allows exactly one
+- **`write-executor.ts`** — the _only_ write path. `validateWriteQuery` allows exactly one
   statement per dialect (SQL INSERT/UPDATE/DELETE — no stacked semicolons, no DDL;
   Mongo `updateOne/Many`,`insertOne/Many`,`deleteOne/Many`,`replaceOne`; ES
   `_doc`/`_create`/`_update`/`_update_by_query`/`_delete_by_query`) and flags whether it's
@@ -123,7 +123,7 @@ for the timeline.
 
 **`DRAFT` is the saved-but-not-running state** (`POST /` with `draft: true`, the composer's
 "Save request", and everything the MCP endpoint creates). A draft is validated exactly like a
-submitted request but skips both the approval queue *and* direct execution — the environment's
+submitted request but skips both the approval queue _and_ direct execution — the environment's
 direct-write policy is not consulted at all. `POST /:id/submit` is the only way out of it, and
 it is where an agent-authored change meets a human: `planDraftSubmit` (exported, unit-tested)
 decides refuse / queue for approval / run now, and hands the request's authorship to whoever
@@ -154,7 +154,7 @@ A shareable document: prose blocks plus SQL blocks the reader can run. Same visi
 as saved queries (shared by default, author-only edits) and the same deep-link shape.
 
 **An artifact stores queries, never result rows.** That is the whole design: a reader runs a
-block through `/api/query/execute` *as themselves*, so their own capabilities, their own PHI
+block through `/api/query/execute` _as themselves_, so their own capabilities, their own PHI
 masking and their own audit entry apply. Embedding rows would freeze one author's unmask
 privileges into a document everyone can open — do not add a "snapshot the results" feature
 without solving that first.
@@ -172,7 +172,7 @@ archived artifacts, `getArtifactById` still returns them so an old share link op
 
 The MCP endpoint may create/update/archive artifacts — an exception to its read-only posture,
 and only because artifacts are not database state. Keep that boundary: an agent must never gain
-a path that mutates a *target* database, and cannot destroy an artifact either. The same reason
+a path that mutates a _target_ database, and cannot destroy an artifact either. The same reason
 lets it save, read back and edit write-request **drafts** (`create_write_request`,
 `get_write_request`, `update_write_request`): a draft is a document until a human submits it.
 `update_write_request` posts `draft: true` to `/:id/revise`, which makes the route refuse

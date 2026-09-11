@@ -29,6 +29,7 @@ PORT=3199 VITE_PORT=3198 npx vite   # client on :3198 proxying to :3199
 ```
 
 Gotchas:
+
 - The connection JSON field is **`env`** (e.g. `"QA"`), not `environment` — the sidebar
   groups by `conn.env` and silently shows "No connections configured" if it's missing.
 - `host: "nonexistent-host.invalid"` fails fast (DNS); MongoDB takes ~10s

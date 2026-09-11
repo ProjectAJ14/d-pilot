@@ -7,7 +7,9 @@ export function loadConnections(): ConnectionConfig[] {
 
   const raw = process.env.DBFORGE_CONNECTIONS;
   if (!raw) {
-    console.warn("DBFORGE_CONNECTIONS not set, no database connections available");
+    console.warn(
+      "DBFORGE_CONNECTIONS not set, no database connections available",
+    );
     return [];
   }
 

@@ -590,7 +590,8 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
             background: "color-mix(in srgb, var(--error) 8%, transparent)",
             padding: "10px 16px",
             borderRadius: 8,
-            border: "1px solid color-mix(in srgb, var(--error) 25%, transparent)",
+            border:
+              "1px solid color-mix(in srgb, var(--error) 25%, transparent)",
             whiteSpace: "pre-wrap",
           }}
         >
@@ -753,7 +754,8 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
               padding: "3px 10px",
               borderRadius: 999,
               background: "color-mix(in srgb, var(--token) 7%, transparent)",
-              border: "1px solid color-mix(in srgb, var(--token) 16%, transparent)",
+              border:
+                "1px solid color-mix(in srgb, var(--token) 16%, transparent)",
               color: "var(--muted)",
               fontSize: 11,
               whiteSpace: "nowrap",
@@ -872,7 +874,8 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
           style={{
             height: 30,
             background: "color-mix(in srgb, var(--token) 6%, transparent)",
-            borderTop: "1px solid color-mix(in srgb, var(--token) 20%, transparent)",
+            borderTop:
+              "1px solid color-mix(in srgb, var(--token) 20%, transparent)",
             display: "flex",
             alignItems: "center",
             padding: "0 14px",

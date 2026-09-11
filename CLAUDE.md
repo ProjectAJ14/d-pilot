@@ -17,6 +17,9 @@ npm run build            # Production build: vite build + tsc -p tsconfig.server
 npm start                # Start production server from dist/server/index.js
 npm run lint             # ESLint (.ts, .tsx)
 npm run format           # Prettier
+npm run format:check     # Prettier in check mode (what CI runs)
+npm run typecheck        # tsc --noEmit over src + server
+npm run verify           # format:check + lint + typecheck + test — the CI gate, minus the build
 ```
 
 `predev` frees the dev ports first (`scripts/free-ports.mjs`). Ports are set in `.env`
@@ -34,6 +37,7 @@ read-only; writes only flow through the governed write workflow.
 → response.
 
 Detailed guidance lives with the code — read these when working in each area:
+
 - **`server/CLAUDE.md`** — routes, services, SQLite schema, PHI masking, write workflow, AI, auth.
 - **`src/CLAUDE.md`** — components, Zustand store, routing, api-client, utils.
 
@@ -69,9 +73,9 @@ place. See the README's MCP section.
 - **Production safety rails always apply**, regardless of capabilities, and cover **every
   production-like environment**: `isProductionEnv()` (`server/config/connections.ts`) matches
   any name containing "prod" (`PROD`, `SUPER_PROD`, `PREPROD`). Both rails are enforced in the
-  *getter*, so neither can be lifted from Settings **or** by editing `app_settings` —
+  _getter_, so neither can be lifted from Settings **or** by editing `app_settings` —
   `getPhiMaskedEnvs()` forces production envs into the masked list, `getWriteDirectEnvs()`
-  strips them out (which is what blocks direct-execute *and* auto-approve, since both gate on
+  strips them out (which is what blocks direct-execute _and_ auto-approve, since both gate on
   it). The routes 422 with the offending env names. Mirror helper for the UI locks:
   `isProductionEnv` in `src/utils/environments.ts`.
 - **In-app config, not env vars:** masked environments, PHI rules, write-mode toggle, and
@@ -92,7 +96,7 @@ place. See the README's MCP section.
   README, "The prefix is not a security boundary".
 - **Artifacts hold queries, not rows.** An artifact (`server/routes/artifacts.ts`,
   `src/components/query/artifact-view.tsx`) is a shared document of prose + SQL blocks that
-  any logged-in user can open by link. Its blocks are run *by the reader* through
+  any logged-in user can open by link. Its blocks are run _by the reader_ through
   `/api/query/execute`, so masking, capabilities and audit stay per-viewer. Never store
   result rows in an artifact — that would freeze one author's unmask rights into a document
   the whole org can read. Text blocks are markdown rendered by `react-markdown` with
@@ -104,7 +108,7 @@ place. See the README's MCP section.
   but `BASE_PATH=/d-pilot` mounts it under a prefix of a shared domain. Vite bakes the
   prefix into everything it can see at build time (imports, asset URLs, `index.html`
   attributes) and Express mounts itself at the same prefix, so the reverse proxy needs no
-  path rewriting. What neither can fix is a URL *assembled at runtime*: use
+  path rewriting. What neither can fix is a URL _assembled at runtime_: use
   `BASE_PATH`/`withBase()` from `server/config/base-path.ts` or `src/utils/base-path.ts`
   for those. The four that already exist are the pattern to copy — the API client's base,
   the router's `basename`, share links built from `window.location.origin`, and the
@@ -126,6 +130,10 @@ root; see the sub-path rule below), `MAX_ROWS` (10000),
 
 ## Conventions
 
+- **CI gates every PR to `main`** (`.github/workflows/ci.yml`): `format:check` → `lint` →
+  `typecheck` → `test` → `build`. Locally, `pre-commit` formats staged files and `pre-push`
+  runs `npm run verify`, so the same failures surface before the push. `main` is not
+  branch-protected, so the check is advisory — read it before merging.
 - Husky + commitlint enforce Conventional Commits. **Do not add `Co-Authored-By` trailers**
   — commitlint rejects them here.
 - `semantic-release` (`.releaserc.json`, `.github/workflows/release.yml`) derives the version

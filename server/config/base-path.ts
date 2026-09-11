@@ -51,7 +51,10 @@ export function toBaseUrl(basePath: string): string {
  * branding values (`LOGO_URL`, `FAVICON_URL`) work whether they point at a file
  * in `public/` or at somebody else's CDN.
  */
-export function withBase(basePath: string, url: string | null | undefined): string | null {
+export function withBase(
+  basePath: string,
+  url: string | null | undefined,
+): string | null {
   if (!url) return null;
   if (!url.startsWith("/") || url.startsWith("//")) return url;
   return `${basePath}${url}`;

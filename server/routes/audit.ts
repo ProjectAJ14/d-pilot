@@ -1,5 +1,9 @@
 import { Router, Request, Response } from "express";
-import { getAuditLog, archiveOldAuditEntries, queryArchive } from "../services/sqlite-store.js";
+import {
+  getAuditLog,
+  archiveOldAuditEntries,
+  queryArchive,
+} from "../services/sqlite-store.js";
 import { requireAdmin } from "../middleware/auth.js";
 
 const router = Router();
@@ -33,9 +37,10 @@ router.post("/archive", requireAdmin, (_req: Request, res: Response) => {
   const result = archiveOldAuditEntries();
   res.json({
     archived: result.archived,
-    message: result.archived > 0
-      ? `Archived ${result.archived} entries older than 30 days`
-      : "No entries to archive",
+    message:
+      result.archived > 0
+        ? `Archived ${result.archived} entries older than 30 days`
+        : "No entries to archive",
   });
 });
 

@@ -39,7 +39,10 @@ import type {
   DatabaseType,
 } from "../../types";
 import { EnvBadge, PreviewTable, AiReviewCard, StepBadge } from "./shared";
-import { baseSqlEditorOptions, useEditorTheme } from "../../utils/monaco-editor-options";
+import {
+  baseSqlEditorOptions,
+  useEditorTheme,
+} from "../../utils/monaco-editor-options";
 import { useVimMode } from "../../utils/vim-mode";
 
 function monacoLang(dbType?: DatabaseType): string {
@@ -634,7 +637,8 @@ export function WriteComposer({
               fontWeight: 600,
               color: "var(--accent-text)",
               background: "color-mix(in srgb, var(--accent) 12%, transparent)",
-              border: "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
+              border:
+                "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
               borderRadius: 999,
               padding: "1px 9px",
             }}
@@ -648,7 +652,8 @@ export function WriteComposer({
       </Group>
       <div
         style={{
-          border: "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
+          border:
+            "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
           borderRadius: 12,
           overflow: "hidden",
           marginBottom: 20,
@@ -699,7 +704,8 @@ export function WriteComposer({
       {isMigration && requiresNoTransaction && (
         <div
           style={{
-            border: "1px solid color-mix(in srgb, var(--warning) 50%, transparent)",
+            border:
+              "1px solid color-mix(in srgb, var(--warning) 50%, transparent)",
             background: "color-mix(in srgb, var(--warning) 8%, transparent)",
             borderRadius: 11,
             padding: "12px 14px",

@@ -17,7 +17,10 @@ function quoteIdent(connection: ConnectionInfo, ident: string): string {
  * Render an FK target (`[schema.]table.column`) as a quoted `REFERENCES` target,
  * or null when it has no column part to point at.
  */
-function refClause(connection: ConnectionInfo, reference: string): string | null {
+function refClause(
+  connection: ConnectionInfo,
+  reference: string,
+): string | null {
   const dot = reference.lastIndexOf(".");
   if (dot <= 0) return null;
   const table = reference
@@ -30,7 +33,9 @@ function refClause(connection: ConnectionInfo, reference: string): string | null
 
 function qualifiedName(connection: ConnectionInfo, table: TableInfo): string {
   const name = quoteIdent(connection, table.name);
-  return table.schema ? `${quoteIdent(connection, table.schema)}.${name}` : name;
+  return table.schema
+    ? `${quoteIdent(connection, table.schema)}.${name}`
+    : name;
 }
 
 /**
@@ -83,7 +88,8 @@ export function buildTableDdl(
   const colLines = columns.map((c) => {
     let line = `  ${q(c.name)} ${c.dataType}`;
     if (!c.nullable) line += " NOT NULL";
-    if (c.defaultValue != null && c.defaultValue !== "") line += ` DEFAULT ${c.defaultValue}`;
+    if (c.defaultValue != null && c.defaultValue !== "")
+      line += ` DEFAULT ${c.defaultValue}`;
     const notes: string[] = [];
     const ref = c.references ? refClause(connection, c.references) : null;
     if (ref) line += ` REFERENCES ${ref}`;
@@ -126,9 +132,11 @@ export function buildTableMetadataText(
   const lines = columns.map((c) => {
     const flags: string[] = [];
     if (c.isPrimaryKey) flags.push("PK");
-    if (c.isForeignKey) flags.push(c.references ? `FK \u2192 ${c.references}` : "FK");
+    if (c.isForeignKey)
+      flags.push(c.references ? `FK \u2192 ${c.references}` : "FK");
     if (!c.nullable) flags.push("NOT NULL");
-    if (c.defaultValue != null && c.defaultValue !== "") flags.push(`DEFAULT ${c.defaultValue}`);
+    if (c.defaultValue != null && c.defaultValue !== "")
+      flags.push(`DEFAULT ${c.defaultValue}`);
     if (c.isPhiField) flags.push("PHI");
     const flagStr = flags.length ? `  [${flags.join(", ")}]` : "";
     return `  ${c.name.padEnd(nameWidth)}  ${c.dataType.padEnd(typeWidth)}${flagStr}`;
@@ -146,11 +154,20 @@ export function buildTableMetadata(
 ): { text: string; label: string } {
   switch (format) {
     case "ddl":
-      return { text: buildTableDdl(connection, table, columns), label: "CREATE TABLE" };
+      return {
+        text: buildTableDdl(connection, table, columns),
+        label: "CREATE TABLE",
+      };
     case "text":
-      return { text: buildTableMetadataText(connection, table, columns), label: "metadata (text)" };
+      return {
+        text: buildTableMetadataText(connection, table, columns),
+        label: "metadata (text)",
+      };
     case "json":
     default:
-      return { text: buildTableMetadataJson(connection, table, columns), label: "metadata (JSON)" };
+      return {
+        text: buildTableMetadataJson(connection, table, columns),
+        label: "metadata (JSON)",
+      };
   }
 }

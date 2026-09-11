@@ -189,10 +189,7 @@ export function SettingsPage() {
             Back to queries
           </Button>
           <Group gap={8} px={8} mb={2} wrap="nowrap">
-            <IconSettings
-              size={20}
-              color="var(--accent)"
-            />
+            <IconSettings size={20} color="var(--accent)" />
             <Text fw={700} size="lg" c="var(--text)">
               Settings
             </Text>
@@ -956,9 +953,7 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
           horizontalSpacing="lg"
           layout="fixed"
         >
-          <Table.Thead
-            style={{ background: "var(--surface2)" }}
-          >
+          <Table.Thead style={{ background: "var(--surface2)" }}>
             <Table.Tr>
               <Table.Th style={{ width: "26%" }}>User</Table.Th>
               <Table.Th>Capabilities</Table.Th>
@@ -1896,7 +1891,8 @@ function WriteModeTab() {
           alignItems: "flex-start",
           gap: 12,
           background: "color-mix(in srgb, var(--accent) 6%, transparent)",
-          border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
+          border:
+            "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
           borderRadius: 10,
           padding: 16,
           marginBottom: 20,
@@ -2164,7 +2160,8 @@ function PhiManagementTab() {
           alignItems: "flex-start",
           gap: 12,
           background: "color-mix(in srgb, var(--accent) 6%, transparent)",
-          border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
+          border:
+            "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
           borderRadius: 10,
           padding: 16,
           marginBottom: 20,
@@ -2817,9 +2814,7 @@ function AuditLogTab() {
             horizontalSpacing="lg"
             layout="fixed"
           >
-            <Table.Thead
-              style={{ background: "var(--surface2)" }}
-            >
+            <Table.Thead style={{ background: "var(--surface2)" }}>
               <Table.Tr>
                 <Table.Th style={{ width: 190 }}>Timestamp</Table.Th>
                 <Table.Th style={{ width: 320 }}>User</Table.Th>
@@ -3159,7 +3154,8 @@ function AzureOpenAiTab() {
           alignItems: "flex-start",
           gap: 12,
           background: "color-mix(in srgb, var(--accent) 6%, transparent)",
-          border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
+          border:
+            "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
           borderRadius: 10,
           padding: 16,
           marginBottom: 20,
@@ -3368,9 +3364,7 @@ function AiChatLogTab() {
             horizontalSpacing="lg"
             layout="fixed"
           >
-            <Table.Thead
-              style={{ background: "var(--surface2)" }}
-            >
+            <Table.Thead style={{ background: "var(--surface2)" }}>
               <Table.Tr>
                 <Table.Th style={{ width: 180 }}>Timestamp</Table.Th>
                 <Table.Th style={{ width: 230 }}>User</Table.Th>
@@ -3740,7 +3734,8 @@ function AiChatDetailModal({
           <div
             style={{
               background: "color-mix(in srgb, var(--error) 6%, transparent)",
-              border: "1px solid color-mix(in srgb, var(--error) 20%, transparent)",
+              border:
+                "1px solid color-mix(in srgb, var(--error) 20%, transparent)",
               borderRadius: 8,
               padding: 12,
             }}

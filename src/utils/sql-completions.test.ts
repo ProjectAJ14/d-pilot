@@ -33,7 +33,11 @@ const table = (name: string): TableInfo => ({
 const schema: SchemaEntry = {
   tables: [table("orders"), table("customers"), table("products")],
   columns: {
-    orders: [col("id", { isPrimaryKey: true }), col("customer_id"), col("total")],
+    orders: [
+      col("id", { isPrimaryKey: true }),
+      col("customer_id"),
+      col("total"),
+    ],
     customers: [col("id", { isPrimaryKey: true }), col("name")],
     products: [col("id"), col("sku")],
   },
@@ -65,7 +69,9 @@ describe("buildSqlSuggestions decision table", () => {
   it("alias dot → only that table's columns", () => {
     const items = suggestionsAt("SELECT o.| FROM orders o");
     expect(labels(items).sort()).toEqual(["customer_id", "id", "total"]);
-    expect(items.every((s) => s.kind === monaco.languages.CompletionItemKind.Field)).toBe(true);
+    expect(
+      items.every((s) => s.kind === monaco.languages.CompletionItemKind.Field),
+    ).toBe(true);
   });
 
   it("bare table dot works without a FROM clause", () => {
@@ -83,7 +89,9 @@ describe("buildSqlSuggestions decision table", () => {
       .filter((s) => s.kind === monaco.languages.CompletionItemKind.Struct)
       .map((s) => s.label);
     expect(tableLabels).toEqual(["orders", "customers", "products"]);
-    expect(items.some((s) => s.kind === monaco.languages.CompletionItemKind.Field)).toBe(false);
+    expect(
+      items.some((s) => s.kind === monaco.languages.CompletionItemKind.Field),
+    ).toBe(false);
     const tableItem = items.find((s) => s.label === "orders")!;
     expect(tableItem.sortText!.startsWith("0_")).toBe(true);
   });
@@ -178,7 +186,9 @@ describe("buildSqlSuggestions decision table", () => {
     });
     expect(items.length).toBeGreaterThan(0);
     expect(
-      items.every((s) => s.kind === monaco.languages.CompletionItemKind.Keyword),
+      items.every(
+        (s) => s.kind === monaco.languages.CompletionItemKind.Keyword,
+      ),
     ).toBe(true);
   });
 

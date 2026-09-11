@@ -83,7 +83,8 @@ async function boot(basePath: string): Promise<Booted> {
     } catch {
       // not listening yet
     }
-    if (Date.now() > deadline) throw new Error(`server never answered ${health}: ${stderr}`);
+    if (Date.now() > deadline)
+      throw new Error(`server never answered ${health}: ${stderr}`);
     await new Promise((r) => setTimeout(r, 250));
   }
   return { child, origin, dataDir };

@@ -453,17 +453,16 @@ export function AiAssistantPanel() {
                 {msg.isError ? (
                   <div
                     style={{
-                      background: "color-mix(in srgb, var(--error) 6%, transparent)",
-                      border: "1px solid color-mix(in srgb, var(--error) 25%, transparent)",
+                      background:
+                        "color-mix(in srgb, var(--error) 6%, transparent)",
+                      border:
+                        "1px solid color-mix(in srgb, var(--error) 25%, transparent)",
                       borderRadius: 10,
                       padding: "10px 12px",
                     }}
                   >
                     <Group gap={6} mb={2}>
-                      <IconAlertTriangle
-                        size={14}
-                        color="var(--error)"
-                      />
+                      <IconAlertTriangle size={14} color="var(--error)" />
                       <Text size="xs" fw={700} c="red">
                         Generation failed
                       </Text>

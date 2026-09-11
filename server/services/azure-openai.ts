@@ -9,7 +9,12 @@
 // parameters first and transparently retry, stripping/swapping the offending
 // parameter when the API tells us it is unsupported.
 
-import { Agent, ProxyAgent, fetch as undiciFetch, type Dispatcher } from "undici";
+import {
+  Agent,
+  ProxyAgent,
+  fetch as undiciFetch,
+  type Dispatcher,
+} from "undici";
 
 export interface AzureConfig {
   endpoint: string;
@@ -27,9 +32,14 @@ let cachedDispatcher: Dispatcher | null | undefined;
 function getAzureDispatcher(): Dispatcher | undefined {
   if (cachedDispatcher !== undefined) return cachedDispatcher ?? undefined;
 
-  const insecure = /^(1|true|yes|on)$/i.test(process.env.AZURE_OPENAI_INSECURE_TLS || "");
+  const insecure = /^(1|true|yes|on)$/i.test(
+    process.env.AZURE_OPENAI_INSECURE_TLS || "",
+  );
   const proxy =
-    process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy;
 
   if (proxy) {
     cachedDispatcher = new ProxyAgent({
@@ -69,7 +79,10 @@ export interface AzureChatResult {
 }
 
 /** Reads Azure OpenAI config from env, reporting any missing required vars. */
-export function getAzureConfig(): { config: AzureConfig | null; missing: string[] } {
+export function getAzureConfig(): {
+  config: AzureConfig | null;
+  missing: string[];
+} {
   const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
   const apiKey = process.env.AZURE_OPENAI_KEY;
   const deployment = process.env.AZURE_OPENAI_DEPLOYMENT;
@@ -102,7 +115,10 @@ export class AzureOpenAIError extends Error {
   }
 }
 
-async function parseErrorMessage(response: { json(): Promise<any>; statusText: string }): Promise<string> {
+async function parseErrorMessage(response: {
+  json(): Promise<any>;
+  statusText: string;
+}): Promise<string> {
   try {
     const body = (await response.json()) as any;
     return body?.error?.message || body?.message || response.statusText;
@@ -118,7 +134,7 @@ async function parseErrorMessage(response: { json(): Promise<any>; statusText: s
 export async function azureChat(
   config: AzureConfig,
   messages: AzureChatMessage[],
-  options: AzureChatOptions = {}
+  options: AzureChatOptions = {},
 ): Promise<AzureChatResult> {
   const url = `${config.endpoint.replace(/\/$/, "")}/openai/deployments/${config.deployment}/chat/completions?api-version=${config.apiVersion}`;
 
@@ -134,7 +150,11 @@ export async function azureChat(
   // Returns true if it mutated the body (so we should retry).
   const adaptations: Array<(detail: string) => boolean> = [
     (detail) => {
-      if (/max_tokens/i.test(detail) && /max_completion_tokens/i.test(detail) && "max_completion_tokens" in body) {
+      if (
+        /max_tokens/i.test(detail) &&
+        /max_completion_tokens/i.test(detail) &&
+        "max_completion_tokens" in body
+      ) {
         body.max_tokens = body.max_completion_tokens;
         delete body.max_completion_tokens;
         return true;
@@ -163,7 +183,10 @@ export async function azureChat(
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 45000);
+    const timeout = setTimeout(
+      () => controller.abort(),
+      options.timeoutMs ?? 45000,
+    );
 
     let response: Awaited<ReturnType<typeof undiciFetch>>;
     try {
@@ -173,7 +196,10 @@ export async function azureChat(
       // separately-installed undici package.
       response = await undiciFetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "api-key": config.apiKey },
+        headers: {
+          "Content-Type": "application/json",
+          "api-key": config.apiKey,
+        },
         body: JSON.stringify(body),
         signal: controller.signal,
         dispatcher,
@@ -187,7 +213,9 @@ export async function azureChat(
       // (e.g. a TLS/cert or DNS code) lives on err.cause — surface it.
       const cause = err?.cause?.code || err?.cause?.message;
       const detail = cause && cause !== err?.message ? `: ${cause}` : "";
-      throw new AzureOpenAIError(`Failed to reach Azure OpenAI endpoint${detail}`);
+      throw new AzureOpenAIError(
+        `Failed to reach Azure OpenAI endpoint${detail}`,
+      );
     }
     clearTimeout(timeout);
 
@@ -218,6 +246,6 @@ export async function azureChat(
 
   throw new AzureOpenAIError(
     `Azure OpenAI returned ${lastStatus ?? "error"}: ${lastDetail}`,
-    lastStatus
+    lastStatus,
   );
 }

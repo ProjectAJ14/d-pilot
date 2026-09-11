@@ -13,7 +13,10 @@ const APP_VERSION =
 
 const CALLOUTS = [
   { text: "Open source — issues & PRs welcome", url: `${REPO_URL}/issues` },
-  { text: "Found a bug or missing a feature? Tell us", url: `${REPO_URL}/issues/new` },
+  {
+    text: "Found a bug or missing a feature? Tell us",
+    url: `${REPO_URL}/issues/new`,
+  },
   { text: "Built in the open — come build with us", url: REPO_URL },
   { text: "Enjoying it? Leave a ⭐ on GitHub", url: REPO_URL },
 ];

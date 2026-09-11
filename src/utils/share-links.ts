@@ -15,10 +15,7 @@ const APP_ORIGIN = () => `${window.location.origin}${BASE_PATH}`;
  * warning when the query is private and the link won't open for others.
  */
 export function copySavedQueryShareLink(query: SavedQuery) {
-  copyToClipboard(
-    `${APP_ORIGIN()}/saved-queries/${query.id}`,
-    "share link",
-  );
+  copyToClipboard(`${APP_ORIGIN()}/saved-queries/${query.id}`, "share link");
   if (!query.isShared) {
     notifications.show({
       message:
@@ -33,10 +30,7 @@ export function copySavedQueryShareLink(query: SavedQuery) {
  * saved-query one. Same caveat: a private artifact's link opens for nobody else.
  */
 export function copyArtifactShareLink(artifact: Artifact) {
-  copyToClipboard(
-    `${APP_ORIGIN()}/artifacts/${artifact.id}`,
-    "share link",
-  );
+  copyToClipboard(`${APP_ORIGIN()}/artifacts/${artifact.id}`, "share link");
   if (!artifact.isShared) {
     notifications.show({
       message:

@@ -23,7 +23,11 @@ interface Props {
 
 function copyText(text: string) {
   const done = () =>
-    notifications.show({ message: "Copied to clipboard", color: "teal", autoClose: 1500 });
+    notifications.show({
+      message: "Copied to clipboard",
+      color: "teal",
+      autoClose: 1500,
+    });
   const fallback = () => {
     const ta = document.createElement("textarea");
     ta.value = text;
@@ -48,7 +52,8 @@ function copyText(text: string) {
  * that parses into one — scalars (numbers, plain strings) stay as text.
  */
 function resolveContent(value: unknown): { text: string; isJson: boolean } {
-  if (value === null || value === undefined) return { text: "NULL", isJson: false };
+  if (value === null || value === undefined)
+    return { text: "NULL", isJson: false };
   if (typeof value === "object") {
     return { text: JSON.stringify(value, null, 2), isJson: true };
   }
@@ -73,7 +78,7 @@ export function CellDetailDrawer({ detail, onClose }: Props) {
   const editorTheme = useEditorTheme();
   const content = useMemo(
     () => (detail ? resolveContent(detail.value) : null),
-    [detail]
+    [detail],
   );
 
   return (
@@ -92,7 +97,12 @@ export function CellDetailDrawer({ detail, onClose }: Props) {
       title={
         detail && content ? (
           <Group gap={8} wrap="nowrap">
-            <Text size="sm" fw={700} ff="monospace" style={{ wordBreak: "break-all" }}>
+            <Text
+              size="sm"
+              fw={700}
+              ff="monospace"
+              style={{ wordBreak: "break-all" }}
+            >
               {detail.column}
             </Text>
             {detail.isMasked ? (
@@ -110,7 +120,11 @@ export function CellDetailDrawer({ detail, onClose }: Props) {
                 color={content.isJson ? "blue" : "gray"}
                 variant="light"
                 leftSection={
-                  content.isJson ? <IconBraces size={9} /> : <IconLetterCase size={9} />
+                  content.isJson ? (
+                    <IconBraces size={9} />
+                  ) : (
+                    <IconLetterCase size={9} />
+                  )
                 }
               >
                 {content.isJson ? "JSON" : "text"}
@@ -128,7 +142,13 @@ export function CellDetailDrawer({ detail, onClose }: Props) {
           flexDirection: "column",
           boxShadow: "var(--shadow-2)",
         },
-        body: { flex: 1, minHeight: 0, padding: 0, display: "flex", flexDirection: "column" },
+        body: {
+          flex: 1,
+          minHeight: 0,
+          padding: 0,
+          display: "flex",
+          flexDirection: "column",
+        },
       }}
     >
       {detail && content && (

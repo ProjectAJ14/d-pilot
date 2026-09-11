@@ -231,9 +231,7 @@ export function RequestsPage() {
                 horizontalSpacing="md"
                 miw={860}
               >
-                <Table.Thead
-                  style={{ background: "var(--surface2)" }}
-                >
+                <Table.Thead style={{ background: "var(--surface2)" }}>
                   <Table.Tr>
                     <Table.Th style={{ width: 40 }}></Table.Th>
                     <Table.Th>Request</Table.Th>

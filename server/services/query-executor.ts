@@ -129,7 +129,9 @@ export async function validateSqlSyntax(
         await client.query("BEGIN");
         const schemaName = activeSchema(conn, schema);
         if (schemaName)
-          await client.query(`SET search_path TO ${quoteSchemaIdent(schemaName)}`);
+          await client.query(
+            `SET search_path TO ${quoteSchemaIdent(schemaName)}`,
+          );
         await client.query(`EXPLAIN ${stmt}`);
         return { checked: true };
       } finally {
@@ -752,7 +754,8 @@ export function getPoolStatus(id: string): PoolStatus {
       lastUsedAt,
     };
   }
-  if (mongClients.has(id) || esClients.has(id)) return { live: true, lastUsedAt };
+  if (mongClients.has(id) || esClients.has(id))
+    return { live: true, lastUsedAt };
   return { live: false, lastUsedAt };
 }
 

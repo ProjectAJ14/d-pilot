@@ -31,16 +31,16 @@ queries**, **UI** (`sidebarOpen`, `phiPanelOpen`, `aiAssistantOpen`), **write ha
 
 ## Routing (`App.tsx`, React Router v7)
 
-| Path | View |
-|------|------|
-| `/` | Query workspace (`query/query-workspace.tsx`) |
-| `/write` | Write composer workspace (`write/write-workspace.tsx`) |
-| `/requests` | Write requests list (`write/requests-page.tsx`) |
-| `/write-requests/:id` | Write request detail + timeline (`write/write-request-detail.tsx`) |
-| `/saved-queries/:id` | Saved-query share link — opens the query in a new editor tab (`query/saved-query-link.tsx`) |
-| `/artifacts/:id` | Artifact share link — opens the document as a tab (`query/artifact-link.tsx`) |
-| `/profile` | Profile / password (`pages/profile-page.tsx`) |
-| `/settings` | Admin settings, sidebar-nav (`pages/settings-page.tsx`) |
+| Path                  | View                                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------- |
+| `/`                   | Query workspace (`query/query-workspace.tsx`)                                               |
+| `/write`              | Write composer workspace (`write/write-workspace.tsx`)                                      |
+| `/requests`           | Write requests list (`write/requests-page.tsx`)                                             |
+| `/write-requests/:id` | Write request detail + timeline (`write/write-request-detail.tsx`)                          |
+| `/saved-queries/:id`  | Saved-query share link — opens the query in a new editor tab (`query/saved-query-link.tsx`) |
+| `/artifacts/:id`      | Artifact share link — opens the document as a tab (`query/artifact-link.tsx`)               |
+| `/profile`            | Profile / password (`pages/profile-page.tsx`)                                               |
+| `/settings`           | Admin settings, sidebar-nav (`pages/settings-page.tsx`)                                     |
 
 Unknown paths redirect to `/`.
 
@@ -72,6 +72,7 @@ editor + results pair. `tab-persistence.ts` stores only `artifactId`, never the 
 same rule as results. Each SQL block inside an artifact owns its own result state and passes
 `onViewModeChange` to `ResultsGrid` so the table/JSON toggle stays per-block instead of
 writing to the tab in the store.
+
 - **`write/`** — `write-workspace.tsx`, `write-composer.tsx` (paired SELECT + WRITE, AI
   review), `requests-page.tsx`, `write-request-detail.tsx`, `shared.tsx` (status
   badges/helpers).

@@ -120,8 +120,10 @@ export function LoginScreen() {
             {error && (
               <div
                 style={{
-                  background: "color-mix(in srgb, var(--error) 8%, transparent)",
-                  border: "1px solid color-mix(in srgb, var(--error) 30%, transparent)",
+                  background:
+                    "color-mix(in srgb, var(--error) 8%, transparent)",
+                  border:
+                    "1px solid color-mix(in srgb, var(--error) 30%, transparent)",
                   color: "var(--error)",
                   fontSize: 12,
                   padding: "10px 14px",
