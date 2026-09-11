@@ -13,11 +13,15 @@
  * workflow, where a human authors the paired verify SELECT and an approver signs
  * off; an agent holding one credential must not be able to do both.
  *
- * `create_write_request` is the one seam, and it stops short of the database: it
- * saves a DRAFT — a title, the write statement and its verify SELECT, validated
- * exactly as the UI validates them — which does nothing until a human opens it in
- * D-Pilot and submits or runs it under their own capabilities. There is no tool to
- * submit, approve or execute one, on any environment, direct-write included.
+ * Write *requests* are the one seam, and they stop short of the database:
+ * `create_write_request` saves a DRAFT — a title, the write statement and its
+ * verify SELECT, validated exactly as the UI validates them — which does nothing
+ * until a human opens it in D-Pilot and submits or runs it under their own
+ * capabilities. `get_write_request` reads one back, including the AI safety
+ * review a human triggered, and `update_write_request` edits it in response —
+ * but only while it is still a DRAFT, so the moment a person takes it on, an
+ * agent can no longer change what they are approving. There is no tool to submit,
+ * approve, execute or delete one, on any environment, direct-write included.
  *
  * Artifacts are the other exception to "read-only", and only because they are not
  * database state: an artifact stores prose and *unexecuted* read queries in
@@ -392,6 +396,74 @@ function createMcpServer(client: DPilotApiClient): McpServer {
           env: wr.env,
           connection: wr.connectionName,
           note: "Saved as a draft — it has not run. Share the link: a teammate submits it for approval, or runs it if the environment allows direct writes.",
+        });
+      }),
+  );
+
+  server.registerTool(
+    "get_write_request",
+    {
+      title: "Read a write request",
+      description:
+        "The full request: its status, the statements, the activity timeline, and — once someone has run the AI safety review in D-Pilot — `aiVerdict` (SAFE / CAUTION / DANGEROUS) and `aiReview` with the risks, blast radius and suggested statements. Read this after asking for a review, and fold the feedback into update_write_request.",
+      inputSchema: {
+        id: z
+          .string()
+          .describe("Write request id (create_write_request returns it)."),
+      },
+      annotations: readOnly,
+    },
+    ({ id }) =>
+      guard(async () =>
+        json(
+          await client.get<unknown>(
+            `/write-requests/${encodeURIComponent(id)}`,
+          ),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "update_write_request",
+    {
+      title: "Update a write request",
+      description:
+        "Edits a DRAFT this account saved — to fix what the AI review or a reviewer flagged. Only drafts can be changed: once a human has submitted, approved or run a request, it is theirs. Only the fields you pass change, and the request stays a draft, so this never runs anything.",
+      inputSchema: {
+        id: z.string().describe("Write request id."),
+        title: z.string().optional(),
+        writeSql: z
+          .string()
+          .optional()
+          .describe("Replacement write statement or migration script."),
+        selectSql: z
+          .string()
+          .optional()
+          .describe(
+            "Replacement verify SELECT — must still preview exactly the rows `writeSql` affects.",
+          ),
+        description: z.string().optional(),
+        note: z
+          .string()
+          .optional()
+          .describe(
+            "What changed and why — recorded on the activity timeline.",
+          ),
+      },
+      annotations: writes,
+    },
+    ({ id, ...updates }) =>
+      guard(async () => {
+        const wr = await client.post<any>(
+          `/write-requests/${encodeURIComponent(id)}/revise`,
+          { ...updates, draft: true },
+        );
+        return json({
+          id: wr.id,
+          url: appUrl(`/write-requests/${wr.id}`),
+          status: wr.status,
+          env: wr.env,
+          note: "Still a draft — it has not run. A teammate submits or runs it under their own permissions.",
         });
       }),
   );

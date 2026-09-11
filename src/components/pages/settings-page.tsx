@@ -2608,6 +2608,7 @@ const ACTION_COLORS: Record<string, string> = {
   WRITE_EXECUTE_ERROR: "red",
   WRITE_AI_REVIEW: "violet",
   WRITE_PREVIEW: "blue",
+  WRITE_DELETE: "red",
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -2629,6 +2630,7 @@ const ACTION_LABELS: Record<string, string> = {
   WRITE_EXECUTE_ERROR: "Write Failed",
   WRITE_AI_REVIEW: "Write AI Review",
   WRITE_PREVIEW: "Write Preview",
+  WRITE_DELETE: "Write Deleted",
 };
 
 interface AuditEntry {

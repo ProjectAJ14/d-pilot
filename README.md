@@ -292,6 +292,8 @@ cannot be bypassed. Every agent query lands in the audit log under its service a
 | `list_artifacts` | Artifacts visible to the account (optional `search`) |
 | `archive_artifact` | Archives (or restores) an artifact the service account created |
 | `create_write_request` | Saves a **draft** change request for a human to review — it never runs |
+| `get_write_request` | Reads one request back, including the AI safety review a human ran on it |
+| `update_write_request` | Edits a draft the service account saved — drafts only, and it stays a draft |
 
 Database writes are deliberately **not** exposed — those stay in the write-approval workflow,
 where a human reads the paired verify SELECT and a second person approves.
@@ -300,10 +302,16 @@ where a human reads the paired verify SELECT and a second person approves.
 saves a DRAFT: title, the write statement, and the verify SELECT that previews the affected
 rows, validated by exactly the same rules the UI applies. A draft executes nothing — not even
 on an environment configured for direct writes — until a person opens it in D-Pilot and clicks
-**Submit for approval** or **Run now**. There is no tool to submit, approve or run one, and the
-account still needs Write capability on the target environment to save a draft at all.
+**Submit for approval** or **Run now**. There is no tool to submit, approve, run or delete one,
+and the account still needs Write capability on the target environment to save a draft at all.
 Submitting also makes the submitter the requester, so nobody can have an agent draft a change,
 submit it, and then approve their own work.
+
+`get_write_request` closes the review loop: after someone clicks **Review with AI** on the
+request, the agent can read the verdict, the risks and the suggested statements back, and fix
+the draft with `update_write_request`. Editing is **drafts only** — the moment a person submits,
+approves or runs a request, the agent can no longer change what they are signing off on — and an
+edited draft stays a draft, so revising one can never become a way to run it.
 
 The artifact tools are the one exception to read-only, and only because they touch no target
 database: an artifact holds prose and *unexecuted* read queries in D-Pilot's own SQLite, an

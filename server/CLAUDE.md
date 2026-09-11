@@ -131,6 +131,18 @@ submits it, so the approve route's self-approval block still holds — nobody su
 then approves it as "someone else's". Visibility follows write capability as well as approve
 capability, or a draft would be invisible to the people who can act on it.
 
+Editing goes through `POST /:id/revise` for both drafts and revisable
+(`REJECTED`/`CANCELLED`/`FAILED`) requests; `planRevise` (exported, unit-tested) decides
+refuse / stay a draft / resubmit-and-maybe-run. A draft edit must never execute — that is the
+whole point of the draft gate — so `reviseWriteRequest` takes the target status from the caller
+rather than hardcoding `PENDING`.
+
+`DELETE /:id` removes a request and its events outright — requester or admin, and only once it
+is not live (`PENDING` and `APPROVED` must be cancelled first, since one is someone else's
+review queue and the other may be mid-execution). It is not an audit hole: `audit_log` is a
+separate table, so what was proposed and run survives, plus a `WRITE_DELETE` entry. There is no
+MCP tool for it.
+
 Every request carries a paired verify **SELECT** and the **WRITE**.
 `WriteAiReview` holds the structured safety verdict (SAFE/CAUTION/DANGEROUS, blast
 radius, select-matches-write, suggested corrections). **PROD always needs a second
@@ -161,8 +173,13 @@ archived artifacts, `getArtifactById` still returns them so an old share link op
 The MCP endpoint may create/update/archive artifacts — an exception to its read-only posture,
 and only because artifacts are not database state. Keep that boundary: an agent must never gain
 a path that mutates a *target* database, and cannot destroy an artifact either. The same reason
-lets it save write-request **drafts** (`create_write_request`): a draft is a document until a
-human submits it. Never add an MCP tool that submits, approves or executes one.
+lets it save, read back and edit write-request **drafts** (`create_write_request`,
+`get_write_request`, `update_write_request`): a draft is a document until a human submits it.
+`update_write_request` posts `draft: true` to `/:id/revise`, which makes the route refuse
+anything that is not a DRAFT — that flag is the boundary, so keep it. The route also keeps a
+draft edit a DRAFT and skips direct execution on it; turning an edit into a run is exactly what
+the draft gate exists to prevent. Never add an MCP tool that submits, approves, executes or
+deletes one.
 
 ## Types
 
