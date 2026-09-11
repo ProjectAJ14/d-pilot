@@ -5,6 +5,14 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [1.23.1](https://github.com/ProjectAJ14/d-pilot/compare/v1.23.0...v1.23.1) (2026-09-11)
+
+
+### Bug Fixes
+
+* **requests:** label a teammate's draft "To submit", not "To review" ([5d234dc](https://github.com/ProjectAJ14/d-pilot/commit/5d234dc41d261b246eba4ff4779f80c6ed64dcea))
+* **ui:** make the AI review card and other tinted surfaces readable in dark mode ([27de6a8](https://github.com/ProjectAJ14/d-pilot/commit/27de6a875c0e50b2ce7a7295aa7f16c82b8562de))
+
 # [1.23.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.22.0...v1.23.0) (2026-09-11)
 
 ### Bug Fixes
