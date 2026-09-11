@@ -75,6 +75,7 @@ import type {
   MaskingType,
   AiChatLogEntry,
 } from "../../types";
+import { BASE_PATH } from "../../utils/base-path";
 
 // ── PHI Field Icons ──
 const FIELD_ICONS: Record<string, string> = {
@@ -1727,7 +1728,13 @@ function CredentialsModal({
   onClose: () => void;
 }) {
   const appName = useStore((s) => s.config.appName);
-  const loginUrl = typeof window !== "undefined" ? window.location.origin : "";
+  // The origin alone points at whatever owns the domain root, which under a
+  // sub-path deployment is a different app entirely — and this URL is pasted
+  // into the message a new user is sent to sign in with.
+  const loginUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}${BASE_PATH}`
+      : "";
 
   if (!info) return null;
 

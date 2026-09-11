@@ -97,6 +97,17 @@ place. See the README's MCP section.
   document from scripting the app or reaching the JWT in `localStorage`. Never add
   `rehype-raw` or `dangerouslySetInnerHTML` here. Artifacts also have **no delete** —
   only a reversible archive — because a shared link is other people's bookmark.
+- **Root-absolute URLs must carry the base path.** D-Pilot usually owns a domain root,
+  but `BASE_PATH=/d-pilot` mounts it under a prefix of a shared domain. Vite bakes the
+  prefix into everything it can see at build time (imports, asset URLs, `index.html`
+  attributes) and Express mounts itself at the same prefix, so the reverse proxy needs no
+  path rewriting. What neither can fix is a URL *assembled at runtime*: use
+  `BASE_PATH`/`withBase()` from `server/config/base-path.ts` or `src/utils/base-path.ts`
+  for those. The four that already exist are the pattern to copy — the API client's base,
+  the router's `basename`, share links built from `window.location.origin`, and the
+  manifest's `scope`/`start_url`. A missed one does not 404 politely; it lands on whichever
+  app owns that domain's root. `BASE_PATH` is read at BUILD time by Vite and at RUN time by
+  Express, so the two must agree — changing it means rebuilding.
 - **Types are duplicated** by design: `src/types/index.ts` (frontend) and
   `server/types/index.ts` (backend) — keep shared shapes (`Environment`, `MaskingType`,
   `WriteRequest`, etc.) in sync when you change one.
@@ -104,7 +115,8 @@ place. See the README's MCP section.
 ## Environment
 
 Copy `.env.example` → `.env`. Key vars: `JWT_SECRET`, `DBFORGE_CONNECTIONS` (JSON array of
-target DB connections), `PORT` (3101), `VITE_PORT` (3100), `MAX_ROWS` (10000),
+target DB connections), `PORT` (3101), `VITE_PORT` (3100), `BASE_PATH` (unset = domain
+root; see the sub-path rule below), `MAX_ROWS` (10000),
 `QUERY_TIMEOUT_MS` (90000), `SCHEMA_CACHE_TTL_HOURS` (24), `AZURE_OPENAI_*` (optional AI),
 `APP_NAME`/`LOGO_URL`/`LIGHT_LOGO_URL`/`FAVICON_URL` (branding), `EMAIL_DOMAIN`,
 `DEFAULT_ADMIN_PASSWORD` (first-run admin seed). Full reference in `README.md`.

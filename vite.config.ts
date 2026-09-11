@@ -5,7 +5,8 @@ import react from "@vitejs/plugin-react";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { VitePWA } from "vite-plugin-pwa";
 
-import { pwaOptions } from "./vite.pwa.config";
+import { createPwaOptions } from "./vite.pwa.config";
+import { normalizeBasePath, toBaseUrl } from "./server/config/base-path";
 
 const pkg = JSON.parse(
   readFileSync(fileURLToPath(new URL("./package.json", import.meta.url)), "utf8"),
@@ -16,8 +17,19 @@ export default defineConfig(({ mode }) => {
   const serverPort = parseInt(env.PORT || "3101", 10);
   const clientPort = parseInt(env.VITE_PORT || String(serverPort - 1), 10);
 
+  // The sub-path this build is served under — "" at a domain root, "/d-pilot"
+  // behind a reverse proxy that mounts the app under a prefix. Baked into every
+  // emitted asset URL, so it is a property of the BUILD, not of the deployment
+  // that serves it: changing BASE_PATH means rebuilding. The Express server
+  // reads the same variable at runtime (server/config/base-path.ts) and mounts
+  // itself at the same prefix, which is why the dev proxy below needs no
+  // path rewriting and neither does the production reverse proxy.
+  const basePath = normalizeBasePath(env.BASE_PATH);
+  const baseUrl = toBaseUrl(basePath);
+
   return {
-    plugins: [react(), tsconfigPaths(), VitePWA(pwaOptions)],
+    base: baseUrl,
+    plugins: [react(), tsconfigPaths(), VitePWA(createPwaOptions(baseUrl))],
     define: {
       __APP_VERSION__: JSON.stringify(pkg.version),
     },
@@ -25,13 +37,16 @@ export default defineConfig(({ mode }) => {
       port: clientPort,
       host: true,
       proxy: {
-        "/api": {
+        // Keyed by the based path because Vite serves the app under `base` in
+        // dev too, so the browser asks for /d-pilot/api/... The Express dev
+        // server mounts at the same prefix, so these pass through unrewritten.
+        [`${basePath}/api`]: {
           target: `http://localhost:${serverPort}`,
           changeOrigin: true,
         },
         // The web manifest is rendered by Express from APP_NAME, so the dev
         // server has to proxy it too or the install metadata 404s.
-        "/manifest.webmanifest": {
+        [`${basePath}/manifest.webmanifest`]: {
           target: `http://localhost:${serverPort}`,
           changeOrigin: true,
         },

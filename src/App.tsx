@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useStore } from "./store";
+import { BASE_PATH } from "./utils/base-path";
 import { api } from "./utils/api-client";
 import { DEFAULT_COPY_FORMATS } from "./utils/data-extractors";
 import { LoginScreen } from "./components/auth/login-screen";
@@ -166,7 +167,11 @@ export default function App() {
           screen too, not just once someone is signed in. */}
       <PwaUpdatePrompt />
       {isAuthenticated ? (
-        <BrowserRouter>
+        // basename, so every <Route path="/…"> below stays written as if the
+        // app owned the domain root. React Router strips it from
+        // useLocation().pathname and adds it back on navigation, which is why
+        // the path comparisons in top-bar.tsx need no change.
+        <BrowserRouter basename={BASE_PATH}>
           <AuthenticatedApp />
         </BrowserRouter>
       ) : (
