@@ -17,6 +17,9 @@ npm run build            # Production build: vite build + tsc -p tsconfig.server
 npm start                # Start production server from dist/server/index.js
 npm run lint             # ESLint (.ts, .tsx)
 npm run format           # Prettier
+npm run format:check     # Prettier in check mode (what CI runs)
+npm run typecheck        # tsc --noEmit over src + server
+npm run verify           # format:check + lint + typecheck + test — the CI gate, minus the build
 ```
 
 `predev` frees the dev ports first (`scripts/free-ports.mjs`). Ports are set in `.env`
@@ -127,6 +130,10 @@ root; see the sub-path rule below), `MAX_ROWS` (10000),
 
 ## Conventions
 
+- **CI gates every PR to `main`** (`.github/workflows/ci.yml`): `format:check` → `lint` →
+  `typecheck` → `test` → `build`. Locally, `pre-commit` formats staged files and `pre-push`
+  runs `npm run verify`, so the same failures surface before the push. `main` is not
+  branch-protected, so the check is advisory — read it before merging.
 - Husky + commitlint enforce Conventional Commits. **Do not add `Co-Authored-By` trailers**
   — commitlint rejects them here.
 - `semantic-release` (`.releaserc.json`, `.github/workflows/release.yml`) derives the version
