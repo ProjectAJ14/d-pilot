@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.22.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.21.4...v1.22.0) (2026-09-11)
+
+
+### Features
+
+* serve the app under a configurable BASE_PATH ([3cf4434](https://github.com/ProjectAJ14/d-pilot/commit/3cf44349e429ed789e5312cc6200c41c83070d6f))
+
 ## [1.21.4](https://github.com/ProjectAJ14/d-pilot/compare/v1.21.3...v1.21.4) (2026-09-06)
 
 
