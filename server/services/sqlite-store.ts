@@ -1459,10 +1459,14 @@ export function claimWriteRequestForApproval(id: string): boolean {
 }
 
 /**
- * Applies an edited query to a revisable request and resets it to a fresh
- * PENDING state — clearing the prior review, AI verdict, and execution outcome
- * (the history is preserved in write_request_events). Used to resubmit after a
- * rejection / cancellation / failed run.
+ * Applies an edited query to a revisable request — clearing the prior review,
+ * AI verdict, and execution outcome (the history is preserved in
+ * write_request_events). Used to resubmit after a rejection / cancellation /
+ * failed run, and to edit a saved draft.
+ *
+ * `status` is the caller's: a resubmit goes back to PENDING, a draft edit stays
+ * DRAFT. Passing PENDING for a draft would submit it as a side effect of an
+ * edit, which is exactly what the draft gate exists to prevent.
  */
 export function reviseWriteRequest(
   id: string,
@@ -1473,6 +1477,7 @@ export function reviseWriteRequest(
     writeSql: string;
     isMigration?: boolean;
     noTransaction?: boolean;
+    status: WriteRequestStatus;
   },
 ): WriteRequest | null {
   const now = new Date().toISOString();
@@ -1480,7 +1485,7 @@ export function reviseWriteRequest(
     `UPDATE write_requests SET
        title = ?, description = ?, select_sql = ?, write_sql = ?,
        is_migration = ?, no_transaction = ?,
-       status = 'PENDING',
+       status = ?,
        reviewed_by = NULL, reviewed_by_email = NULL, reviewed_at = NULL, review_notes = NULL,
        executed_at = NULL, executed_by = NULL, executed_by_email = NULL,
        rows_affected = NULL, execution_ms = NULL, execution_error = NULL, transactional = NULL,
@@ -1494,10 +1499,26 @@ export function reviseWriteRequest(
     fields.writeSql,
     fields.isMigration ? 1 : 0,
     fields.noTransaction ? 1 : 0,
+    fields.status,
     now,
     id,
   );
   return getWriteRequest(id);
+}
+
+/**
+ * Removes a write request and its event timeline. The `audit_log` rows it wrote
+ * (WRITE_SUBMIT / WRITE_EXECUTE / …) live in their own table and are untouched,
+ * so deleting a request tidies the queue without erasing the record that a
+ * change was proposed or run.
+ */
+export function deleteWriteRequest(id: string): boolean {
+  return db.transaction(() => {
+    db.prepare("DELETE FROM write_request_events WHERE request_id = ?").run(id);
+    return (
+      db.prepare("DELETE FROM write_requests WHERE id = ?").run(id).changes > 0
+    );
+  })();
 }
 
 export function addWriteRequestEvent(

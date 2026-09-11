@@ -241,6 +241,10 @@ export const api = {
     request<WriteRequest>(`/write-requests/${id}/submit`, { method: "POST" }),
   cancelWriteRequest: (id: string) =>
     request<WriteRequest>(`/write-requests/${id}/cancel`, { method: "POST" }),
+  deleteWriteRequest: (id: string) =>
+    request<{ deleted: boolean }>(`/write-requests/${id}`, {
+      method: "DELETE",
+    }),
   reviseWriteRequest: (
     id: string,
     data: {

@@ -1,0 +1,19 @@
+meta {
+  name: Delete Write Request
+  type: http
+  seq: 17
+}
+
+delete {
+  url: {{baseUrl}}/api/write-requests/{{writeRequestId}}
+  body: none
+  auth: inherit
+}
+
+docs {
+  Permanently removes the request and its activity timeline. Only the requester (or an admin) can, and only a DRAFT / CANCELLED / REJECTED / FAILED / EXECUTED request — a PENDING one is someone else's review queue and an APPROVED one may be mid-execution, so cancel those first (409 otherwise).
+
+  The `audit_log` entries it wrote (WRITE_SUBMIT, WRITE_EXECUTE, …) live in their own table and survive, so deleting tidies the queue without erasing the record that a change was proposed or run. A `WRITE_DELETE` entry is added.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

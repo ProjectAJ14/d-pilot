@@ -35,6 +35,7 @@ import {
   listWriteRequests,
   updateWriteRequest,
   reviseWriteRequest,
+  deleteWriteRequest,
   claimWriteRequestForApproval,
   claimWriteRequestStatus,
   addWriteRequestEvent,
@@ -112,6 +113,62 @@ export function planDraftSubmit(
     ok: true,
     takeOwnership: wr.requestedBy !== user.sub,
     runNow: directEnvs.includes(wr.env),
+  };
+}
+
+/**
+ * Decides what editing a request does, without touching the database.
+ *
+ * A DRAFT edit stays a DRAFT and never executes — an agent editing its own
+ * draft must not be able to turn it into a run by revising it into a
+ * direct-write environment. Editing a rejected/cancelled/failed request is the
+ * resubmit path: back to PENDING, and direct-write environments re-run it.
+ *
+ * `draftOnly` is the MCP tool's guard: it refuses anything that is not a draft,
+ * so the only write-request state an agent can change is one that has never
+ * reached a database.
+ */
+export function planRevise(
+  user: AuthUser,
+  wr: Pick<WriteRequest, "status" | "env" | "requestedBy">,
+  directEnvs: string[],
+  draftOnly = false,
+):
+  | { ok: false; status: number; error: string }
+  | { ok: true; keepDraft: boolean; runNow: boolean } {
+  if (wr.requestedBy !== user.sub && !user.isAdmin) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Only the requester can revise this request",
+    };
+  }
+  const isDraft = wr.status === "DRAFT";
+  if (draftOnly && !isDraft) {
+    return {
+      ok: false,
+      status: 409,
+      error: `Request is ${wr.status} — only a saved draft can be updated here.`,
+    };
+  }
+  if (!isDraft && !REVISABLE_STATUSES.includes(wr.status)) {
+    return {
+      ok: false,
+      status: 409,
+      error: `A ${wr.status} request cannot be revised. Only drafts and rejected, cancelled or failed requests can be edited.`,
+    };
+  }
+  if (!canAuthorEnv(user, wr.env)) {
+    return {
+      ok: false,
+      status: 403,
+      error: `You are not allowed to author writes in ${wr.env}`,
+    };
+  }
+  return {
+    ok: true,
+    keepDraft: isDraft,
+    runNow: !isDraft && directEnvs.includes(wr.env),
   };
 }
 
@@ -1090,8 +1147,52 @@ router.post("/:id/cancel", (req: Request, res: Response) => {
   res.json(getWriteRequest(wr.id));
 });
 
-// Edit the query on a rejected/cancelled/failed request and resubmit it for a
-// fresh review round (keeps the same id/share link; history is preserved).
+// Remove a request from the queue entirely. Only the requester or an admin can,
+// and only once it is no longer live — a PENDING request is someone else's
+// review queue and an APPROVED one may be mid-execution, so those must be
+// cancelled first. The audit_log record of what was proposed or run survives.
+const DELETABLE_STATUSES = [
+  "DRAFT",
+  "CANCELLED",
+  "REJECTED",
+  "FAILED",
+  "EXECUTED",
+];
+
+router.delete("/:id", (req: Request, res: Response) => {
+  const user = req.user!;
+  const wr = getWriteRequest(req.params.id as string, false);
+  if (!wr) {
+    res.status(404).json({ error: "Write request not found" });
+    return;
+  }
+  if (wr.requestedBy !== user.sub && !user.isAdmin) {
+    res
+      .status(403)
+      .json({ error: "Only the requester can delete this request" });
+    return;
+  }
+  if (!DELETABLE_STATUSES.includes(wr.status)) {
+    res.status(409).json({
+      error: `A ${wr.status} request cannot be deleted — cancel it first.`,
+    });
+    return;
+  }
+  deleteWriteRequest(wr.id);
+  logAudit({
+    userId: user.sub,
+    userEmail: user.email,
+    action: "WRITE_DELETE",
+    sql: wr.writeSql,
+    connectionId: wr.connectionId,
+    phiAccessed: false,
+  });
+  res.json({ deleted: true });
+});
+
+// Edit a request in place, keeping the same id / share link and the full event
+// history. A draft edit stays a draft; a rejected/cancelled/failed request goes
+// back to PENDING for a fresh review round.
 router.post(
   "/:id/revise",
   requireWriteMode,
@@ -1102,38 +1203,44 @@ router.post(
       res.status(404).json({ error: "Write request not found" });
       return;
     }
-    if (wr.requestedBy !== user.sub && !user.isAdmin) {
-      res
-        .status(403)
-        .json({ error: "Only the requester can revise this request" });
-      return;
-    }
-    if (!REVISABLE_STATUSES.includes(wr.status)) {
-      res.status(409).json({
-        error: `A ${wr.status} request cannot be revised. Only rejected, cancelled or failed requests can be edited and resubmitted.`,
-      });
-      return;
-    }
 
-    const { title, description, selectSql, writeSql, note, noTransaction } =
-      req.body as {
-        title?: string;
-        description?: string;
-        selectSql?: string;
-        writeSql?: string;
-        note?: string;
-        noTransaction?: boolean;
-      };
+    const {
+      title,
+      description,
+      selectSql,
+      writeSql,
+      note,
+      noTransaction,
+      draft,
+    } = req.body as {
+      title?: string;
+      description?: string;
+      selectSql?: string;
+      writeSql?: string;
+      note?: string;
+      noTransaction?: boolean;
+      /** Refuse anything that is not a draft — the MCP tool's guard. */
+      draft?: boolean;
+    };
 
     const conn = getConnection(wr.connectionId);
     if (!conn) {
       res.status(404).json({ error: "Connection not found" });
       return;
     }
-    if (!canAuthorEnv(user, conn.env)) {
-      res
-        .status(403)
-        .json({ error: `You are not allowed to author writes in ${conn.env}` });
+
+    // Plan against the connection's CURRENT env, not the one stamped on the
+    // request: a connection moved between environments in DBFORGE_CONNECTIONS
+    // must be judged by where it points now, or a stale QA stamp would authorize
+    // an edit — and a direct re-run — against what is now a production database.
+    const plan = planRevise(
+      user,
+      { ...wr, env: conn.env },
+      getWriteDirectEnvs(),
+      !!draft,
+    );
+    if (!plan.ok) {
+      res.status(plan.status).json({ error: plan.error });
       return;
     }
 
@@ -1169,25 +1276,27 @@ router.post(
       writeSql: newWrite,
       isMigration,
       noTransaction: noTx,
+      status: plan.keepDraft ? "DRAFT" : "PENDING",
     });
     addWriteRequestEvent(
       wr.id,
       user.sub,
       user.email,
-      "RESUBMITTED",
+      plan.keepDraft ? "SAVED" : "RESUBMITTED",
       note?.trim() || undefined,
     );
     logAudit({
       userId: user.sub,
       userEmail: user.email,
-      action: "WRITE_RESUBMIT",
+      action: plan.keepDraft ? "WRITE_SAVE" : "WRITE_RESUBMIT",
       sql: newWrite,
       connectionId: wr.connectionId,
       phiAccessed: false,
     });
 
-    // A DIRECT-policy environment re-runs immediately on resubmit.
-    if (getWriteDirectEnvs().includes(conn.env)) {
+    // A DIRECT-policy environment re-runs immediately on resubmit — never on a
+    // draft edit, which stays saved until a human submits it.
+    if (plan.runNow) {
       await runDirectExecution(wr.id, conn, newWrite, user, {
         isMigration,
         noTransaction: noTx,

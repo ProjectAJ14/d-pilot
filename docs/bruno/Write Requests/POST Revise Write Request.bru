@@ -26,7 +26,9 @@ body:json {
 }
 
 docs {
-  Edit and resubmit a REJECTED/CANCELLED/FAILED request (keeps the same id and history). Migration vs single-DML is re-classified from the new `writeSql` (see Create Write Request); `noTransaction` applies only to migrations.
+  Edit a request in place (keeps the same id and history). A REJECTED/CANCELLED/FAILED request goes back to PENDING — and re-runs immediately on a direct-write environment. A DRAFT stays a DRAFT and runs nothing. Migration vs single-DML is re-classified from the new `writeSql` (see Create Write Request); `noTransaction` applies only to migrations.
+
+  Send `"draft": true` to refuse anything that is not a DRAFT (409). That is what the MCP `update_write_request` tool sends, so an agent can only edit a draft no human has taken on yet.
 
   Requires a valid Bearer JWT ({{token}}).
   Requires **write mode** to be enabled.

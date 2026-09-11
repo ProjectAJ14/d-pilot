@@ -28,6 +28,7 @@ import {
   IconCopyPlus,
   IconEye,
   IconArrowBarToUp,
+  IconTrash,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useParams, useNavigate } from "react-router-dom";
@@ -56,6 +57,7 @@ export function WriteRequestDetail() {
   const setActionRequiredCount = useStore((s) => s.setActionRequiredCount);
   const setWriteHandoff = useStore((s) => s.setWriteHandoff);
   const canWrite = useStore((s) => !!s.user?.canWrite);
+  const isAdmin = useStore((s) => !!s.user?.isAdmin);
 
   // Keep the "needs my action" nav badge accurate after acting on a request.
   const refreshBadge = () =>
@@ -81,6 +83,9 @@ export function WriteRequestDetail() {
   const [notes, setNotes] = useState("");
   const [deciding, setDeciding] = useState(false);
   const [submittingDraft, setSubmittingDraft] = useState(false);
+
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Edit & resubmit — reuses the full write composer
   const [editOpen, setEditOpen] = useState(false);
@@ -227,6 +232,21 @@ export function WriteRequestDetail() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!id) return;
+    setDeleting(true);
+    try {
+      await api.deleteWriteRequest(id);
+      notifications.show({ message: "Request deleted", color: "gray" });
+      refreshBadge();
+      navigate("/requests");
+    } catch (e: any) {
+      notifications.show({ message: e.message, color: "red" });
+      setDeleting(false);
+      setDeleteOpen(false);
+    }
+  };
+
   // Pre-fill a brand-new request from this one (e.g. re-run on another env).
   const duplicate = () => {
     if (!wr) return;
@@ -278,6 +298,13 @@ export function WriteRequestDetail() {
   const isDraft = wr.status === "DRAFT";
   // Straight from the server — the write policy can change while a draft sits.
   const draftRunsNow = isDraft && !!wr.submitRunsImmediately;
+  // Deleting is for tidying a finished or abandoned request. A live one
+  // (PENDING/APPROVED) is someone else's queue — the server refuses those too.
+  const canDelete =
+    (wr.viewerIsRequester || isAdmin) &&
+    ["DRAFT", "CANCELLED", "REJECTED", "FAILED", "EXECUTED"].includes(
+      wr.status,
+    );
   const canRevise =
     wr.viewerIsRequester &&
     ["REJECTED", "CANCELLED", "FAILED"].includes(wr.status);
@@ -336,6 +363,21 @@ export function WriteRequestDetail() {
                 onClick={duplicate}
               >
                 Duplicate
+              </Button>
+            )}
+            {canDelete && (
+              <Button
+                size="xs"
+                variant="default"
+                color="red"
+                leftSection={<IconTrash size={14} />}
+                onClick={() => setDeleteOpen(true)}
+                style={{
+                  color: "var(--mantine-color-red-7)",
+                  borderColor: "var(--mantine-color-red-3)",
+                }}
+              >
+                Delete
               </Button>
             )}
             <CopyButton value={window.location.href}>
@@ -531,8 +573,7 @@ export function WriteRequestDetail() {
             border: "1px solid var(--border)",
             borderRadius: 16,
             padding: 26,
-            boxShadow:
-              "var(--shadow-2)",
+            boxShadow: "var(--shadow-2)",
           }}
         >
           {/* Queries — write first, verify second */}
@@ -876,6 +917,28 @@ export function WriteRequestDetail() {
             onClick={submitDecision}
           >
             {decisionModal === "approve" ? "Approve & run" : "Reject request"}
+          </Button>
+        </Group>
+      </Modal>
+
+      <Modal
+        opened={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        title="Delete request"
+        size="sm"
+      >
+        <Text size="sm" mb="lg">
+          Delete <strong>{wr.title}</strong>? The request, its share link and
+          its activity timeline go away for everyone. The audit log keeps the
+          record of what was proposed
+          {wr.status === "EXECUTED" ? " and run" : ""}.
+        </Text>
+        <Group justify="flex-end" gap={8}>
+          <Button variant="default" onClick={() => setDeleteOpen(false)}>
+            Cancel
+          </Button>
+          <Button color="red" loading={deleting} onClick={handleDelete}>
+            Delete request
           </Button>
         </Group>
       </Modal>
