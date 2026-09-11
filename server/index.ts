@@ -189,7 +189,7 @@ app.listen(PORT, "0.0.0.0", () => {
   const listeningOn = `Running on http://0.0.0.0:${PORT}${BASE_PATH}`;
   console.log(`
   ╔══════════════════════════════════════════╗
-  ║   BG D-Pilot — Internal Query Tool      ║
+  ║   D-Pilot — Internal Query Tool          ║
   ║   ${listeningOn.padEnd(39)}║
   ║   PHI Masking: ENABLED                   ║
   ║   Auth: Local JWT                        ║
