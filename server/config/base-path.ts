@@ -33,7 +33,10 @@
  */
 export function normalizeBasePath(raw: string | undefined | null): string {
   const trimmed = (raw ?? "").trim();
-  if (!trimmed || trimmed === "/") return "";
+  // `/^\/+$/`, not `=== "/"`: "//" would otherwise normalise to "/" and
+  // toBaseUrl() would hand Vite a `base` of "//" — a protocol-relative URL, so
+  // every asset href resolves against a host named "assets" instead of this one.
+  if (!trimmed || /^\/+$/.test(trimmed)) return "";
   return "/" + trimmed.replace(/^\/+/, "").replace(/\/+$/, "");
 }
 
@@ -52,6 +55,38 @@ export function withBase(basePath: string, url: string | null | undefined): stri
   if (!url) return null;
   if (!url.startsWith("/") || url.startsWith("//")) return url;
   return `${basePath}${url}`;
+}
+
+/**
+ * The absolute base for links handed to a human — MCP tool output, mainly.
+ *
+ * `APP_BASE_URL` is documented as the *origin* users browse D-Pilot on
+ * ("https://intranet.example"), so it carries no sub-path of its own and
+ * `basePath` has to be appended, or the link lands on whatever owns the domain
+ * root. That is the same failure the rest of this module exists to prevent,
+ * except it happens in the one place the URL gets pasted into a ticket.
+ *
+ * An origin that already spells the prefix out is left alone: appending twice
+ * is worse than not appending at all, and an operator who wrote the path meant
+ * it. Empty, "/" and anything unparseable fall through unchanged — for the
+ * first two that means the bare `basePath`, which is the relative-link
+ * behaviour of an unset `APP_BASE_URL`.
+ */
+export function withBaseOrigin(
+  origin: string | undefined | null,
+  basePath: string,
+): string {
+  const trimmed = (origin ?? "").trim().replace(/\/+$/, "");
+  if (!trimmed) return basePath;
+  let pathname: string;
+  try {
+    pathname = new URL(trimmed).pathname;
+  } catch {
+    // Not a URL we can reason about (no scheme, say). Leave the operator's
+    // value exactly as written rather than guessing where its path starts.
+    return trimmed;
+  }
+  return pathname === "/" ? `${trimmed}${basePath}` : trimmed;
 }
 
 /** Canonical base path for this process, e.g. "" or "/d-pilot". */

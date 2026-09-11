@@ -86,7 +86,10 @@ place. See the README's MCP section.
   which fails if any `runtimeCaching` pattern matches an `/api` path — do not add one, and
   do not add Background Sync for writes either, since offline replay would reorder the
   governed write workflow's audit trail. Same principle `utils/tab-persistence.ts` already
-  follows: persist the workspace, never the results.
+  follows: persist the workspace, never the results. The same reasoning bounds
+  `BASE_PATH`: a path prefix is not an origin, so a sub-path deployment shares
+  `localStorage` — JWT included — with every other app on that domain. See
+  README, "The prefix is not a security boundary".
 - **Artifacts hold queries, not rows.** An artifact (`server/routes/artifacts.ts`,
   `src/components/query/artifact-view.tsx`) is a shared document of prose + SQL blocks that
   any logged-in user can open by link. Its blocks are run *by the reader* through

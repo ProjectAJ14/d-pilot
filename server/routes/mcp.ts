@@ -32,7 +32,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import { DPilotApiClient } from "../services/mcp-client.js";
 import { blocksSchema } from "./artifacts.js";
-import { BASE_PATH } from "../config/base-path.js";
+import { BASE_PATH, withBaseOrigin } from "../config/base-path.js";
 
 const router = Router();
 
@@ -57,15 +57,13 @@ const loopbackUrl = () =>
  * link. Falls back to a bare path: an agent pasting `/artifacts/<id>` is mildly
  * annoying, inventing `localhost:3101` for a teammate on the VPN is worse.
  */
-const appUrl = (path: string): string => {
-  // `||`, not `??`: an APP_BASE_URL of "" or "/" should fall through to the
-  // bare-path form rather than produce a link to the wrong origin. And that
-  // fallback still has to carry the sub-path, or it lands on whatever owns the
-  // domain root.
-  const base = process.env.APP_BASE_URL?.replace(/\/+$/, "") || BASE_PATH;
-  return `${base}${path}`;
-};
-const artifactUrl = (id: string): string => appUrl(`/artifacts/${id}`);
+/** Exported for tests — the link an agent hands a human, prefix included. */
+export const appUrl = (path: string): string =>
+  // APP_BASE_URL is an origin, so the sub-path has to be added to it — see
+  // withBaseOrigin. An empty or "/" value falls through to the bare BASE_PATH
+  // form rather than producing a link to the wrong origin.
+  `${withBaseOrigin(process.env.APP_BASE_URL, BASE_PATH)}${path}`;
+export const artifactUrl = (id: string): string => appUrl(`/artifacts/${id}`);
 
 // --- Credentials ---
 
