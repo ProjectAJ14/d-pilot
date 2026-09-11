@@ -104,7 +104,9 @@ Both ports are configured in `.env`:
 
 By default D-Pilot assumes it owns the root of whatever domain it is served on
 (`https://d-pilot.internal/`). If a reverse proxy instead mounts it under a
-prefix of a shared domain — `https://intranet.example/d-pilot` — set `BASE_PATH`:
+prefix of a shared domain — `https://intranet.example/d-pilot` — set `BASE_PATH`.
+Read "The prefix is not a security boundary" below before choosing that domain:
+sharing one with another app has consequences a path prefix does not contain.
 
 ```env
 BASE_PATH=/d-pilot
@@ -144,9 +146,32 @@ is required rather than a plain prefix: a regex `location` for static file
 extensions takes priority over a plain prefix location, so without it every
 `/d-pilot/assets/*.js` request is answered by the root app instead.
 
+In local development, `npm run dev` reads `.env` for both halves and needs
+nothing extra. `npm run dev:local` does not: the server half is pinned to
+`.env.dev` while the Vite half reads `.env` *and* `.env.dev`, so a `BASE_PATH`
+set only in `.env` serves the client under the prefix and proxies to a server
+still mounted at the root — every API call 404s. Set it in both files.
+
 What this does **not** cover is a deployment that cannot set `BASE_PATH` at build
 time — a prebuilt artifact, say. There is no runtime switch for it, because the
 prefix is inside the emitted bundle filenames and the service worker's scope.
+
+#### The prefix is not a security boundary
+
+`BASE_PATH` puts D-Pilot on its own *path*, but browser storage is scoped per
+**origin**. D-Pilot keeps the session JWT, the signed-in user and the persisted
+tab workspace — which holds the SQL you have been writing — in `localStorage`,
+so every one of those is readable by any script running anywhere else on the
+same domain, and D-Pilot can read theirs. A cross-site scripting flaw in an
+unrelated app at `/` is therefore a full session takeover of a tool that reaches
+PHI, with no flaw in D-Pilot at all.
+
+Mount D-Pilot under a prefix of a domain whose other occupants you trust as much
+as D-Pilot itself — ideally a dedicated internal hostname, which is what the
+default root deployment gives you for free. This is the same reasoning that keeps
+API responses out of the service worker's Cache Storage: the protection D-Pilot
+applies to a query result is worth nothing once the data is somewhere the browser
+hands to anyone sharing the origin.
 
 ## Configuration
 
@@ -354,7 +379,7 @@ Optional server-side setting:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `MCP_MAX_ROWS` | `1000` | Rows returned per query. Agents are told this default (via `whoami` and the `run_query` schema) and can raise it per call with `limit`; `MAX_ROWS` remains the hard ceiling. |
-| `APP_BASE_URL` | *(unset)* | The origin users browse D-Pilot on, used to build clickable artifact and write-request links in tool output. Unset means agents return a bare `/artifacts/<id>` path. |
+| `APP_BASE_URL` | *(unset)* | The origin users browse D-Pilot on, used to build clickable artifact and write-request links in tool output. Just the origin — `BASE_PATH` is appended for you, and an origin that already spells the prefix out is left as written. Unset means agents return a bare `/artifacts/<id>` path, sub-path included. |
 
 **PHI:** the endpoint never sends the unmask headers, so tokenized columns stay tokenized for
 agents regardless of the account's capabilities. `run_query` names the tokenized columns so an
