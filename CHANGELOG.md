@@ -5,6 +5,18 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.23.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.22.0...v1.23.0) (2026-09-11)
+
+
+### Bug Fixes
+
+* **config:** carry the sub-path into MCP links and reject an all-slash BASE_PATH ([426a6a4](https://github.com/ProjectAJ14/d-pilot/commit/426a6a49fd314272e0d796642f73552a6513f6b8))
+
+
+### Features
+
+* **write-requests:** delete a request, and let MCP update and read drafts ([d834d51](https://github.com/ProjectAJ14/d-pilot/commit/d834d51074d49ca7e7affd8680235373a31404c5))
+
 # [1.22.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.21.4...v1.22.0) (2026-09-11)
 
 
