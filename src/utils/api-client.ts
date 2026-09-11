@@ -8,8 +8,15 @@ import type {
   QueryResult,
   CopyFormat,
 } from "../types";
+import { BASE_PATH } from "./base-path";
 
-const BASE_URL = "/api";
+/**
+ * Every API call goes through here, so this one line is what makes the whole
+ * client work under a sub-path. BASE_PATH is "" at a domain root (leaving the
+ * familiar "/api") and "/d-pilot" behind a prefix proxy — matching where the
+ * Express server mounts itself, so no rewriting happens in between.
+ */
+const BASE_URL = `${BASE_PATH}/api`;
 
 // Error thrown for non-OK API responses. Carries the HTTP status and the
 // server's machine-readable code (e.g. CONNECTION_FAILED) when present.
@@ -80,7 +87,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const api = {
   // Config (public, no auth)
   getConfig: () =>
-    fetch("/api/config").then((r) => r.json()) as Promise<{
+    // Public endpoint, so it skips `request()` and its auth headers — but it
+    // still has to be based like everything else.
+    fetch(`${BASE_URL}/config`).then((r) => r.json()) as Promise<{
       appName: string;
       logoUrl: string | null;
       lightLogoUrl: string | null;

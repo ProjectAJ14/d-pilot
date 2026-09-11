@@ -32,6 +32,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import { DPilotApiClient } from "../services/mcp-client.js";
 import { blocksSchema } from "./artifacts.js";
+import { BASE_PATH } from "../config/base-path.js";
 
 const router = Router();
 
@@ -42,8 +43,14 @@ const router = Router();
  */
 const MCP_MAX_ROWS = parseInt(process.env.MCP_MAX_ROWS || "", 10) || 1000;
 
-/** Tools call this same process back over loopback — nothing to configure. */
-const loopbackUrl = () => `http://127.0.0.1:${process.env.PORT || "3101"}`;
+/**
+ * Tools call this same process back over loopback — nothing to configure. The
+ * base path is included because the server mounts itself under it, so at
+ * BASE_PATH=/d-pilot its own API lives at 127.0.0.1:PORT/d-pilot/api/...
+ * (DPilotApiClient appends "/api" to whatever it is given).
+ */
+const loopbackUrl = () =>
+  `http://127.0.0.1:${process.env.PORT || "3101"}${BASE_PATH}`;
 
 /**
  * The origin humans browse D-Pilot on, used to hand back a clickable artifact
@@ -51,8 +58,12 @@ const loopbackUrl = () => `http://127.0.0.1:${process.env.PORT || "3101"}`;
  * annoying, inventing `localhost:3101` for a teammate on the VPN is worse.
  */
 const appUrl = (path: string): string => {
-  const base = process.env.APP_BASE_URL?.replace(/\/+$/, "");
-  return `${base ?? ""}${path}`;
+  // `||`, not `??`: an APP_BASE_URL of "" or "/" should fall through to the
+  // bare-path form rather than produce a link to the wrong origin. And that
+  // fallback still has to carry the sub-path, or it lands on whatever owns the
+  // domain root.
+  const base = process.env.APP_BASE_URL?.replace(/\/+$/, "") || BASE_PATH;
+  return `${base}${path}`;
 };
 const artifactUrl = (id: string): string => appUrl(`/artifacts/${id}`);
 

@@ -14,6 +14,15 @@ import type { VitePWAOptions } from "vite-plugin-pwa";
  *
  * Offline queueing of writes is deliberately absent for the same reason: it
  * would reorder the governed write workflow's audit trail.
+ *
+ * Takes the app's base URL (Vite's `base`: "/" at a domain root, "/d-pilot/"
+ * under a sub-path) because the navigation fallback is a concrete URL rather
+ * than a pattern — a worker registered under /d-pilot/ that falls back to a
+ * bare "/index.html" would hand every deep link to whatever owns the domain
+ * root. The cache RULES below need no such treatment: they are regexes matched
+ * against the whole URL, and `/\/assets\//` matches `/d-pilot/assets/` as
+ * happily as `/assets/` — including the `/api/` denylist, which is what keeps
+ * the no-PHI-in-the-cache rule true under a sub-path too.
  */
 
 /** Matches every API path, wherever it appears in a URL. */
@@ -21,7 +30,7 @@ const API_ROUTE_PATTERN = /\/api\//;
 
 const YEAR_IN_SECONDS = 60 * 60 * 24 * 365;
 
-export const pwaOptions: Partial<VitePWAOptions> = {
+export const createPwaOptions = (baseUrl: string): Partial<VitePWAOptions> => ({
   // "prompt", not "autoUpdate": an unattended reload would discard the editor
   // tabs and any in-flight query, so the user is asked instead. The prompt
   // lives in `src/components/layout/pwa-prompts.tsx`.
@@ -56,7 +65,7 @@ export const pwaOptions: Partial<VitePWAOptions> = {
 
     // Client-side routing: unknown paths are served the shell, exactly as the
     // Express catch-all does in production.
-    navigateFallback: "/index.html",
+    navigateFallback: `${baseUrl}index.html`,
 
     // ...except API paths. A direct hit on an export or MCP URL must reach the
     // server, never be answered with the SPA shell.
@@ -109,4 +118,4 @@ export const pwaOptions: Partial<VitePWAOptions> = {
   // A service worker in `npm run dev` caches stale modules and makes HMR lie.
   // Verify the PWA against a production build (`npm run build && npm start`).
   devOptions: { enabled: false },
-};
+});

@@ -1,0 +1,61 @@
+/**
+ * The sub-path D-Pilot is served under.
+ *
+ * D-Pilot normally owns a domain root (`https://d-pilot.internal/`), but it can
+ * also be mounted under a prefix of a shared domain
+ * (`https://intranet.example/d-pilot`) behind a reverse proxy. When it is, every
+ * root-absolute URL the app emits — the JS bundle, the API calls, the router's
+ * routes, the PWA manifest — has to carry that prefix, or it lands on whatever
+ * else owns that domain's root instead. This module is where the prefix is
+ * decided, once, from the `BASE_PATH` environment variable.
+ *
+ * There are deliberately two spellings of the same value, because the consumers
+ * disagree about the trailing slash:
+ *
+ *   - `BASE_PATH`  — no trailing slash, EMPTY at the root: "" or "/d-pilot".
+ *                    Concatenate onto a path: `${BASE_PATH}/api/health`.
+ *                    Express mount points and string building want this.
+ *   - `BASE_URL`   — always a trailing slash: "/" or "/d-pilot/".
+ *                    Vite's `base`, `import.meta.env.BASE_URL` and the web
+ *                    manifest's `scope`/`start_url` are all defined this way.
+ *
+ * Setting `BASE_PATH` is a BUILD-time decision for the client and a RUN-time one
+ * for the server, because Vite bakes `base` into the emitted asset URLs. Both
+ * must agree, which is why `npm run build` and `npm start` read the same
+ * variable from the same `.env`. Changing it means rebuilding, not just
+ * restarting — see README, "Serving under a sub-path".
+ */
+
+/**
+ * Accepts anything an operator is likely to type — "d-pilot", "/d-pilot",
+ * "/d-pilot/", " /d-pilot " — and returns the canonical no-trailing-slash form.
+ * Unset, empty and "/" all mean "served at the domain root" and return "".
+ */
+export function normalizeBasePath(raw: string | undefined | null): string {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed || trimmed === "/") return "";
+  return "/" + trimmed.replace(/^\/+/, "").replace(/\/+$/, "");
+}
+
+/** The trailing-slash spelling. "" -> "/", "/d-pilot" -> "/d-pilot/". */
+export function toBaseUrl(basePath: string): string {
+  return `${basePath}/`;
+}
+
+/**
+ * Prefix a root-absolute path with the base. Leaves absolute URLs
+ * ("https://…", "//cdn…") and relative paths alone, so operator-supplied
+ * branding values (`LOGO_URL`, `FAVICON_URL`) work whether they point at a file
+ * in `public/` or at somebody else's CDN.
+ */
+export function withBase(basePath: string, url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (!url.startsWith("/") || url.startsWith("//")) return url;
+  return `${basePath}${url}`;
+}
+
+/** Canonical base path for this process, e.g. "" or "/d-pilot". */
+export const BASE_PATH = normalizeBasePath(process.env.BASE_PATH);
+
+/** Canonical base URL for this process, e.g. "/" or "/d-pilot/". */
+export const BASE_URL = toBaseUrl(BASE_PATH);

@@ -1,6 +1,14 @@
 import { notifications } from "@mantine/notifications";
 import { copyToClipboard } from "./clipboard";
 import type { Artifact, SavedQuery } from "../types";
+import { BASE_PATH } from "./base-path";
+
+/**
+ * Share links are absolute so they survive being pasted into chat or a ticket,
+ * which means building them from the origin — and the origin alone drops the
+ * sub-path. `origin + BASE_PATH` is the app's real root in both deployments.
+ */
+const APP_ORIGIN = () => `${window.location.origin}${BASE_PATH}`;
 
 /**
  * Copy a saved query's share link (`/saved-queries/:id`) to the clipboard,
@@ -8,7 +16,7 @@ import type { Artifact, SavedQuery } from "../types";
  */
 export function copySavedQueryShareLink(query: SavedQuery) {
   copyToClipboard(
-    `${window.location.origin}/saved-queries/${query.id}`,
+    `${APP_ORIGIN()}/saved-queries/${query.id}`,
     "share link",
   );
   if (!query.isShared) {
@@ -26,7 +34,7 @@ export function copySavedQueryShareLink(query: SavedQuery) {
  */
 export function copyArtifactShareLink(artifact: Artifact) {
   copyToClipboard(
-    `${window.location.origin}/artifacts/${artifact.id}`,
+    `${APP_ORIGIN()}/artifacts/${artifact.id}`,
     "share link",
   );
   if (!artifact.isShared) {

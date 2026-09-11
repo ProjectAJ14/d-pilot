@@ -44,6 +44,13 @@ queries**, **UI** (`sidebarOpen`, `phiPanelOpen`, `aiAssistantOpen`), **write ha
 
 Unknown paths redirect to `/`.
 
+Routes are written as if the app owned the domain root; `<BrowserRouter basename>` is set
+from `utils/base-path.ts` so a sub-path deployment (`BASE_PATH=/d-pilot`) works without
+touching any of them. React Router strips the basename from `useLocation().pathname` and
+adds it back on navigation, which is why `top-bar.tsx` can still compare against `"/"`.
+A URL built by hand from `window.location.origin` does **not** get that treatment — see
+`utils/share-links.ts`.
+
 ## Components (`components/`)
 
 - **`auth/`** — `login-screen.tsx`.
@@ -77,7 +84,14 @@ writing to the tab in the store.
 
 - **`api-client.ts`** — fetch wrapper. Injects `Authorization: Bearer` and PHI headers
   (`X-PHI-Shield`, `X-PHI-Unmask-Reason`, `X-PHI-Unmask-Notes`). Auto-logout on 401 (calls
-  store `logout`).
+  store `logout`). Its base is `${BASE_PATH}/api`, so every call is sub-path-correct —
+  **add new endpoints here rather than calling `fetch("/api/...")` directly**, which is the
+  one thing that silently breaks a sub-path deployment.
+- **`base-path.ts`** — `BASE_URL` (trailing slash) and `BASE_PATH` (none, empty at root),
+  read from Vite's `import.meta.env.BASE_URL`, which `vite.config.ts` sets from the
+  `BASE_PATH` env var at build time. Needed only for URLs assembled at runtime: the API
+  base, the router basename, share links. Anything Vite can see at build time — an
+  `import`, an asset URL, `src`/`href` in `index.html` — it rewrites for you.
 - **`tab-persistence.ts`** — localStorage save (500 ms debounce) + restore of tabs, active
   connection, and sidebar state. Results are **not** persisted.
 - **`datetime.ts`** — ISO → local-time formatting for grid cells/tooltips.

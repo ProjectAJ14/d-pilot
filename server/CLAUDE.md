@@ -5,6 +5,24 @@ Express/TypeScript API. Entry `server/index.ts` builds the app, mounts routes un
 Read the root `CLAUDE.md` first for the cross-cutting rules (capability model, PROD
 safety rails, in-app config).
 
+## Mount point (`config/base-path.ts`)
+
+Everything — API, `/manifest.webmanifest`, the static client — hangs off one
+`express.Router()` that `index.ts` mounts at `BASE_PATH`. That is `""` (i.e. `/`) unless
+the `BASE_PATH` env var says otherwise, so at a domain root this is the app it has always
+been. Set `BASE_PATH=/d-pilot` and the server answers on `/d-pilot/api/...` itself.
+
+The server mounting itself, rather than a proxy stripping the prefix, is deliberate: the
+reverse proxy stays a plain `proxy_pass` with no rewriting, so exactly one place knows the
+prefix. Redirects and cookie paths emitted here are then already correct.
+
+**`BASE_PATH` must match what the client was built with** — Vite bakes it into the asset
+URLs (`vite.config.ts` reads the same variable). Changing it needs a rebuild, not a
+restart. When you add anything that emits a root-absolute URL — a redirect, a manifest
+field, a link in an email — run it through `withBase()` or prefix it with `BASE_PATH`.
+`routes/mcp.ts` is the worked example: its loopback base and its artifact-link fallback
+both carry it.
+
 ## Middleware chain
 
 `cors` → `express.json` → **public** routes (`/api/health`, `/api/config`,

@@ -100,6 +100,54 @@ Both ports are configured in `.env`:
 | `PORT` | Server port (also used as proxy target in dev) | `3101` |
 | `VITE_PORT` | Dev client port | `3100` |
 
+### Serving under a sub-path
+
+By default D-Pilot assumes it owns the root of whatever domain it is served on
+(`https://d-pilot.internal/`). If a reverse proxy instead mounts it under a
+prefix of a shared domain — `https://intranet.example/d-pilot` — set `BASE_PATH`:
+
+```env
+BASE_PATH=/d-pilot
+```
+
+Then build and start with that variable set:
+
+```bash
+BASE_PATH=/d-pilot npm run build   # bakes the prefix into the asset URLs
+BASE_PATH=/d-pilot npm start       # mounts Express at the same prefix
+```
+
+Both steps matter, and they have to agree. Vite writes the prefix into every
+`<script>`, stylesheet and icon URL at build time; Express reads it at startup
+and mounts its API, its manifest and the built client there. Putting it in `.env`
+is the reliable way to keep them in step — `deploy.sh` builds and restarts in one
+go, and both halves read the same file. **Changing `BASE_PATH` requires a
+rebuild, not just a restart**; a restart alone leaves a client full of URLs
+pointing at the old prefix.
+
+Because the server mounts *itself* under the prefix, the proxy is a plain pass-
+through with no path rewriting:
+
+```nginx
+location ^~ /d-pilot/ {
+    proxy_pass http://10.0.0.5:3101;   # no trailing slash: pass the path through as-is
+    proxy_set_header Host              $host;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+Two things are easy to get wrong here. A **trailing slash** on `proxy_pass`
+strips the prefix before it reaches D-Pilot, which now expects to see it — leave
+it off. And if the same server block also serves another app at the root, `^~`
+is required rather than a plain prefix: a regex `location` for static file
+extensions takes priority over a plain prefix location, so without it every
+`/d-pilot/assets/*.js` request is answered by the root app instead.
+
+What this does **not** cover is a deployment that cannot set `BASE_PATH` at build
+time — a prebuilt artifact, say. There is no runtime switch for it, because the
+prefix is inside the emitted bundle filenames and the service worker's scope.
+
 ## Configuration
 
 Copy `.env.example` to `.env` and set the following:

@@ -34,8 +34,15 @@
     <title>D-Pilot — Internal Query Tool</title>
 
     <!-- PWA. The manifest is rendered by Express from APP_NAME so an installed
-         app carries the deployment's own name; see server/index.ts. -->
-    <link rel="manifest" href="/manifest.webmanifest" />
+         app carries the deployment's own name; see server/index.ts.
+
+         %BASE_URL% rather than a bare "/": Vite rewrites the icon hrefs below
+         automatically because those files exist in public/, but it leaves this
+         one untouched — there is no manifest.webmanifest on disk to resolve, so
+         it stays whatever is written here. Under a sub-path that meant asking
+         the domain root for the manifest and installing another app's
+         metadata. Vite substitutes the placeholder with `base` at build time. -->
+    <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
     <meta
       name="theme-color"
       media="(prefers-color-scheme: light)"
