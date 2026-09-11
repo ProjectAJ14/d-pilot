@@ -20,22 +20,22 @@ density, and calm. Not: whitespace, gradients, animation.
 Every color resolves through a token in `global.css`, defined in **both** schemes.
 A hex, or an `rgba()` of a brand color, inside a component is a bug.
 
-| Token | Means |
-|---|---|
-| `--bg` | app canvas |
-| `--surface` | raised panel / card / row |
-| `--surface2` `--surface3` | recessed strip, sunken well |
-| `--border` | decorative hairline, panel edge |
-| `--border2` | boundary of a **control** (input, select, scrollbar) |
-| `--text` `--muted2` `--muted` | primary / secondary / tertiary text |
-| `--accent` | brand teal, for **shapes and icons** |
-| `--accent-text` | brand teal for **words** — see §2 |
-| `--token` | **PHI tokenization only** |
-| `--success` `--error` `--warning` | state |
-| `--type-special` | value-type accent (booleans, dates) in grid/JSON |
-| `--hover` `--active` | translucent interaction overlays |
-| `--shadow-1` `--shadow-2` | elevation |
-| `--selected` `--focus-ring` | selection fill, focus outline |
+| Token                             | Means                                                |
+| --------------------------------- | ---------------------------------------------------- |
+| `--bg`                            | app canvas                                           |
+| `--surface`                       | raised panel / card / row                            |
+| `--surface2` `--surface3`         | recessed strip, sunken well                          |
+| `--border`                        | decorative hairline, panel edge                      |
+| `--border2`                       | boundary of a **control** (input, select, scrollbar) |
+| `--text` `--muted2` `--muted`     | primary / secondary / tertiary text                  |
+| `--accent`                        | brand teal, for **shapes and icons**                 |
+| `--accent-text`                   | brand teal for **words** — see §2                    |
+| `--token`                         | **PHI tokenization only**                            |
+| `--success` `--error` `--warning` | state                                                |
+| `--type-special`                  | value-type accent (booleans, dates) in grid/JSON     |
+| `--hover` `--active`              | translucent interaction overlays                     |
+| `--shadow-1` `--shadow-2`         | elevation                                            |
+| `--selected` `--focus-ring`       | selection fill, focus outline                        |
 
 Mantine props take them directly: `c="var(--muted2)"`, `bg="var(--surface)"`.
 
@@ -43,7 +43,7 @@ For a **tint** of a token, use `color-mix`, never a frozen `rgba()` — an rgba
 literal cannot follow the color scheme:
 
 ```jsx
-background: "color-mix(in srgb, var(--accent) 12%, transparent)"
+background: "color-mix(in srgb, var(--accent) 12%, transparent)";
 ```
 
 **A Mantine palette index is just as frozen as a hex.** `c="secondary.9"` is the
@@ -61,6 +61,7 @@ c="primary"      ->  c="var(--accent-text)"   // unshaded resolves per shade too
 `--mantine-color-dimmed` to `--muted`; see §3.
 
 **Reserved meanings — do not reuse decoratively:**
+
 - **Teal** = PHI/tokenized data. A teal thing on screen must mean "this is masked".
 - **Red** = production, destructive, or unmasked-PHI danger. Never "primary button".
 - **Env colors** come from `envColor()` in `src/utils/environments.ts`. Never invent
@@ -71,7 +72,7 @@ c="primary"      ->  c="var(--accent-text)"   // unshaded resolves per shade too
 Token values were solved numerically against every surface, in both schemes, and
 the whole palette currently passes. Keep it that way.
 
-- **Text: ≥ 4.5:1** against `--bg`, `--surface` *and* `--surface2`.
+- **Text: ≥ 4.5:1** against `--bg`, `--surface` _and_ `--surface2`.
 - **Non-text (icons, control borders, focus ring): ≥ 3:1**.
 
 This is why `--accent` and `--accent-text` are two tokens. The brand teal clears
@@ -115,6 +116,7 @@ injects at **runtime**, so merely matching its specificity loses to source
 order.
 
 Rules:
+
 - A color defined in only one scheme is a bug — define both.
 - **Dark mode is not "invert"**. Shadows barely read on dark; separate surfaces
   with a lighter background plus a border, not `box-shadow`.
@@ -126,7 +128,7 @@ Rules:
   - **Monaco** — `d-pilot-light` / `d-pilot-dark` in `monaco-setup.ts`; every
     `<Editor>` passes `theme={editorTheme}` from `useEditorTheme()`.
   - **react-obj-view** — its `--bigobjview-*` vars in `results-json-view.tsx`.
-  Each duplicates token values as literals. **Change a token, change the mirrors.**
+    Each duplicates token values as literals. **Change a token, change the mirrors.**
 
 ## 4. Interaction states are not optional
 

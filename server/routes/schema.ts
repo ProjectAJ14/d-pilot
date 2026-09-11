@@ -15,7 +15,8 @@ const router = Router();
 function sendSchemaError(res: Response, err: any, fallback: string): void {
   if (isConnectionError(err)) {
     res.status(503).json({
-      error: "Unable to connect to the database. Check your network connection.",
+      error:
+        "Unable to connect to the database. Check your network connection.",
       code: "CONNECTION_FAILED",
     });
     return;
@@ -76,21 +77,28 @@ router.get("/:connectionId/tables", async (req: Request, res: Response) => {
   }
 });
 
-router.get("/:connectionId/tables/:tableName/columns", async (req: Request, res: Response) => {
-  const conn = resolveReadableConnection(
-    req,
-    res,
-    req.params.connectionId as string,
-  );
-  if (!conn) return;
+router.get(
+  "/:connectionId/tables/:tableName/columns",
+  async (req: Request, res: Response) => {
+    const conn = resolveReadableConnection(
+      req,
+      res,
+      req.params.connectionId as string,
+    );
+    if (!conn) return;
 
-  try {
-    const schema = (req.query.schema as string) || undefined;
-    const columns = await getColumns(conn, req.params.tableName as string, schema);
-    res.json(columns);
-  } catch (err: any) {
-    sendSchemaError(res, err, "Failed to fetch columns");
-  }
-});
+    try {
+      const schema = (req.query.schema as string) || undefined;
+      const columns = await getColumns(
+        conn,
+        req.params.tableName as string,
+        schema,
+      );
+      res.json(columns);
+    } catch (err: any) {
+      sendSchemaError(res, err, "Failed to fetch columns");
+    }
+  },
+);
 
 export default router;

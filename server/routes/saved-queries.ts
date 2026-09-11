@@ -48,7 +48,11 @@ router.post("/", (req: Request, res: Response) => {
 });
 
 router.put("/:id", (req: Request, res: Response) => {
-  const updated = updateSavedQuery(req.params.id as string, req.user!.sub, req.body);
+  const updated = updateSavedQuery(
+    req.params.id as string,
+    req.user!.sub,
+    req.body,
+  );
   if (!updated) {
     res.status(404).json({ error: "Query not found or not owned by you" });
     return;

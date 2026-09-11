@@ -31,15 +31,28 @@ export function GridCellTooltip(props: { value?: unknown }) {
     };
     return (
       <div style={card}>
-        <div style={{ display: "flex", alignItems: "center", gap: 5, color: "var(--accent)" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            color: "var(--accent)",
+          }}
+        >
           <IconClock size={13} />
           <span style={label}>{parts.naive ? "Local time" : "Your time"}</span>
         </div>
-        <div style={{ fontSize: 14, fontWeight: 600, marginTop: 3 }}>{parts.local}</div>
+        <div style={{ fontSize: 14, fontWeight: 600, marginTop: 3 }}>
+          {parts.local}
+        </div>
 
-        <div style={{ height: 1, background: "var(--border)", margin: "9px 0" }} />
+        <div
+          style={{ height: 1, background: "var(--border)", margin: "9px 0" }}
+        />
 
-        <div style={{ ...label, color: "var(--muted)" }}>{parts.sourceLabel}</div>
+        <div style={{ ...label, color: "var(--muted)" }}>
+          {parts.sourceLabel}
+        </div>
         <div
           style={{
             fontFamily: "IBM Plex Mono, monospace",
@@ -52,7 +65,14 @@ export function GridCellTooltip(props: { value?: unknown }) {
           {parts.source}
         </div>
         {parts.naive && (
-          <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 5, fontStyle: "italic" }}>
+          <div
+            style={{
+              fontSize: 10.5,
+              color: "var(--muted)",
+              marginTop: 5,
+              fontStyle: "italic",
+            }}
+          >
             No time zone in source — shown as local.
           </div>
         )}

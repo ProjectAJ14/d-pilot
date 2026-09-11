@@ -14,7 +14,9 @@ import { execSync } from "node:child_process";
 
 const sh = (cmd) => {
   try {
-    return execSync(cmd, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    return execSync(cmd, { stdio: ["ignore", "pipe", "ignore"] })
+      .toString()
+      .trim();
   } catch {
     return ""; // lsof/ps exit non-zero when there's no match — treat as empty
   }
@@ -39,7 +41,9 @@ for (const port of ports) {
     const target = useGroup ? -Number(pgid) : Number(pid);
     try {
       process.kill(target, "SIGTERM");
-      console.log(`✓ Freed port ${port} — stopped ${useGroup ? `process group ${pgid}` : `pid ${pid}`}`);
+      console.log(
+        `✓ Freed port ${port} — stopped ${useGroup ? `process group ${pgid}` : `pid ${pid}`}`,
+      );
       signaledSomething = true;
     } catch {
       // already gone
@@ -54,7 +58,9 @@ if (signaledSomething) {
     for (const pid of listenersOn(port)) {
       try {
         process.kill(Number(pid), "SIGKILL");
-        console.log(`✓ Force-killed lingering pid ${pid} still on port ${port}`);
+        console.log(
+          `✓ Force-killed lingering pid ${pid} still on port ${port}`,
+        );
       } catch {
         // gone
       }

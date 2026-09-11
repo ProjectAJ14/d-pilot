@@ -140,7 +140,11 @@ function findTableColumns(
 }
 
 function columnDetail(owner: string, col: ColumnInfo): string {
-  const fk = col.references ? ` FK → ${col.references}` : col.isForeignKey ? " FK" : "";
+  const fk = col.references
+    ? ` FK → ${col.references}`
+    : col.isForeignKey
+      ? " FK"
+      : "";
   return `${owner} · ${col.dataType}${col.isPrimaryKey ? " PK" : ""}${fk}${
     col.isPhiField ? " 🔐 PHI" : ""
   }`;
@@ -210,7 +214,9 @@ export function buildSqlSuggestions(opts: {
   const { monaco, ctx, schema, dialect, range } = opts;
   const suggestions: languages.CompletionItem[] = [];
   const keywords =
-    dialect === "mssql" ? [...SQL_KEYWORDS, ...MSSQL_EXTRA_KEYWORDS] : SQL_KEYWORDS;
+    dialect === "mssql"
+      ? [...SQL_KEYWORDS, ...MSSQL_EXTRA_KEYWORDS]
+      : SQL_KEYWORDS;
 
   // --- Dot-qualified: `alias.` / `table.` → only that table's columns ---
   if (ctx.qualifier) {
@@ -224,7 +230,15 @@ export function buildSqlSuggestions(opts: {
     const found = findTableColumns(schema, targetTable);
     if (!found) return suggestions;
     for (const col of found.cols) {
-      pushColumnItem(monaco, suggestions, col, found.name, col.name, range, "0_");
+      pushColumnItem(
+        monaco,
+        suggestions,
+        col,
+        found.name,
+        col.name,
+        range,
+        "0_",
+      );
     }
     return suggestions;
   }
@@ -239,8 +253,10 @@ export function buildSqlSuggestions(opts: {
   };
   const ownerOf = (s: { ref: TableRef; tableName: string }) =>
     s.ref.alias || s.tableName;
-  const insertFor = (s: { ref: TableRef; tableName: string }, col: ColumnInfo) =>
-    qualifyInserts ? `${quoteIdent(ownerOf(s))}.${col.name}` : col.name;
+  const insertFor = (
+    s: { ref: TableRef; tableName: string },
+    col: ColumnInfo,
+  ) => (qualifyInserts ? `${quoteIdent(ownerOf(s))}.${col.name}` : col.name);
 
   switch (ctx.clause) {
     // --- Table position: FROM / JOIN / UPDATE ---
@@ -324,7 +340,15 @@ export function buildSqlSuggestions(opts: {
       if (!cols) continue;
       for (const col of cols) {
         if (emitted >= MAX_UNSCOPED_COLUMN_ITEMS) return suggestions;
-        pushColumnItem(monaco, suggestions, col, table.name, col.name, range, "2_");
+        pushColumnItem(
+          monaco,
+          suggestions,
+          col,
+          table.name,
+          col.name,
+          range,
+          "2_",
+        );
         emitted++;
       }
     }

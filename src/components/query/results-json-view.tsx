@@ -1,7 +1,16 @@
 import { useCallback, useRef, useState, useEffect } from "react";
 import { ActionIcon, Tooltip, Text } from "@mantine/core";
-import { IconSearch, IconArrowsMaximize, IconArrowsMinimize } from "@tabler/icons-react";
-import { ObjectView, SearchComponent, extendTheme, themeGitHubLight } from "react-obj-view";
+import {
+  IconSearch,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
+} from "@tabler/icons-react";
+import {
+  ObjectView,
+  SearchComponent,
+  extendTheme,
+  themeGitHubLight,
+} from "react-obj-view";
 import type { ObjectViewHandle } from "react-obj-view";
 import "react-obj-view/dist/react-obj-view.css";
 

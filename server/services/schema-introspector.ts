@@ -2,7 +2,11 @@ import pg from "pg";
 import mssql from "mssql";
 import { MongoClient } from "mongodb";
 import { Client as EsClient } from "@elastic/elasticsearch";
-import type { ConnectionConfig, TableInfo, ColumnInfo } from "../types/index.js";
+import type {
+  ConnectionConfig,
+  TableInfo,
+  ColumnInfo,
+} from "../types/index.js";
 import { findMatchingRule } from "./phi-masking.js";
 import { scanSql } from "./sql-scan.js";
 
@@ -21,7 +25,7 @@ export function resolveSchema(conn: ConnectionConfig, schema?: string): string {
 
 export async function getTables(
   conn: ConnectionConfig,
-  schema?: string
+  schema?: string,
 ): Promise<TableInfo[]> {
   switch (conn.type) {
     case "postgres":
@@ -40,7 +44,7 @@ export async function getTables(
 export async function getColumns(
   conn: ConnectionConfig,
   tableName: string,
-  schema?: string
+  schema?: string,
 ): Promise<ColumnInfo[]> {
   switch (conn.type) {
     case "postgres":
@@ -63,16 +67,14 @@ export async function getColumns(
  * (the concept doesn't apply the same way).
  */
 export async function getSchemas(
-  conn: ConnectionConfig
+  conn: ConnectionConfig,
 ): Promise<{ schemas: string[]; default: string }> {
   let discovered: string[] = [];
   if (conn.type === "postgres") discovered = await getPostgresSchemas(conn);
   else if (conn.type === "mssql") discovered = await getMssqlSchemas(conn);
   else return { schemas: [], default: "" };
 
-  const allow = conn.schemas?.length
-    ? new Set(conn.schemas)
-    : null;
+  const allow = conn.schemas?.length ? new Set(conn.schemas) : null;
   let schemas = allow ? discovered.filter((s) => allow.has(s)) : discovered;
 
   // Always surface the default schema, even if filtered/undiscovered.
@@ -96,7 +98,7 @@ async function getPostgresSchemas(conn: ConnectionConfig): Promise<string[]> {
     const res = await pool.query(
       `SELECT schema_name FROM information_schema.schemata
        WHERE schema_name NOT LIKE 'pg_%' AND schema_name <> 'information_schema'
-       ORDER BY schema_name`
+       ORDER BY schema_name`,
     );
     return res.rows.map((r) => r.schema_name as string);
   } finally {
@@ -122,7 +124,7 @@ async function getMssqlSchemas(conn: ConnectionConfig): Promise<string[]> {
          'db_accessadmin','db_securityadmin','db_ddladmin','db_backupoperator',
          'db_datareader','db_datawriter','db_denydatareader','db_denydatawriter')
          AND name NOT LIKE 'db_%'
-       ORDER BY name`
+       ORDER BY name`,
     );
     return (res.recordset as any[]).map((r) => r.name as string);
   } finally {
@@ -134,7 +136,7 @@ async function getMssqlSchemas(conn: ConnectionConfig): Promise<string[]> {
 
 async function getPostgresTables(
   conn: ConnectionConfig,
-  schema: string
+  schema: string,
 ): Promise<TableInfo[]> {
   const pool = new pg.Pool({
     host: conn.host,
@@ -152,7 +154,7 @@ async function getPostgresTables(
        FROM information_schema.tables
        WHERE table_schema = $1
        ORDER BY table_name`,
-      [schema]
+      [schema],
     );
 
     return result.rows.map((r) => ({
@@ -166,7 +168,12 @@ async function getPostgresTables(
 }
 
 /** `table.column` for an FK target, schema-qualified only when it crosses schemas. */
-function fkTarget(schema: string, refSchema: string, refTable: string, refColumn: string): string {
+function fkTarget(
+  schema: string,
+  refSchema: string,
+  refTable: string,
+  refColumn: string,
+): string {
   const prefix = refSchema && refSchema !== schema ? `${refSchema}.` : "";
   return `${prefix}${refTable}.${refColumn}`;
 }
@@ -207,14 +214,14 @@ function fkMap(rows: any[], schema: string): Map<string, string> {
     rows.map((r) => [
       `${r.table_name}.${r.column_name}`,
       fkTarget(schema, r.ref_schema, r.ref_table, r.ref_column),
-    ])
+    ]),
   );
 }
 
 async function getPostgresColumns(
   conn: ConnectionConfig,
   tableName: string,
-  schema: string
+  schema: string,
 ): Promise<ColumnInfo[]> {
   const pool = new pg.Pool({
     host: conn.host,
@@ -240,7 +247,7 @@ async function getPostgresColumns(
        ) pk ON c.column_name = pk.column_name
        WHERE c.table_schema = $1 AND c.table_name = $2
        ORDER BY c.ordinal_position`,
-        [schema, tableName]
+        [schema, tableName],
       ),
       pool.query(`${PG_FK_SQL} AND tc.table_name = $2`, [schema, tableName]),
     ]);
@@ -266,7 +273,7 @@ async function getPostgresColumns(
 
 async function getMssqlTables(
   conn: ConnectionConfig,
-  schema: string
+  schema: string,
 ): Promise<TableInfo[]> {
   const pool = new mssql.ConnectionPool({
     server: conn.host || "localhost",
@@ -287,7 +294,7 @@ async function getMssqlTables(
         `SELECT TABLE_NAME, TABLE_TYPE, TABLE_SCHEMA
          FROM INFORMATION_SCHEMA.TABLES
          WHERE TABLE_SCHEMA = @schema
-         ORDER BY TABLE_NAME`
+         ORDER BY TABLE_NAME`,
       );
 
     return result.recordset.map((r: any) => ({
@@ -303,7 +310,7 @@ async function getMssqlTables(
 async function getMssqlColumns(
   conn: ConnectionConfig,
   tableName: string,
-  schema: string
+  schema: string,
 ): Promise<ColumnInfo[]> {
   const pool = new mssql.ConnectionPool({
     server: conn.host || "localhost",
@@ -333,7 +340,7 @@ async function getMssqlColumns(
          WHERE tc.TABLE_NAME = @table AND tc.TABLE_SCHEMA = @schema AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
        ) pk ON c.COLUMN_NAME = pk.COLUMN_NAME
        WHERE c.TABLE_NAME = @table AND c.TABLE_SCHEMA = @schema
-       ORDER BY c.ORDINAL_POSITION`
+       ORDER BY c.ORDINAL_POSITION`,
     );
     const fkRes = await req().query(`${MSSQL_FK_SQL} AND tp.name = @table`);
     const fks = fkMap(fkRes.recordset as any[], schema);
@@ -355,13 +362,18 @@ async function getMssqlColumns(
 
 // --- MongoDB ---
 
-async function getMongoCollections(conn: ConnectionConfig): Promise<TableInfo[]> {
-  const uri = conn.uri || `mongodb://${conn.username}:${conn.password}@${conn.host}:${conn.port || 27017}/${conn.database}`;
+async function getMongoCollections(
+  conn: ConnectionConfig,
+): Promise<TableInfo[]> {
+  const uri =
+    conn.uri ||
+    `mongodb://${conn.username}:${conn.password}@${conn.host}:${conn.port || 27017}/${conn.database}`;
   const client = new MongoClient(uri, { serverSelectionTimeoutMS: 10000 });
 
   try {
     await client.connect();
-    const dbName = conn.database || conn.uri?.split("/").pop()?.split("?")[0] || "test";
+    const dbName =
+      conn.database || conn.uri?.split("/").pop()?.split("?")[0] || "test";
     const db = client.db(dbName);
     const collections = await db.listCollections().toArray();
 
@@ -375,17 +387,27 @@ async function getMongoCollections(conn: ConnectionConfig): Promise<TableInfo[]>
   }
 }
 
-async function getMongoFields(conn: ConnectionConfig, collectionName: string): Promise<ColumnInfo[]> {
-  const uri = conn.uri || `mongodb://${conn.username}:${conn.password}@${conn.host}:${conn.port || 27017}/${conn.database}`;
+async function getMongoFields(
+  conn: ConnectionConfig,
+  collectionName: string,
+): Promise<ColumnInfo[]> {
+  const uri =
+    conn.uri ||
+    `mongodb://${conn.username}:${conn.password}@${conn.host}:${conn.port || 27017}/${conn.database}`;
   const client = new MongoClient(uri, { serverSelectionTimeoutMS: 10000 });
 
   try {
     await client.connect();
-    const dbName = conn.database || conn.uri?.split("/").pop()?.split("?")[0] || "test";
+    const dbName =
+      conn.database || conn.uri?.split("/").pop()?.split("?")[0] || "test";
     const db = client.db(dbName);
 
     // Sample documents to infer fields
-    const sample = await db.collection(collectionName).find({}).limit(100).toArray();
+    const sample = await db
+      .collection(collectionName)
+      .find({})
+      .limit(100)
+      .toArray();
     const fieldMap = new Map<string, string>();
 
     for (const doc of sample) {
@@ -416,7 +438,10 @@ async function getEsIndices(conn: ConnectionConfig): Promise<TableInfo[]> {
   const node = conn.uri || `${protocol}://${conn.host}:${conn.port || 9200}`;
   const client = new EsClient({
     node,
-    auth: conn.username && conn.password ? { username: conn.username, password: conn.password } : undefined,
+    auth:
+      conn.username && conn.password
+        ? { username: conn.username, password: conn.password }
+        : undefined,
     tls: { rejectUnauthorized: false },
     requestTimeout: 10000,
   });
@@ -469,7 +494,7 @@ const MAX_SAMPLED_TABLES = 120;
 
 async function getFullSchema(
   conn: ConnectionConfig,
-  schema: string
+  schema: string,
 ): Promise<FullSchema> {
   if (conn.type === "postgres") return getPostgresFullSchema(conn, schema);
   if (conn.type === "mssql") return getMssqlFullSchema(conn, schema);
@@ -483,7 +508,7 @@ async function getFullSchema(
 export function summarizeTables(
   full: FullSchema,
   tableNames?: string[],
-  maxTables = MAX_TABLES_DEFAULT
+  maxTables = MAX_TABLES_DEFAULT,
 ): SchemaSummary {
   const all = full.tables.map((t) => t.name);
   const typeOf = new Map(full.tables.map((t) => [t.name, t.type]));
@@ -496,7 +521,9 @@ export function summarizeTables(
     names = all.slice(0, maxTables);
   }
 
-  const blocks = names.map((n) => formatTable(n, typeOf.get(n) || "TABLE", full.columns[n] || []));
+  const blocks = names.map((n) =>
+    formatTable(n, typeOf.get(n) || "TABLE", full.columns[n] || []),
+  );
 
   return {
     text: blocks.join("\n\n"),
@@ -516,7 +543,10 @@ export function tableCatalog(full: FullSchema, maxColsPerTable = 40): string {
     .map((t) => {
       const cols = full.columns[t.name] || [];
       const shown = cols.slice(0, maxColsPerTable).map((c) => c.name);
-      const extra = cols.length > shown.length ? `, +${cols.length - shown.length} more` : "";
+      const extra =
+        cols.length > shown.length
+          ? `, +${cols.length - shown.length} more`
+          : "";
       const label = t.type === "VIEW" ? " (view)" : "";
       return `${t.name}${label}: ${shown.join(", ")}${extra}`;
     })
@@ -548,7 +578,9 @@ const schemaInflight = new Map<string, Promise<FullSchema>>();
 
 function getSchemaCacheTtlMs(): number {
   const hours = parseFloat(process.env.SCHEMA_CACHE_TTL_HOURS ?? "24");
-  return Number.isFinite(hours) && hours >= 0 ? hours * 3_600_000 : 24 * 3_600_000;
+  return Number.isFinite(hours) && hours >= 0
+    ? hours * 3_600_000
+    : 24 * 3_600_000;
 }
 
 /**
@@ -557,7 +589,7 @@ function getSchemaCacheTtlMs(): number {
  */
 export async function getCachedFullSchema(
   conn: ConnectionConfig,
-  opts: { forceRefresh?: boolean; schema?: string } = {}
+  opts: { forceRefresh?: boolean; schema?: string } = {},
 ): Promise<CachedFullSchema> {
   const ttlMs = getSchemaCacheTtlMs();
   const ttlHours = ttlMs / 3_600_000;
@@ -569,7 +601,12 @@ export async function getCachedFullSchema(
   if (!opts.forceRefresh && ttlMs > 0) {
     const hit = schemaCache.get(key);
     if (hit && hit.expiresAt > now) {
-      return { schema: hit.schema, cached: true, cachedAt: new Date(hit.cachedAt).toISOString(), ttlHours };
+      return {
+        schema: hit.schema,
+        cached: true,
+        cachedAt: new Date(hit.cachedAt).toISOString(),
+        ttlHours,
+      };
     }
   }
 
@@ -592,7 +629,12 @@ export async function getCachedFullSchema(
 
   const schema = await pending;
   const rec = schemaCache.get(key);
-  return { schema, cached: false, cachedAt: new Date(rec?.cachedAt ?? now).toISOString(), ttlHours };
+  return {
+    schema,
+    cached: false,
+    cachedAt: new Date(rec?.cachedAt ?? now).toISOString(),
+    ttlHours,
+  };
 }
 
 /**
@@ -602,7 +644,7 @@ export async function getCachedFullSchema(
  */
 export function peekCachedFullSchema(
   conn: ConnectionConfig,
-  schema?: string
+  schema?: string,
 ): FullSchema | undefined {
   const key = `${conn.id}:${resolveSchema(conn, schema)}`;
   const hit = schemaCache.get(key);
@@ -626,7 +668,10 @@ function referencedTables(sql: string): string[] {
   for (const m of masked.matchAll(/\b(?:from|join)\s+/gi)) {
     const ident = sql.slice(m.index + m[0].length).match(/^[A-Za-z0-9_."[\]]+/);
     // Keep the bare table name — the cache is already scoped to one schema.
-    const bare = ident?.[0].replace(/["[\]]/g, "").split(".").pop();
+    const bare = ident?.[0]
+      .replace(/["[\]]/g, "")
+      .split(".")
+      .pop();
     if (bare) names.add(bare.toLowerCase());
   }
   return [...names];
@@ -645,7 +690,7 @@ export function fkTargetsForColumns(
   conn: ConnectionConfig,
   sql: string,
   columnNames: string[],
-  schema?: string
+  schema?: string,
 ): Map<string, string> {
   const full = peekCachedFullSchema(conn, schema);
   return full ? matchFkTargets(full, sql, columnNames) : new Map();
@@ -655,18 +700,18 @@ export function fkTargetsForColumns(
 export function matchFkTargets(
   full: FullSchema,
   sql: string,
-  columnNames: string[]
+  columnNames: string[],
 ): Map<string, string> {
   const tables = new Set(referencedTables(sql));
   const byTable = Object.entries(full.columns).filter(([name]) =>
-    tables.has(name.toLowerCase())
+    tables.has(name.toLowerCase()),
   );
   if (!byTable.length) return new Map();
 
   const out = new Map<string, string>();
   for (const wanted of columnNames) {
     const matches = byTable.flatMap(([, cols]) =>
-      cols.filter((c) => c.name.toLowerCase() === wanted.toLowerCase())
+      cols.filter((c) => c.name.toLowerCase() === wanted.toLowerCase()),
     );
     const targets = new Set(matches.map((c) => c.references ?? ""));
     // One column, one agreed target, no plain-column namesake to confuse it.
@@ -696,16 +741,13 @@ export function clearSchemaCache(connectionId?: string): { cleared: number } {
   return { cleared };
 }
 
-function formatTable(
-  name: string,
-  type: string,
-  cols: ColumnInfo[]
-): string {
+function formatTable(name: string, type: string, cols: ColumnInfo[]): string {
   const shown = cols.slice(0, MAX_COLS_PER_TABLE);
   const lines = shown.map((c) => {
     const flags: string[] = [];
     if (c.isPrimaryKey) flags.push("PK");
-    if (c.isForeignKey) flags.push(c.references ? `FK -> ${c.references}` : "FK");
+    if (c.isForeignKey)
+      flags.push(c.references ? `FK -> ${c.references}` : "FK");
     if (!c.nullable) flags.push("NOT NULL");
     if (c.isPhiField) flags.push("PHI");
     const suffix = flags.length ? ` [${flags.join(", ")}]` : "";
@@ -720,7 +762,7 @@ function formatTable(
 
 async function getPostgresFullSchema(
   conn: ConnectionConfig,
-  schema: string
+  schema: string,
 ): Promise<FullSchema> {
   const pool = new pg.Pool({
     host: conn.host,
@@ -737,25 +779,27 @@ async function getPostgresFullSchema(
       pool.query(
         `SELECT table_name, table_type FROM information_schema.tables
          WHERE table_schema = $1 ORDER BY table_name`,
-        [schema]
+        [schema],
       ),
       pool.query(
         `SELECT table_name, column_name, data_type, is_nullable, ordinal_position
          FROM information_schema.columns WHERE table_schema = $1
          ORDER BY table_name, ordinal_position`,
-        [schema]
+        [schema],
       ),
       pool.query(
         `SELECT tc.table_name, ku.column_name
          FROM information_schema.table_constraints tc
          JOIN information_schema.key_column_usage ku ON tc.constraint_name = ku.constraint_name
          WHERE tc.table_schema = $1 AND tc.constraint_type = 'PRIMARY KEY'`,
-        [schema]
+        [schema],
       ),
       pool.query(PG_FK_SQL, [schema]),
     ]);
 
-    const pkSet = new Set(pkRes.rows.map((r) => `${r.table_name}.${r.column_name}`));
+    const pkSet = new Set(
+      pkRes.rows.map((r) => `${r.table_name}.${r.column_name}`),
+    );
     const fks = fkMap(fkRes.rows, schema);
 
     const columns: Record<string, ColumnInfo[]> = {};
@@ -767,7 +811,11 @@ async function getPostgresFullSchema(
         isPrimaryKey: pkSet.has(`${r.table_name}.${r.column_name}`),
         isForeignKey: fks.has(`${r.table_name}.${r.column_name}`),
         references: fks.get(`${r.table_name}.${r.column_name}`),
-        isPhiField: !!findMatchingRule(r.column_name, conn.database, r.table_name),
+        isPhiField: !!findMatchingRule(
+          r.column_name,
+          conn.database,
+          r.table_name,
+        ),
       });
     }
 
@@ -783,7 +831,7 @@ async function getPostgresFullSchema(
 
 async function getMssqlFullSchema(
   conn: ConnectionConfig,
-  schema: string
+  schema: string,
 ): Promise<FullSchema> {
   const pool = new mssql.ConnectionPool({
     server: conn.host || "localhost",
@@ -800,22 +848,24 @@ async function getMssqlFullSchema(
     const req = () => pool.request().input("schema", mssql.VarChar, schema);
     const tablesRes = await req().query(
       `SELECT TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES
-       WHERE TABLE_SCHEMA = @schema ORDER BY TABLE_NAME`
+       WHERE TABLE_SCHEMA = @schema ORDER BY TABLE_NAME`,
     );
     const colsRes = await req().query(
       `SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE, ORDINAL_POSITION
        FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = @schema
-       ORDER BY TABLE_NAME, ORDINAL_POSITION`
+       ORDER BY TABLE_NAME, ORDINAL_POSITION`,
     );
     const pkRes = await req().query(
       `SELECT tc.TABLE_NAME, ku.COLUMN_NAME
        FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
        JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
-       WHERE tc.TABLE_SCHEMA = @schema AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'`
+       WHERE tc.TABLE_SCHEMA = @schema AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'`,
     );
     const fkRes = await req().query(MSSQL_FK_SQL);
 
-    const pkSet = new Set(pkRes.recordset.map((r: any) => `${r.TABLE_NAME}.${r.COLUMN_NAME}`));
+    const pkSet = new Set(
+      pkRes.recordset.map((r: any) => `${r.TABLE_NAME}.${r.COLUMN_NAME}`),
+    );
     const fks = fkMap(fkRes.recordset as any[], schema);
 
     const columns: Record<string, ColumnInfo[]> = {};
@@ -827,7 +877,11 @@ async function getMssqlFullSchema(
         isPrimaryKey: pkSet.has(`${r.TABLE_NAME}.${r.COLUMN_NAME}`),
         isForeignKey: fks.has(`${r.TABLE_NAME}.${r.COLUMN_NAME}`),
         references: fks.get(`${r.TABLE_NAME}.${r.COLUMN_NAME}`),
-        isPhiField: !!findMatchingRule(r.COLUMN_NAME, conn.database, r.TABLE_NAME),
+        isPhiField: !!findMatchingRule(
+          r.COLUMN_NAME,
+          conn.database,
+          r.TABLE_NAME,
+        ),
       });
     }
 
@@ -842,7 +896,9 @@ async function getMssqlFullSchema(
 }
 
 /** Fallback for Mongo/Elasticsearch: sample fields per collection/index. */
-async function getSampledFullSchema(conn: ConnectionConfig): Promise<FullSchema> {
+async function getSampledFullSchema(
+  conn: ConnectionConfig,
+): Promise<FullSchema> {
   const tableInfos = await getTables(conn);
   // Each getColumns opens its own client; bound the fan-out for huge schemas.
   const toIntrospect = tableInfos.slice(0, MAX_SAMPLED_TABLES);
@@ -855,19 +911,25 @@ async function getSampledFullSchema(conn: ConnectionConfig): Promise<FullSchema>
       } catch {
         columns[t.name] = [];
       }
-    })
+    }),
   );
 
   const tables = tableInfos.map((t) => ({ name: t.name, type: t.type }));
   return { tables, columns };
 }
 
-async function getEsFields(conn: ConnectionConfig, indexName: string): Promise<ColumnInfo[]> {
+async function getEsFields(
+  conn: ConnectionConfig,
+  indexName: string,
+): Promise<ColumnInfo[]> {
   const protocol = conn.schema || "http";
   const node = conn.uri || `${protocol}://${conn.host}:${conn.port || 9200}`;
   const client = new EsClient({
     node,
-    auth: conn.username && conn.password ? { username: conn.username, password: conn.password } : undefined,
+    auth:
+      conn.username && conn.password
+        ? { username: conn.username, password: conn.password }
+        : undefined,
     tls: { rejectUnauthorized: false },
     requestTimeout: 10000,
   });

@@ -1,4 +1,9 @@
-import { SegmentedControl, Tooltip, Center, useMantineColorScheme } from "@mantine/core";
+import {
+  SegmentedControl,
+  Tooltip,
+  Center,
+  useMantineColorScheme,
+} from "@mantine/core";
 import { IconSun, IconMoon, IconDeviceDesktop } from "@tabler/icons-react";
 
 /**
@@ -14,7 +19,11 @@ import { IconSun, IconMoon, IconDeviceDesktop } from "@tabler/icons-react";
  * people do by eye, and a control you have to open a dropdown to find gets used
  * once and forgotten.
  */
-export function ColorSchemeToggle({ fullWidth = false }: { fullWidth?: boolean }) {
+export function ColorSchemeToggle({
+  fullWidth = false,
+}: {
+  fullWidth?: boolean;
+}) {
   const { colorScheme, setColorScheme } = useMantineColorScheme();
 
   const option = (
@@ -40,7 +49,10 @@ export function ColorSchemeToggle({ fullWidth = false }: { fullWidth?: boolean }
       value={colorScheme}
       onChange={(value) => setColorScheme(value as "light" | "dark" | "auto")}
       styles={{
-        root: { background: "var(--surface2)", border: "1px solid var(--border)" },
+        root: {
+          background: "var(--surface2)",
+          border: "1px solid var(--border)",
+        },
         // The thumb is the only opaque surface in the control, so it has to be
         // --surface (not Mantine's default white) to read in both schemes.
         indicator: { background: "var(--surface)" },

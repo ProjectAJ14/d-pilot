@@ -9,7 +9,10 @@ import { createPwaOptions } from "./vite.pwa.config";
 import { normalizeBasePath, toBaseUrl } from "./server/config/base-path";
 
 const pkg = JSON.parse(
-  readFileSync(fileURLToPath(new URL("./package.json", import.meta.url)), "utf8"),
+  readFileSync(
+    fileURLToPath(new URL("./package.json", import.meta.url)),
+    "utf8",
+  ),
 );
 
 export default defineConfig(({ mode }) => {

@@ -76,8 +76,7 @@ export function WriteWorkspace() {
             border: "1px solid var(--border)",
             borderRadius: 16,
             padding: 26,
-            boxShadow:
-              "var(--shadow-2)",
+            boxShadow: "var(--shadow-2)",
           }}
         >
           <WriteComposer

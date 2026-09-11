@@ -185,7 +185,10 @@ export function extractCurrentStatement(
       // first newline is consumed; the blank line becomes leading
       // whitespace of the next segment (harmless — the tokenizer skips it).
       let j = i + 1;
-      while (j < n && (fullText[j] === " " || fullText[j] === "\t" || fullText[j] === "\r")) {
+      while (
+        j < n &&
+        (fullText[j] === " " || fullText[j] === "\t" || fullText[j] === "\r")
+      ) {
         j++;
       }
       if (j < n && fullText[j] === "\n") {
@@ -241,7 +244,13 @@ export function tokenize(sql: string): SqlToken[] {
         }
         i++;
       }
-      tokens.push({ type: "string", text: sql.slice(start, i), unquoted: "", start, end: i });
+      tokens.push({
+        type: "string",
+        text: sql.slice(start, i),
+        unquoted: "",
+        start,
+        end: i,
+      });
       continue;
     }
     if (ch === '"') {
@@ -261,7 +270,13 @@ export function tokenize(sql: string): SqlToken[] {
         val += sql[i];
         i++;
       }
-      tokens.push({ type: "quoted", text: sql.slice(start, i), unquoted: val, start, end: i });
+      tokens.push({
+        type: "quoted",
+        text: sql.slice(start, i),
+        unquoted: val,
+        start,
+        end: i,
+      });
       continue;
     }
     if (ch === "[") {
@@ -281,7 +296,13 @@ export function tokenize(sql: string): SqlToken[] {
         val += sql[i];
         i++;
       }
-      tokens.push({ type: "quoted", text: sql.slice(start, i), unquoted: val, start, end: i });
+      tokens.push({
+        type: "quoted",
+        text: sql.slice(start, i),
+        unquoted: val,
+        start,
+        end: i,
+      });
       continue;
     }
     if (/[A-Za-z_]/.test(ch)) {
@@ -294,10 +315,22 @@ export function tokenize(sql: string): SqlToken[] {
     if (/[0-9]/.test(ch)) {
       const start = i;
       while (i < n && /[\w.]/.test(sql[i])) i++;
-      tokens.push({ type: "number", text: sql.slice(start, i), unquoted: "", start, end: i });
+      tokens.push({
+        type: "number",
+        text: sql.slice(start, i),
+        unquoted: "",
+        start,
+        end: i,
+      });
       continue;
     }
-    tokens.push({ type: "punct", text: ch, unquoted: ch, start: i, end: i + 1 });
+    tokens.push({
+      type: "punct",
+      text: ch,
+      unquoted: ch,
+      start: i,
+      end: i + 1,
+    });
     i++;
   }
   return tokens;
@@ -356,7 +389,8 @@ function parseOneRef(tokens: SqlToken[], i: number, refs: TableRef[]): number {
       }
       i++;
     }
-    if (tokens[i]?.type === "word" && tokens[i].text.toUpperCase() === "AS") i++;
+    if (tokens[i]?.type === "word" && tokens[i].text.toUpperCase() === "AS")
+      i++;
     if (isIdent(tokens[i]) && !isReservedWord(tokens[i])) {
       refs.push({ table: "", alias: tokens[i].unquoted });
       i++;
@@ -419,7 +453,9 @@ export function clauseAt(tokens: SqlToken[], offset: number): SqlClause {
     if (t.end > offset) break;
     if (t.type === "punct") {
       if (t.text === "(") {
-        stack.push(afterInsertInto ? "insert_columns" : stack[stack.length - 1]);
+        stack.push(
+          afterInsertInto ? "insert_columns" : stack[stack.length - 1],
+        );
         afterInsertInto = false;
       } else if (t.text === ")") {
         if (stack.length > 1) stack.pop();
@@ -442,7 +478,11 @@ export function clauseAt(tokens: SqlToken[], offset: number): SqlClause {
     }
     if (up === "GROUP" || up === "ORDER") {
       const next = tokens[i + 1];
-      if (next?.type === "word" && next.text.toUpperCase() === "BY" && next.end <= offset) {
+      if (
+        next?.type === "word" &&
+        next.text.toUpperCase() === "BY" &&
+        next.end <= offset
+      ) {
         stack[stack.length - 1] = up === "GROUP" ? "group_by" : "order_by";
         afterInsertInto = false;
         i++;

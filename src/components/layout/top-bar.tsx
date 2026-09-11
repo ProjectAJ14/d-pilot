@@ -191,7 +191,9 @@ export function TopBar() {
           onClick={handlePhiToggle}
           aria-pressed={!phiEnabled}
           aria-label={
-            phiEnabled ? "PHI tokenized — click to unmask" : "PHI visible — click to re-tokenize"
+            phiEnabled
+              ? "PHI tokenized — click to unmask"
+              : "PHI visible — click to re-tokenize"
           }
           className="dp-btn dp-interactive"
           style={{

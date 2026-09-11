@@ -43,16 +43,31 @@ import {
   copyArtifactShareLink,
   copySavedQueryShareLink,
 } from "../../utils/share-links";
-import { buildTableMetadata, supportsDdl, type MetadataFormat } from "../../utils/schema-metadata";
-import type { ConnectionInfo, TableInfo, ColumnInfo, DatabaseType } from "../../types";
+import {
+  buildTableMetadata,
+  supportsDdl,
+  type MetadataFormat,
+} from "../../utils/schema-metadata";
+import type {
+  ConnectionInfo,
+  TableInfo,
+  ColumnInfo,
+  DatabaseType,
+} from "../../types";
 import { envColor, envLabel, useEnvironments } from "../../utils/environments";
 import { FkBadge } from "../query/fk-badge";
 
 const DB_ICONS: Record<DatabaseType, string> = {
-  postgres: "🐘", mssql: "🗄️", mongodb: "🍃", elasticsearch: "🔍",
+  postgres: "🐘",
+  mssql: "🗄️",
+  mongodb: "🍃",
+  elasticsearch: "🔍",
 };
 const DB_SHORT: Record<DatabaseType, string> = {
-  postgres: "PG", mssql: "SQL", mongodb: "MDB", elasticsearch: "ES",
+  postgres: "PG",
+  mssql: "SQL",
+  mongodb: "MDB",
+  elasticsearch: "ES",
 };
 
 /** Explorer cache key scoping tables/columns by connection + active schema. */
@@ -88,10 +103,14 @@ export function Sidebar() {
   const phiMaskedEnvironments = useStore((s) => s.config.phiMaskedEnvironments);
   const maskedEnvLabel = phiMaskedEnvironments.join(" + ");
 
-  const [activeSection, setActiveSection] = useState<"explorer" | "saved" | "history">("explorer");
+  const [activeSection, setActiveSection] = useState<
+    "explorer" | "saved" | "history"
+  >("explorer");
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [expandedEnvs, setExpandedEnvs] = useState<Set<string>>(new Set(["QA"]));
+  const [expandedEnvs, setExpandedEnvs] = useState<Set<string>>(
+    new Set(["QA"]),
+  );
   const [expandedConn, setExpandedConn] = useState<string | null>(null);
   const [tables, setTables] = useState<Record<string, TableInfo[]>>({});
   const [columns, setColumns] = useState<Record<string, ColumnInfo[]>>({});
@@ -109,9 +128,12 @@ export function Sidebar() {
   const [loadingConn, setLoadingConn] = useState<string | null>(null);
   const [loadingTable, setLoadingTable] = useState<string | null>(null);
   // Right-click context menu for a table row (position + target table).
-  const [tableMenu, setTableMenu] = useState<
-    { x: number; y: number; connId: string; table: TableInfo } | null
-  >(null);
+  const [tableMenu, setTableMenu] = useState<{
+    x: number;
+    y: number;
+    connId: string;
+    table: TableInfo;
+  } | null>(null);
 
   const envOrder = useEnvironments();
   const grouped = groupByEnv(connections, envOrder);
@@ -136,7 +158,8 @@ export function Sidebar() {
     if (!opts?.force && tables[tKey]) return;
     setExplorerErrors((prev) => ({ ...prev, [connId]: null }));
     setLoadingConn(connId);
-    api.getTables(connId, schema || undefined)
+    api
+      .getTables(connId, schema || undefined)
       .then((t) => setTables((prev) => ({ ...prev, [tKey]: t })))
       .catch((err) => {
         setExplorerErrors((prev) => ({
@@ -153,7 +176,8 @@ export function Sidebar() {
   // Discover the schema list for the picker. A table-load error takes
   // precedence in the alert slot — both share the same root cause.
   const loadSchemasForConn = (connId: string) => {
-    api.getSchemas(connId)
+    api
+      .getSchemas(connId)
       .then((r) => setConnSchemas((prev) => ({ ...prev, [connId]: r.schemas })))
       .catch((err) => {
         setExplorerErrors((prev) =>
@@ -207,7 +231,9 @@ export function Sidebar() {
   // Re-attempt everything that can have failed for a connection.
   const retryConnection = (connId: string) => {
     const conn = connections.find((c) => c.id === connId);
-    loadTablesForSchema(connId, schemaByConnection[connId] ?? "", { force: true });
+    loadTablesForSchema(connId, schemaByConnection[connId] ?? "", {
+      force: true,
+    });
     if (conn && SCHEMA_DB_TYPES.includes(conn.type) && !connSchemas[connId]) {
       loadSchemasForConn(connId);
     }
@@ -223,7 +249,8 @@ export function Sidebar() {
     setExpandedTable(key);
     if (!columns[key]) {
       setLoadingTable(key);
-      api.getColumns(connId, tableName, schema || undefined)
+      api
+        .getColumns(connId, tableName, schema || undefined)
         // Don't cache on failure — re-clicking the table retries.
         .catch((err) => {
           notifications.show({
@@ -245,7 +272,11 @@ export function Sidebar() {
 
   // Copy a table's structure/metadata (columns, types, keys, PHI flags) in the
   // requested format. Fetches columns on demand if the table isn't expanded yet.
-  const copyTableMetadata = async (connId: string, table: TableInfo, format: MetadataFormat) => {
+  const copyTableMetadata = async (
+    connId: string,
+    table: TableInfo,
+    format: MetadataFormat,
+  ) => {
     const conn = connections.find((c) => c.id === connId);
     if (!conn) return;
     const schema = schemaByConnection[connId] ?? "";
@@ -275,25 +306,43 @@ export function Sidebar() {
       schema && SCHEMA_DB_TYPES.includes(conn!.type)
         ? `${schema}.${tableName}`
         : tableName;
-    const sql = conn?.type === "elasticsearch"
-      ? `GET /${tableName}/_search {"query":{"match_all":{}},"size":100}`
-      : conn?.type === "mongodb"
-        ? `db.${tableName}.find({})`
-        : `SELECT * FROM ${qualified} LIMIT 100`;
+    const sql =
+      conn?.type === "elasticsearch"
+        ? `GET /${tableName}/_search {"query":{"match_all":{}},"size":100}`
+        : conn?.type === "mongodb"
+          ? `db.${tableName}.find({})`
+          : `SELECT * FROM ${qualified} LIMIT 100`;
     addTab(connId);
     setTimeout(() => {
       const tabId = useStore.getState().activeTabId;
-      updateTab(tabId, { sql, title: tableName, connectionId: connId, schema: schema || undefined, loading: true });
-      const viewMode = (conn?.type === "mongodb" || conn?.type === "elasticsearch") ? "json" as const : "table" as const;
-      api.executeQuery(connId, sql, undefined, schema || undefined)
-        .then((result) => updateTab(tabId, { result, loading: false, viewMode }))
-        .catch((err) => updateTab(tabId, { error: err.message, loading: false }));
+      updateTab(tabId, {
+        sql,
+        title: tableName,
+        connectionId: connId,
+        schema: schema || undefined,
+        loading: true,
+      });
+      const viewMode =
+        conn?.type === "mongodb" || conn?.type === "elasticsearch"
+          ? ("json" as const)
+          : ("table" as const);
+      api
+        .executeQuery(connId, sql, undefined, schema || undefined)
+        .then((result) =>
+          updateTab(tabId, { result, loading: false, viewMode }),
+        )
+        .catch((err) =>
+          updateTab(tabId, { error: err.message, loading: false }),
+        );
     }, 0);
   };
 
   const loadHistory = () => {
     if (!historyLoaded) {
-      api.getQueryHistory(50).then(setHistory).catch(() => {});
+      api
+        .getQueryHistory(50)
+        .then(setHistory)
+        .catch(() => {});
       setHistoryLoaded(true);
     }
   };
@@ -302,7 +351,10 @@ export function Sidebar() {
     addTab(connectionId);
     setTimeout(() => {
       const tabId = useStore.getState().activeTabId;
-      updateTab(tabId, { sql, connectionId: connectionId || activeConnectionId });
+      updateTab(tabId, {
+        sql,
+        connectionId: connectionId || activeConnectionId,
+      });
     }, 0);
   };
 
@@ -310,7 +362,11 @@ export function Sidebar() {
     addTab(connectionId);
     setTimeout(() => {
       const tabId = useStore.getState().activeTabId;
-      updateTab(tabId, { sql, title: name, connectionId: connectionId || activeConnectionId });
+      updateTab(tabId, {
+        sql,
+        title: name,
+        connectionId: connectionId || activeConnectionId,
+      });
     }, 0);
   };
 
@@ -365,16 +421,21 @@ export function Sidebar() {
         {(["explorer", "saved", "history"] as const).map((section) => (
           <button
             key={section}
-            onClick={() => { setActiveSection(section); if (section === "history") loadHistory(); }}
+            onClick={() => {
+              setActiveSection(section);
+              if (section === "history") loadHistory();
+            }}
             style={{
               flex: 1,
               padding: "12px 0",
               background: "none",
               border: "none",
-              borderBottom: activeSection === section
-                ? "2px solid var(--accent)"
-                : "2px solid transparent",
-              color: activeSection === section ? "var(--accent4)" : "var(--muted)",
+              borderBottom:
+                activeSection === section
+                  ? "2px solid var(--accent)"
+                  : "2px solid transparent",
+              color:
+                activeSection === section ? "var(--accent4)" : "var(--muted)",
               cursor: "pointer",
               fontSize: 12,
               fontWeight: 600,
@@ -386,17 +447,38 @@ export function Sidebar() {
           >
             {section === "explorer" ? (
               <>
-                <IconDatabase size={13} style={{ verticalAlign: "middle", marginRight: 5, marginTop: -1 }} />
+                <IconDatabase
+                  size={13}
+                  style={{
+                    verticalAlign: "middle",
+                    marginRight: 5,
+                    marginTop: -1,
+                  }}
+                />
                 Explorer
               </>
             ) : section === "saved" ? (
               <>
-                <IconBookmark size={13} style={{ verticalAlign: "middle", marginRight: 5, marginTop: -1 }} />
+                <IconBookmark
+                  size={13}
+                  style={{
+                    verticalAlign: "middle",
+                    marginRight: 5,
+                    marginTop: -1,
+                  }}
+                />
                 Saved ({savedQueries.length + artifacts.length})
               </>
             ) : (
               <>
-                <IconHistory size={13} style={{ verticalAlign: "middle", marginRight: 5, marginTop: -1 }} />
+                <IconHistory
+                  size={13}
+                  style={{
+                    verticalAlign: "middle",
+                    marginRight: 5,
+                    marginTop: -1,
+                  }}
+                />
                 History
               </>
             )}
@@ -407,10 +489,22 @@ export function Sidebar() {
       {/* Search */}
       <div style={{ padding: "10px 12px 6px" }}>
         <TextInput
-          placeholder={activeSection === "explorer" ? "Search tables..." : activeSection === "saved" ? "Search saved queries..." : "Search history..."}
+          placeholder={
+            activeSection === "explorer"
+              ? "Search tables..."
+              : activeSection === "saved"
+                ? "Search saved queries..."
+                : "Search history..."
+          }
           size="xs"
           leftSection={<IconSearch size={14} color="var(--muted)" />}
-          value={activeSection === "explorer" ? explorerSearch : activeSection === "saved" ? savedSearch : historySearch}
+          value={
+            activeSection === "explorer"
+              ? explorerSearch
+              : activeSection === "saved"
+                ? savedSearch
+                : historySearch
+          }
           onChange={(e) => {
             const v = e.currentTarget.value;
             if (activeSection === "explorer") setExplorerSearch(v);
@@ -452,19 +546,35 @@ export function Sidebar() {
                     size="xs"
                     color={envColor(env)}
                     variant="filled"
-                    styles={{ root: { textTransform: "uppercase", fontWeight: 700, fontSize: 9, letterSpacing: 0.5 } }}
+                    styles={{
+                      root: {
+                        textTransform: "uppercase",
+                        fontWeight: 700,
+                        fontSize: 9,
+                        letterSpacing: 0.5,
+                      },
+                    }}
                   >
                     {env}
                   </Badge>
                   <Text size="xs" fw={600} style={{ flex: 1 }} c="var(--text)">
                     {envLabel(env)}
                   </Text>
-                  <Text size="xs" c="dimmed" ff="monospace" style={{ fontSize: 10 }}>{conns.length}</Text>
+                  <Text
+                    size="xs"
+                    c="dimmed"
+                    ff="monospace"
+                    style={{ fontSize: 10 }}
+                  >
+                    {conns.length}
+                  </Text>
                   <IconChevronDown
                     size={12}
                     color="var(--muted)"
                     style={{
-                      transform: expandedEnvs.has(env) ? "rotate(0deg)" : "rotate(-90deg)",
+                      transform: expandedEnvs.has(env)
+                        ? "rotate(0deg)"
+                        : "rotate(-90deg)",
                       transition: "transform 200ms ease",
                     }}
                   />
@@ -512,13 +622,28 @@ export function Sidebar() {
                             }}
                           >
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 6,
+                                  flexWrap: "wrap",
+                                }}
+                              >
                                 <Text
                                   size="xs"
                                   fw={isActive ? 700 : 600}
                                   ff="monospace"
-                                  c={isActive ? "var(--accent-text)" : "var(--text)"}
-                                  style={{ fontSize: 12, wordBreak: "break-word", lineHeight: 1.4 }}
+                                  c={
+                                    isActive
+                                      ? "var(--accent-text)"
+                                      : "var(--text)"
+                                  }
+                                  style={{
+                                    fontSize: 12,
+                                    wordBreak: "break-word",
+                                    lineHeight: 1.4,
+                                  }}
                                 >
                                   {conn.name}
                                 </Text>
@@ -546,15 +671,21 @@ export function Sidebar() {
                                         height: 5,
                                         borderRadius: "50%",
                                         background: "var(--surface)",
-                                        boxShadow: "0 0 5px color-mix(in srgb, var(--surface) 90%, transparent)",
-                                        animation: "pulse 1.8s ease-in-out infinite",
+                                        boxShadow:
+                                          "0 0 5px color-mix(in srgb, var(--surface) 90%, transparent)",
+                                        animation:
+                                          "pulse 1.8s ease-in-out infinite",
                                       }}
                                     />
                                     Active
                                   </span>
                                 )}
                               </div>
-                              <Text size="xs" c="dimmed" style={{ marginTop: 2, fontSize: 10 }}>
+                              <Text
+                                size="xs"
+                                c="dimmed"
+                                style={{ marginTop: 2, fontSize: 10 }}
+                              >
                                 {conn.database || ""}
                               </Text>
                             </div>
@@ -566,14 +697,22 @@ export function Sidebar() {
                                 flexShrink: 0,
                                 padding: isActive ? "2px 4px" : undefined,
                                 borderRadius: 6,
-                                background: isActive ? "color-mix(in srgb, var(--accent) 10%, transparent)" : undefined,
+                                background: isActive
+                                  ? "color-mix(in srgb, var(--accent) 10%, transparent)"
+                                  : undefined,
                               }}
                             >
-                              <span style={{ fontSize: 22, lineHeight: 1 }}>{DB_ICONS[conn.type]}</span>
+                              <span style={{ fontSize: 22, lineHeight: 1 }}>
+                                {DB_ICONS[conn.type]}
+                              </span>
                               <Text
                                 ff="monospace"
                                 c={isActive ? "var(--accent-text)" : "dimmed"}
-                                style={{ fontSize: 9, marginTop: 2, fontWeight: isActive ? 700 : 400 }}
+                                style={{
+                                  fontSize: 9,
+                                  marginTop: 2,
+                                  fontWeight: isActive ? 700 : 400,
+                                }}
                               >
                                 {DB_SHORT[conn.type]}
                               </Text>
@@ -608,12 +747,26 @@ export function Sidebar() {
                           )}
 
                           {/* Loading tables */}
-                          {expandedConn === conn.id && loadingConn === conn.id && (
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px" }}>
-                              <Loader size={12} color="var(--accent)" />
-                              <Text size="xs" c="dimmed" style={{ fontSize: 11 }}>Loading tables...</Text>
-                            </div>
-                          )}
+                          {expandedConn === conn.id &&
+                            loadingConn === conn.id && (
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 8,
+                                  padding: "10px 20px",
+                                }}
+                              >
+                                <Loader size={12} color="var(--accent)" />
+                                <Text
+                                  size="xs"
+                                  c="dimmed"
+                                  style={{ fontSize: 11 }}
+                                >
+                                  Loading tables...
+                                </Text>
+                              </div>
+                            )}
 
                           {/* Load failure (connection unreachable, etc.) */}
                           {expandedConn === conn.id &&
@@ -624,18 +777,23 @@ export function Sidebar() {
                                 variant="light"
                                 icon={<IconPlugConnectedX size={14} />}
                                 title={
-                                  explorerErrors[conn.id]!.code === "CONNECTION_FAILED"
+                                  explorerErrors[conn.id]!.code ===
+                                  "CONNECTION_FAILED"
                                     ? "Unable to connect to database"
                                     : "Failed to load tables"
                                 }
                                 styles={{
-                                  root: { margin: "4px 12px 6px 20px", padding: 8 },
+                                  root: {
+                                    margin: "4px 12px 6px 20px",
+                                    padding: 8,
+                                  },
                                   title: { fontSize: 11, marginBottom: 2 },
                                   message: { fontSize: 10 },
                                   icon: { marginTop: 2 },
                                 }}
                               >
-                                {explorerErrors[conn.id]!.code === "CONNECTION_FAILED"
+                                {explorerErrors[conn.id]!.code ===
+                                "CONNECTION_FAILED"
                                   ? "The database host could not be reached. Check your network connection."
                                   : explorerErrors[conn.id]!.message}
                                 <Button
@@ -655,17 +813,36 @@ export function Sidebar() {
                           {expandedConn === conn.id && tables[tKey] && (
                             <div style={{ paddingLeft: 14, paddingBottom: 4 }}>
                               {tables[tKey]
-                                .filter((t) => !explorerSearch || t.name.toLowerCase().includes(explorerSearch.toLowerCase()))
+                                .filter(
+                                  (t) =>
+                                    !explorerSearch ||
+                                    t.name
+                                      .toLowerCase()
+                                      .includes(explorerSearch.toLowerCase()),
+                                )
                                 .map((table) => {
-                                  const tableKey = keyFor(conn.id, sch, table.name);
+                                  const tableKey = keyFor(
+                                    conn.id,
+                                    sch,
+                                    table.name,
+                                  );
                                   return (
                                     <div key={table.name}>
                                       <div
-                                        onClick={() => toggleTable(conn.id, table.name)}
-                                        onDoubleClick={() => doubleClickTable(conn.id, table.name)}
+                                        onClick={() =>
+                                          toggleTable(conn.id, table.name)
+                                        }
+                                        onDoubleClick={() =>
+                                          doubleClickTable(conn.id, table.name)
+                                        }
                                         onContextMenu={(e) => {
                                           e.preventDefault();
-                                          setTableMenu({ x: e.clientX, y: e.clientY, connId: conn.id, table });
+                                          setTableMenu({
+                                            x: e.clientX,
+                                            y: e.clientY,
+                                            connId: conn.id,
+                                            table,
+                                          });
                                         }}
                                         className="dp-row"
                                         style={{
@@ -677,14 +854,34 @@ export function Sidebar() {
                                           cursor: "pointer",
                                         }}
                                       >
-                                        <IconTable size={13} color="var(--accent)" style={{ flexShrink: 0 }} />
-                                        <Text size="xs" ff="monospace" className="dp-row-label" style={{ flex: 1, fontSize: 11 }}>
+                                        <IconTable
+                                          size={13}
+                                          color="var(--accent)"
+                                          style={{ flexShrink: 0 }}
+                                        />
+                                        <Text
+                                          size="xs"
+                                          ff="monospace"
+                                          className="dp-row-label"
+                                          style={{ flex: 1, fontSize: 11 }}
+                                        >
                                           {table.name}
                                         </Text>
                                         {table.type === "VIEW" && (
-                                          <Badge size="xs" variant="light" color="gray" styles={{ root: { fontSize: 8 } }}>VIEW</Badge>
+                                          <Badge
+                                            size="xs"
+                                            variant="light"
+                                            color="gray"
+                                            styles={{ root: { fontSize: 8 } }}
+                                          >
+                                            VIEW
+                                          </Badge>
                                         )}
-                                        <Tooltip label="Actions" openDelay={400} withArrow>
+                                        <Tooltip
+                                          label="Actions"
+                                          openDelay={400}
+                                          withArrow
+                                        >
                                           <ActionIcon
                                             size="xs"
                                             variant="subtle"
@@ -693,15 +890,22 @@ export function Sidebar() {
                                             aria-label={`Actions for ${table.name}`}
                                             data-pinned={
                                               tableMenu?.connId === conn.id &&
-                                              tableMenu?.table.name === table.name
+                                              tableMenu?.table.name ===
+                                                table.name
                                                 ? ""
                                                 : undefined
                                             }
                                             style={{ flexShrink: 0 }}
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              const r = e.currentTarget.getBoundingClientRect();
-                                              setTableMenu({ x: r.left, y: r.bottom, connId: conn.id, table });
+                                              const r =
+                                                e.currentTarget.getBoundingClientRect();
+                                              setTableMenu({
+                                                x: r.left,
+                                                y: r.bottom,
+                                                connId: conn.id,
+                                                table,
+                                              });
                                             }}
                                           >
                                             <IconDots size={13} />
@@ -709,75 +913,131 @@ export function Sidebar() {
                                         </Tooltip>
                                       </div>
 
-                                      {expandedTable === tableKey && loadingTable === tableKey && (
-                                        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 24px" }}>
-                                          <Loader size={10} color="var(--accent)" />
-                                          <Text size="xs" c="dimmed" style={{ fontSize: 10 }}>Loading columns...</Text>
-                                        </div>
-                                      )}
-
-                                      {expandedTable === tableKey && columns[tableKey] && (
-                                        <div
-                                          style={{
-                                            marginLeft: 16,
-                                            marginBottom: 4,
-                                            paddingLeft: 10,
-                                            borderLeft: "1px solid var(--border)",
-                                          }}
-                                        >
-                                          {columns[tableKey].map((col) => (
-                                            <div
-                                              key={col.name}
-                                              style={{
-                                                display: "flex",
-                                                alignItems: "center",
-                                                gap: 6,
-                                                padding: "4px 8px",
-                                                fontSize: 11,
-                                                fontFamily: "IBM Plex Mono, monospace",
-                                              }}
+                                      {expandedTable === tableKey &&
+                                        loadingTable === tableKey && (
+                                          <div
+                                            style={{
+                                              display: "flex",
+                                              alignItems: "center",
+                                              gap: 6,
+                                              padding: "6px 24px",
+                                            }}
+                                          >
+                                            <Loader
+                                              size={10}
+                                              color="var(--accent)"
+                                            />
+                                            <Text
+                                              size="xs"
+                                              c="dimmed"
+                                              style={{ fontSize: 10 }}
                                             >
-                                              {col.isPrimaryKey ? (
-                                                <IconPK size={10} color="var(--accent)" style={{ flexShrink: 0 }} />
-                                              ) : col.isForeignKey ? (
-                                                <FkBadge column={col.name} references={col.references} />
-                                              ) : (
-                                                <IconColumns size={10} color="var(--muted)" style={{ flexShrink: 0 }} />
-                                              )}
-                                              <Text
-                                                size="xs"
-                                                ff="monospace"
-                                                c={col.isPrimaryKey ? "var(--accent-text)" : "dimmed"}
-                                                style={{ flex: 1, fontSize: 11 }}
+                                              Loading columns...
+                                            </Text>
+                                          </div>
+                                        )}
+
+                                      {expandedTable === tableKey &&
+                                        columns[tableKey] && (
+                                          <div
+                                            style={{
+                                              marginLeft: 16,
+                                              marginBottom: 4,
+                                              paddingLeft: 10,
+                                              borderLeft:
+                                                "1px solid var(--border)",
+                                            }}
+                                          >
+                                            {columns[tableKey].map((col) => (
+                                              <div
+                                                key={col.name}
+                                                style={{
+                                                  display: "flex",
+                                                  alignItems: "center",
+                                                  gap: 6,
+                                                  padding: "4px 8px",
+                                                  fontSize: 11,
+                                                  fontFamily:
+                                                    "IBM Plex Mono, monospace",
+                                                }}
                                               >
-                                                {col.name}
-                                              </Text>
-                                              {col.references ? (
-                                                <Tooltip label={`${col.dataType} \u2192 references ${col.references}`} withArrow>
+                                                {col.isPrimaryKey ? (
+                                                  <IconPK
+                                                    size={10}
+                                                    color="var(--accent)"
+                                                    style={{ flexShrink: 0 }}
+                                                  />
+                                                ) : col.isForeignKey ? (
+                                                  <FkBadge
+                                                    column={col.name}
+                                                    references={col.references}
+                                                  />
+                                                ) : (
+                                                  <IconColumns
+                                                    size={10}
+                                                    color="var(--muted)"
+                                                    style={{ flexShrink: 0 }}
+                                                  />
+                                                )}
+                                                <Text
+                                                  size="xs"
+                                                  ff="monospace"
+                                                  c={
+                                                    col.isPrimaryKey
+                                                      ? "var(--accent-text)"
+                                                      : "dimmed"
+                                                  }
+                                                  style={{
+                                                    flex: 1,
+                                                    fontSize: 11,
+                                                  }}
+                                                >
+                                                  {col.name}
+                                                </Text>
+                                                {col.references ? (
+                                                  <Tooltip
+                                                    label={`${col.dataType} \u2192 references ${col.references}`}
+                                                    withArrow
+                                                  >
+                                                    <Text
+                                                      size="xs"
+                                                      ff="monospace"
+                                                      c="dimmed"
+                                                      style={{
+                                                        fontSize: 9,
+                                                        opacity: 0.8,
+                                                        maxWidth: 110,
+                                                        overflow: "hidden",
+                                                        textOverflow:
+                                                          "ellipsis",
+                                                        whiteSpace: "nowrap",
+                                                      }}
+                                                    >
+                                                      &rarr; {col.references}
+                                                    </Text>
+                                                  </Tooltip>
+                                                ) : (
                                                   <Text
                                                     size="xs"
-                                                    ff="monospace"
                                                     c="dimmed"
                                                     style={{
                                                       fontSize: 9,
-                                                      opacity: 0.8,
-                                                      maxWidth: 110,
-                                                      overflow: "hidden",
-                                                      textOverflow: "ellipsis",
-                                                      whiteSpace: "nowrap",
+                                                      opacity: 0.7,
                                                     }}
                                                   >
-                                                    &rarr; {col.references}
+                                                    {col.dataType}
                                                   </Text>
-                                                </Tooltip>
-                                              ) : (
-                                                <Text size="xs" c="dimmed" style={{ fontSize: 9, opacity: 0.7 }}>{col.dataType}</Text>
-                                              )}
-                                              {col.isPhiField && <IconShieldLock size={10} color="var(--token)" />}
-                                            </div>
-                                          ))}
-                                        </div>
-                                      )}
+                                                )}
+                                                {col.isPhiField && (
+                                                  <IconShieldLock
+                                                    size={10}
+                                                    color="var(--token)"
+                                                  />
+                                                )}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
                                     </div>
                                   );
                                 })}
@@ -793,8 +1053,14 @@ export function Sidebar() {
 
             {Object.keys(grouped).length === 0 && (
               <div style={{ padding: "24px 16px", textAlign: "center" }}>
-                <IconDatabase size={28} color="var(--muted)" style={{ opacity: 0.4, marginBottom: 8 }} />
-                <Text size="xs" c="dimmed">No connections configured</Text>
+                <IconDatabase
+                  size={28}
+                  color="var(--muted)"
+                  style={{ opacity: 0.4, marginBottom: 8 }}
+                />
+                <Text size="xs" c="dimmed">
+                  No connections configured
+                </Text>
               </div>
             )}
           </div>
@@ -809,7 +1075,9 @@ export function Sidebar() {
                   .includes(savedSearch.toLowerCase()),
               )
               .map((artifact) => {
-                const blockCount = artifact.blocks.filter((b) => b.type === "sql").length;
+                const blockCount = artifact.blocks.filter(
+                  (b) => b.type === "sql",
+                ).length;
                 return (
                   <div
                     key={artifact.id}
@@ -825,11 +1093,34 @@ export function Sidebar() {
                       marginBottom: 2,
                     }}
                   >
-                    <IconFileText size={15} color="var(--accent4)" style={{ flexShrink: 0, alignSelf: "flex-start", marginTop: 2 }} />
+                    <IconFileText
+                      size={15}
+                      color="var(--accent4)"
+                      style={{
+                        flexShrink: 0,
+                        alignSelf: "flex-start",
+                        marginTop: 2,
+                      }}
+                    />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <Text size="xs" fw={600} c="var(--text)" style={{ fontSize: 12, lineHeight: 1.4, wordBreak: "break-word" }}>{artifact.title}</Text>
-                      <Text c="dimmed" style={{ marginTop: 3, fontSize: 10, lineHeight: 1.4 }}>
-                        {blockCount} {blockCount === 1 ? "query" : "queries"} · {artifact.createdByEmail}
+                      <Text
+                        size="xs"
+                        fw={600}
+                        c="var(--text)"
+                        style={{
+                          fontSize: 12,
+                          lineHeight: 1.4,
+                          wordBreak: "break-word",
+                        }}
+                      >
+                        {artifact.title}
+                      </Text>
+                      <Text
+                        c="dimmed"
+                        style={{ marginTop: 3, fontSize: 10, lineHeight: 1.4 }}
+                      >
+                        {blockCount} {blockCount === 1 ? "query" : "queries"} ·{" "}
+                        {artifact.createdByEmail}
                       </Text>
                     </div>
                     <Tooltip label="Copy share link" position="right">
@@ -838,7 +1129,10 @@ export function Sidebar() {
                         variant="subtle"
                         color="gray"
                         className="dp-row-actions"
-                        onClick={(e) => { e.stopPropagation(); copyArtifactShareLink(artifact); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          copyArtifactShareLink(artifact);
+                        }}
                       >
                         <IconLink size={12} />
                       </ActionIcon>
@@ -850,7 +1144,10 @@ export function Sidebar() {
                           variant="subtle"
                           color="gray"
                           className="dp-row-actions"
-                          onClick={(e) => { e.stopPropagation(); handleArchiveArtifact(artifact.id); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleArchiveArtifact(artifact.id);
+                          }}
                         >
                           <IconArchive size={12} />
                         </ActionIcon>
@@ -860,15 +1157,18 @@ export function Sidebar() {
                 );
               })}
             {savedQueries
-              .filter((q) =>
-                q.name.toLowerCase().includes(savedSearch.toLowerCase()) ||
-                q.sql.toLowerCase().includes(savedSearch.toLowerCase())
+              .filter(
+                (q) =>
+                  q.name.toLowerCase().includes(savedSearch.toLowerCase()) ||
+                  q.sql.toLowerCase().includes(savedSearch.toLowerCase()),
               )
               .map((query) => {
                 return (
                   <div
                     key={query.id}
-                    onClick={() => loadSavedQuery(query.name, query.sql, query.connectionId)}
+                    onClick={() =>
+                      loadSavedQuery(query.name, query.sql, query.connectionId)
+                    }
                     className="dp-row dp-row-raised"
                     style={{
                       display: "flex",
@@ -880,10 +1180,43 @@ export function Sidebar() {
                       marginBottom: 2,
                     }}
                   >
-                    <IconBookmark size={15} color="var(--accent)" style={{ flexShrink: 0, alignSelf: "flex-start", marginTop: 2 }} />
+                    <IconBookmark
+                      size={15}
+                      color="var(--accent)"
+                      style={{
+                        flexShrink: 0,
+                        alignSelf: "flex-start",
+                        marginTop: 2,
+                      }}
+                    />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <Text size="xs" fw={600} c="var(--text)" style={{ fontSize: 12, lineHeight: 1.4, wordBreak: "break-word" }}>{query.name}</Text>
-                      <Text c="dimmed" ff="monospace" style={{ marginTop: 4, fontSize: 9, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-all", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                      <Text
+                        size="xs"
+                        fw={600}
+                        c="var(--text)"
+                        style={{
+                          fontSize: 12,
+                          lineHeight: 1.4,
+                          wordBreak: "break-word",
+                        }}
+                      >
+                        {query.name}
+                      </Text>
+                      <Text
+                        c="dimmed"
+                        ff="monospace"
+                        style={{
+                          marginTop: 4,
+                          fontSize: 9,
+                          lineHeight: 1.5,
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "break-all",
+                          display: "-webkit-box",
+                          WebkitLineClamp: 3,
+                          WebkitBoxOrient: "vertical",
+                          overflow: "hidden",
+                        }}
+                      >
                         {query.sql.trim()}
                       </Text>
                     </div>
@@ -893,7 +1226,10 @@ export function Sidebar() {
                         variant="subtle"
                         color="gray"
                         className="dp-row-actions"
-                        onClick={(e) => { e.stopPropagation(); copySavedQueryShareLink(query); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          copySavedQueryShareLink(query);
+                        }}
                       >
                         <IconLink size={12} />
                       </ActionIcon>
@@ -904,7 +1240,10 @@ export function Sidebar() {
                         variant="subtle"
                         color="red"
                         className="dp-row-actions"
-                        onClick={(e) => { e.stopPropagation(); handleDeleteSaved(query.id); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteSaved(query.id);
+                        }}
                       >
                         <IconTrash size={12} />
                       </ActionIcon>
@@ -914,9 +1253,19 @@ export function Sidebar() {
               })}
             {savedQueries.length === 0 && artifacts.length === 0 && (
               <div style={{ padding: "24px 16px", textAlign: "center" }}>
-                <IconBookmark size={28} color="var(--muted)" style={{ opacity: 0.4, marginBottom: 8 }} />
-                <Text size="xs" c="dimmed">No saved queries yet</Text>
-                <Text size="xs" c="dimmed" style={{ fontSize: 10, marginTop: 4 }}>
+                <IconBookmark
+                  size={28}
+                  color="var(--muted)"
+                  style={{ opacity: 0.4, marginBottom: 8 }}
+                />
+                <Text size="xs" c="dimmed">
+                  No saved queries yet
+                </Text>
+                <Text
+                  size="xs"
+                  c="dimmed"
+                  style={{ fontSize: 10, marginTop: 4 }}
+                >
                   Save queries from the editor to access them here
                 </Text>
               </div>
@@ -927,12 +1276,18 @@ export function Sidebar() {
         {activeSection === "history" && (
           <div style={{ padding: "4px 8px" }}>
             {history
-              .filter((h) => !historySearch || h.sql?.toLowerCase().includes(historySearch.toLowerCase()))
+              .filter(
+                (h) =>
+                  !historySearch ||
+                  h.sql?.toLowerCase().includes(historySearch.toLowerCase()),
+              )
               .map((entry) => {
                 return (
                   <div
                     key={entry.id}
-                    onClick={() => loadHistoryQuery(entry.sql, entry.connectionId)}
+                    onClick={() =>
+                      loadHistoryQuery(entry.sql, entry.connectionId)
+                    }
                     className="dp-row dp-row-raised"
                     style={{
                       display: "flex",
@@ -944,17 +1299,38 @@ export function Sidebar() {
                       marginBottom: 2,
                     }}
                   >
-                    <IconClock size={14} color="var(--muted)" style={{ flexShrink: 0, marginTop: 2 }} />
+                    <IconClock
+                      size={14}
+                      color="var(--muted)"
+                      style={{ flexShrink: 0, marginTop: 2 }}
+                    />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <Text size="xs" ff="monospace" truncate c="var(--text)" style={{ fontSize: 11 }}>
+                      <Text
+                        size="xs"
+                        ff="monospace"
+                        truncate
+                        c="var(--text)"
+                        style={{ fontSize: 11 }}
+                      >
                         {entry.sql?.slice(0, 80)}
                       </Text>
-                      <div style={{ display: "flex", gap: 6, marginTop: 4, alignItems: "center" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 6,
+                          marginTop: 4,
+                          alignItems: "center",
+                        }}
+                      >
                         <Text size="xs" c="dimmed" style={{ fontSize: 9 }}>
-                          {entry.rowsReturned != null ? `${entry.rowsReturned} rows` : ""}
+                          {entry.rowsReturned != null
+                            ? `${entry.rowsReturned} rows`
+                            : ""}
                         </Text>
                         <Text size="xs" c="dimmed" style={{ fontSize: 9 }}>
-                          {entry.executionMs != null ? `${entry.executionMs}ms` : ""}
+                          {entry.executionMs != null
+                            ? `${entry.executionMs}ms`
+                            : ""}
                         </Text>
                         <Text size="xs" c="dimmed" style={{ fontSize: 9 }}>
                           {new Date(entry.timestamp).toLocaleString()}
@@ -966,9 +1342,19 @@ export function Sidebar() {
               })}
             {history.length === 0 && (
               <div style={{ padding: "24px 16px", textAlign: "center" }}>
-                <IconHistory size={28} color="var(--muted)" style={{ opacity: 0.4, marginBottom: 8 }} />
-                <Text size="xs" c="dimmed">No query history yet</Text>
-                <Text size="xs" c="dimmed" style={{ fontSize: 10, marginTop: 4 }}>
+                <IconHistory
+                  size={28}
+                  color="var(--muted)"
+                  style={{ opacity: 0.4, marginBottom: 8 }}
+                />
+                <Text size="xs" c="dimmed">
+                  No query history yet
+                </Text>
+                <Text
+                  size="xs"
+                  c="dimmed"
+                  style={{ fontSize: 10, marginTop: 4 }}
+                >
                   Run queries to see them here
                 </Text>
               </div>
@@ -987,7 +1373,15 @@ export function Sidebar() {
           gap: 6,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--accent)" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 10,
+            color: "var(--accent)",
+          }}
+        >
           <IconShieldLock size={10} style={{ flexShrink: 0 }} />
           PHI tokenized on {maskedEnvLabel}
         </div>
@@ -1036,7 +1430,9 @@ export function Sidebar() {
               Copy as JSON
             </Menu.Item>
             {(() => {
-              const menuConn = connections.find((c) => c.id === tableMenu.connId);
+              const menuConn = connections.find(
+                (c) => c.id === tableMenu.connId,
+              );
               return menuConn && supportsDdl(menuConn) ? (
                 <Menu.Item
                   leftSection={<IconCode size={14} />}

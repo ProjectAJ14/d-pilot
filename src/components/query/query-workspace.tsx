@@ -25,24 +25,35 @@ export function QueryWorkspace() {
   const expanded = editorHeight > COMPACT_HEIGHT;
 
   const toggleEditorHeight = useCallback(() => {
-    setEditorHeight((h) => (h > COMPACT_HEIGHT ? COMPACT_HEIGHT : EXPANDED_HEIGHT));
+    setEditorHeight((h) =>
+      h > COMPACT_HEIGHT ? COMPACT_HEIGHT : EXPANDED_HEIGHT,
+    );
   }, []);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    isDragging.current = true;
-    startY.current = e.clientY;
-    startHeight.current = editorHeight;
-    document.body.style.cursor = "row-resize";
-    document.body.style.userSelect = "none";
-  }, [editorHeight]);
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      isDragging.current = true;
+      startY.current = e.clientY;
+      startHeight.current = editorHeight;
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+    },
+    [editorHeight],
+  );
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDragging.current || !containerRef.current) return;
-      const maxHeight = containerRef.current.getBoundingClientRect().height * 0.7;
+      const maxHeight =
+        containerRef.current.getBoundingClientRect().height * 0.7;
       const delta = e.clientY - startY.current;
-      setEditorHeight(Math.min(maxHeight, Math.max(MIN_EDITOR_HEIGHT, startHeight.current + delta)));
+      setEditorHeight(
+        Math.min(
+          maxHeight,
+          Math.max(MIN_EDITOR_HEIGHT, startHeight.current + delta),
+        ),
+      );
     };
 
     const handleMouseUp = () => {
@@ -102,8 +113,12 @@ export function QueryWorkspace() {
                 background: "var(--border2)",
                 transition: "background 0.15s",
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--accent)")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "var(--border2)")}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.background = "var(--accent)")
+              }
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.background = "var(--border2)")
+              }
             />
           </div>
           <ResultsGrid tab={activeTab} />

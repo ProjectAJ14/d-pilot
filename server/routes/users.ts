@@ -37,7 +37,8 @@ function sanitizeEnvs(value: unknown): string[] {
 
 function mapUserRow(u: any) {
   const isAdmin = u.is_admin === 1 || u.is_admin === true;
-  const scoped = (raw: string) => (isAdmin ? getEnvironments() : parseEnvs(raw));
+  const scoped = (raw: string) =>
+    isAdmin ? getEnvironments() : parseEnvs(raw);
   return {
     id: u.id,
     username: u.username,

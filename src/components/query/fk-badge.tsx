@@ -23,7 +23,14 @@ export function FkBadge({ column, references, size = 9 }: Props) {
   const targetTable = parts.length > 1 ? parts.slice(0, -1).join(".") : null;
 
   return (
-    <Popover opened={open} onChange={setOpen} withArrow shadow="md" position="bottom" width={260}>
+    <Popover
+      opened={open}
+      onChange={setOpen}
+      withArrow
+      shadow="md"
+      position="bottom"
+      width={260}
+    >
       <Popover.Target>
         <span
           role="button"
@@ -64,15 +71,34 @@ export function FkBadge({ column, references, size = 9 }: Props) {
         </span>
       </Popover.Target>
       <Popover.Dropdown onClick={(e) => e.stopPropagation()} p="xs">
-        <Text size="xs" fw={700} c="dimmed" tt="uppercase" style={{ letterSpacing: 0.5 }}>
+        <Text
+          size="xs"
+          fw={700}
+          c="dimmed"
+          tt="uppercase"
+          style={{ letterSpacing: 0.5 }}
+        >
           Foreign key
         </Text>
         <FkRow label="Column" value={column} />
         {targetTable && <FkRow label="References table" value={targetTable} />}
-        {targetColumn && <FkRow label="References column" value={targetColumn} />}
+        {targetColumn && (
+          <FkRow label="References column" value={targetColumn} />
+        )}
         {references && (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 6 }}>
-            <Text size="xs" ff="monospace" style={{ flex: 1, wordBreak: "break-all" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              marginTop: 6,
+            }}
+          >
+            <Text
+              size="xs"
+              ff="monospace"
+              style={{ flex: 1, wordBreak: "break-all" }}
+            >
               {column} &rarr; {references}
             </Text>
             <ActionIcon
@@ -87,7 +113,8 @@ export function FkBadge({ column, references, size = 9 }: Props) {
         )}
         {!references && (
           <Text size="xs" c="dimmed" mt={6}>
-            Target unknown — the schema cache has no reference for this constraint.
+            Target unknown — the schema cache has no reference for this
+            constraint.
           </Text>
         )}
       </Popover.Dropdown>

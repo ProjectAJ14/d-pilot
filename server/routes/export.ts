@@ -42,7 +42,7 @@ router.post("/csv", async (req: Request, res: Response) => {
     const { maskedRows, maskedColumns } = maskQueryResults(
       rawResult.columns,
       rawResult.rows,
-      { phiEnabled, isAdmin: user.isAdmin, database: conn.database }
+      { phiEnabled, isAdmin: user.isAdmin, database: conn.database },
     );
 
     // Build CSV
@@ -69,12 +69,19 @@ router.post("/csv", async (req: Request, res: Response) => {
       connectionId,
       rowsReturned: maskedRows.length,
       phiAccessed: !phiEnabled,
-      phiUnmaskReason: !phiEnabled ? (req.headers["x-phi-unmask-reason"] as string) : undefined,
-      phiUnmaskNotes: !phiEnabled ? (req.headers["x-phi-unmask-notes"] as string) : undefined,
+      phiUnmaskReason: !phiEnabled
+        ? (req.headers["x-phi-unmask-reason"] as string)
+        : undefined,
+      phiUnmaskNotes: !phiEnabled
+        ? (req.headers["x-phi-unmask-notes"] as string)
+        : undefined,
     });
 
     res.setHeader("Content-Type", "text/csv");
-    res.setHeader("Content-Disposition", "attachment; filename=query-export.csv");
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=query-export.csv",
+    );
     res.send(csvLines.join("\n"));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -102,11 +109,11 @@ router.post("/json", async (req: Request, res: Response) => {
   try {
     const rawResult = await executeQuery(conn, sql);
     const phiEnabled = resolvePhiEnabled(req, conn.env);
-    const { maskedRows } = maskQueryResults(
-      rawResult.columns,
-      rawResult.rows,
-      { phiEnabled, isAdmin: user.isAdmin, database: conn.database }
-    );
+    const { maskedRows } = maskQueryResults(rawResult.columns, rawResult.rows, {
+      phiEnabled,
+      isAdmin: user.isAdmin,
+      database: conn.database,
+    });
 
     logAudit({
       userId: user.sub,
@@ -116,12 +123,19 @@ router.post("/json", async (req: Request, res: Response) => {
       connectionId,
       rowsReturned: maskedRows.length,
       phiAccessed: !phiEnabled,
-      phiUnmaskReason: !phiEnabled ? (req.headers["x-phi-unmask-reason"] as string) : undefined,
-      phiUnmaskNotes: !phiEnabled ? (req.headers["x-phi-unmask-notes"] as string) : undefined,
+      phiUnmaskReason: !phiEnabled
+        ? (req.headers["x-phi-unmask-reason"] as string)
+        : undefined,
+      phiUnmaskNotes: !phiEnabled
+        ? (req.headers["x-phi-unmask-notes"] as string)
+        : undefined,
     });
 
     res.setHeader("Content-Type", "application/json");
-    res.setHeader("Content-Disposition", "attachment; filename=query-export.json");
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=query-export.json",
+    );
     res.json(maskedRows);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

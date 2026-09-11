@@ -45,7 +45,10 @@ describe("parseBasicAuth", () => {
  * only way to see what a *deployment* would produce rather than what this test
  * process happens to be configured for.
  */
-async function linkFor(basePath: string | undefined, appBaseUrl: string | undefined) {
+async function linkFor(
+  basePath: string | undefined,
+  appBaseUrl: string | undefined,
+) {
   vi.resetModules();
   vi.stubEnv("BASE_PATH", basePath);
   vi.stubEnv("APP_BASE_URL", appBaseUrl);
@@ -66,7 +69,9 @@ describe("appUrl", () => {
 
   it("uses the configured origin at a domain root", async () => {
     const { appUrl } = await linkFor(undefined, "https://d-pilot.internal");
-    expect(appUrl("/artifacts/42")).toBe("https://d-pilot.internal/artifacts/42");
+    expect(appUrl("/artifacts/42")).toBe(
+      "https://d-pilot.internal/artifacts/42",
+    );
   });
 
   it("carries the sub-path in the bare-path fallback", async () => {
@@ -83,12 +88,19 @@ describe("appUrl", () => {
    */
   it("appends the sub-path to a configured origin", async () => {
     const { appUrl } = await linkFor("/d-pilot", "https://intranet.example");
-    expect(appUrl("/artifacts/42")).toBe("https://intranet.example/d-pilot/artifacts/42");
+    expect(appUrl("/artifacts/42")).toBe(
+      "https://intranet.example/d-pilot/artifacts/42",
+    );
   });
 
   it("does not double a prefix the operator already spelled out", async () => {
-    const { appUrl } = await linkFor("/d-pilot", "https://intranet.example/d-pilot");
-    expect(appUrl("/artifacts/42")).toBe("https://intranet.example/d-pilot/artifacts/42");
+    const { appUrl } = await linkFor(
+      "/d-pilot",
+      "https://intranet.example/d-pilot",
+    );
+    expect(appUrl("/artifacts/42")).toBe(
+      "https://intranet.example/d-pilot/artifacts/42",
+    );
   });
 
   it.each(["", "/"])(
@@ -101,11 +113,16 @@ describe("appUrl", () => {
 
   it("builds write-request links the same way", async () => {
     const { appUrl } = await linkFor("/d-pilot", "https://intranet.example");
-    expect(appUrl("/write-requests/7")).toBe("https://intranet.example/d-pilot/write-requests/7");
+    expect(appUrl("/write-requests/7")).toBe(
+      "https://intranet.example/d-pilot/write-requests/7",
+    );
   });
 
   it("artifactUrl is appUrl over the artifacts route", async () => {
-    const { appUrl, artifactUrl } = await linkFor("/d-pilot", "https://intranet.example");
+    const { appUrl, artifactUrl } = await linkFor(
+      "/d-pilot",
+      "https://intranet.example",
+    );
     expect(artifactUrl("42")).toBe(appUrl("/artifacts/42"));
   });
 });

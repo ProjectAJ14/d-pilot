@@ -11,6 +11,7 @@ ever leaving the building in the clear.
 ## Features
 
 ### Query & explore
+
 - **Multi-database support** — PostgreSQL, SQL Server (MSSQL), MongoDB, and Elasticsearch, each with a dialect-aware editor, autocomplete, query templates, and default result view.
 - **Monaco editor** — syntax highlighting and schema-aware autocomplete (tables, columns, PK and 🔐 PHI markers; Mongo `db.collection.find()` style; ES `/_search` paths). Language adapts to the connection type.
 - **Multi-tab workspace** — independent tabs, inline rename, per-tab schema selection, and run-selection-or-whole-query (Cmd/Ctrl+Enter).
@@ -24,12 +25,14 @@ ever leaving the building in the clear.
 - **Export** — download results as **CSV or JSON** (masking enforced and audited).
 
 ### PHI protection
+
 - **PHI tokenization ("shield")** — pattern-based column matching with four masking types: **FULL** (`********`), **PARTIAL** (last 4 shown), **HASH** (`tok_…` deterministic), **REDACT** (`[REDACTED]`).
 - **Per-environment enforcement** — every production environment (any name containing "prod": `PROD`, `SUPER_PROD`, …) is always tokenized and cannot be turned off; the rest of the masked list is configurable. QA/DEV return real values by default.
 - **`alwaysMasked` (locked) rules** — never unmask regardless of role or shield state.
 - **Audited unmasking** — de-tokenizing requires a reason (and optional notes), is gated per-environment, and is logged with user, IP, session, and timestamp. Unauthorized attempts stay masked and are logged as denied.
 
 ### Write workflow (governed)
+
 - **Write mode** with a request → review → approval → execute lifecycle. Globally toggleable by admins.
 - **Two-person rule on production** — writes to any production environment (any name containing "prod") always require a second approver and can never be direct-execute; other environments can be configured for direct write.
 - **Paired verify SELECT** — every write request carries a read-only SELECT to preview affected rows before execution.
@@ -39,14 +42,17 @@ ever leaving the building in the clear.
 - **Full lifecycle audit** — save, submit, AI review, approve/reject, execute/fail, cancel, revise & resubmit — each with an activity timeline.
 
 ### AI assistant (Azure OpenAI)
+
 - **Natural-language → query** for read and write modes, dialect-aware, with a table-selection pass for large schemas and few-shot examples pulled from saved queries.
 - **Schema-only** — only schema metadata is sent to Azure OpenAI; **never row data**. Every generation is logged (prompt, response, model, tokens, latency) for admin review.
 
 ### AI agents (MCP)
+
 - **Hosted MCP endpoint** at `/api/mcp` — agents discover connections, browse schema, and run read-only queries through the same API the UI uses, so capabilities, PHI tokenization, row caps and audit logging all apply unchanged. Configure with just a URL, username, and password; nothing to install.
 - **Agents propose, humans dispose** — an agent can save a write request as a draft (statement plus its verify SELECT); it cannot submit, approve or execute one, so nothing an agent writes reaches a database until a person acts on it in D-Pilot.
 
 ### Artifacts
+
 - **Shareable documents that live next to the data** — prose plus runnable read queries, opened as a tab from `/artifacts/:id` by anyone who can log in. Each query block has its own Run button and its own results.
 - **Stores queries, never rows** — running a block goes through the normal read path, so every reader gets their own capability checks, their own PHI tokenization and their own audit entry. An artifact cannot carry a snapshot past masking policy.
 - **Markdown prose, safely rendered** — text blocks are GitHub-flavoured markdown (headings, bold, lists, tables). The renderer never emits raw HTML, so a document written by one colleague cannot script the app for everyone who opens the link.
@@ -54,6 +60,7 @@ ever leaving the building in the clear.
 - **Agent-authored** — the MCP endpoint can create, update and delete them, so an AI agent's analysis lands somewhere the whole organization can open instead of in one person's chat window.
 
 ### Access control & governance
+
 - **Capability-based access control** — each user has an `isAdmin` flag plus four **per-environment** capability lists: **read**, **unmask PHI**, **write**, and **approve**. Admin implies all capabilities on all environments.
 - **Audit log** — every query, error, export, PHI unmask (and denial), and write-lifecycle event is recorded, with date/type filtering and automatic 30-day archival to a separate database.
 - **Usage analytics** — admin dashboard: users, DAU/WAU/MAU, query volume/latency, AI usage and success rate, PHI unmasks, top users, per-connection activity.
@@ -63,13 +70,13 @@ ever leaving the building in the clear.
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|------------|
-| Frontend | React 19, TypeScript, Vite, Mantine UI v8, Monaco Editor, AG Grid, Zustand |
-| Backend | Node.js, Express, TypeScript |
-| App Database | SQLite (via better-sqlite3, WAL mode) |
-| Auth | JWT (bcrypt + jsonwebtoken) |
-| AI | Azure OpenAI (optional) |
+| Layer        | Technology                                                                 |
+| ------------ | -------------------------------------------------------------------------- |
+| Frontend     | React 19, TypeScript, Vite, Mantine UI v8, Monaco Editor, AG Grid, Zustand |
+| Backend      | Node.js, Express, TypeScript                                               |
+| App Database | SQLite (via better-sqlite3, WAL mode)                                      |
+| Auth         | JWT (bcrypt + jsonwebtoken)                                                |
+| AI           | Azure OpenAI (optional)                                                    |
 
 ## Quick Start
 
@@ -95,10 +102,10 @@ By default, the dev client runs at `http://localhost:3100` and the server at `ht
 
 Both ports are configured in `.env`:
 
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `PORT` | Server port (also used as proxy target in dev) | `3101` |
-| `VITE_PORT` | Dev client port | `3100` |
+| Variable    | Purpose                                        | Default |
+| ----------- | ---------------------------------------------- | ------- |
+| `PORT`      | Server port (also used as proxy target in dev) | `3101`  |
+| `VITE_PORT` | Dev client port                                | `3100`  |
 
 ### Serving under a sub-path
 
@@ -127,7 +134,7 @@ go, and both halves read the same file. **Changing `BASE_PATH` requires a
 rebuild, not just a restart**; a restart alone leaves a client full of URLs
 pointing at the old prefix.
 
-Because the server mounts *itself* under the prefix, the proxy is a plain pass-
+Because the server mounts _itself_ under the prefix, the proxy is a plain pass-
 through with no path rewriting:
 
 ```nginx
@@ -148,7 +155,7 @@ extensions takes priority over a plain prefix location, so without it every
 
 In local development, `npm run dev` reads `.env` for both halves and needs
 nothing extra. `npm run dev:local` does not: the server half is pinned to
-`.env.dev` while the Vite half reads `.env` *and* `.env.dev`, so a `BASE_PATH`
+`.env.dev` while the Vite half reads `.env` _and_ `.env.dev`, so a `BASE_PATH`
 set only in `.env` serves the client under the prefix and proxies to a server
 still mounted at the root — every API call 404s. Set it in both files.
 
@@ -158,7 +165,7 @@ prefix is inside the emitted bundle filenames and the service worker's scope.
 
 #### The prefix is not a security boundary
 
-`BASE_PATH` puts D-Pilot on its own *path*, but browser storage is scoped per
+`BASE_PATH` puts D-Pilot on its own _path_, but browser storage is scoped per
 **origin**. D-Pilot keeps the session JWT, the signed-in user and the persisted
 tab workspace — which holds the SQL you have been writing — in `localStorage`,
 so every one of those is readable by any script running anywhere else on the
@@ -245,11 +252,11 @@ AZURE_OPENAI_MODEL=gpt-4o           # optional, informational
 
 ### Supported connection types
 
-| Type | Required fields |
-|------|----------------|
-| `postgres` | host, port, database, username, password, schema (optional) |
-| `mssql` | host, port, database, username, password |
-| `mongodb` | uri (full connection string) |
+| Type            | Required fields                                                                              |
+| --------------- | -------------------------------------------------------------------------------------------- |
+| `postgres`      | host, port, database, username, password, schema (optional)                                  |
+| `mssql`         | host, port, database, username, password                                                     |
+| `mongodb`       | uri (full connection string)                                                                 |
 | `elasticsearch` | host, port, username, password, and `schema` set to `http` or `https` (used as the protocol) |
 
 ### Access model
@@ -258,12 +265,12 @@ Access is **capability-based and scoped per environment** (`DEV`, `QA`, `UAT`, `
 by default — see [Custom environments](#custom-environments)).
 Each user has an `isAdmin` flag plus four capability lists, managed from **Settings → User Management**:
 
-| Capability | Grants |
-|-----------|--------|
-| **Read** (`allowedEnvironments`) | Query connections in those environments |
+| Capability                            | Grants                                                |
+| ------------------------------------- | ----------------------------------------------------- |
+| **Read** (`allowedEnvironments`)      | Query connections in those environments               |
 | **Unmask PHI** (`unmaskEnvironments`) | De-tokenize PHI (still audited) in those environments |
-| **Write** (`writeEnvironments`) | Author write requests for those environments |
-| **Approve** (`approveEnvironments`) | Approve others' write requests in those environments |
+| **Write** (`writeEnvironments`)       | Author write requests for those environments          |
+| **Approve** (`approveEnvironments`)   | Approve others' write requests in those environments  |
 
 Admin implies every capability on every environment. Production safety rails (mandatory
 PHI tokenization and two-person write approval) always apply regardless of capabilities,
@@ -284,6 +291,7 @@ and the write policy. Only environments the deployment actually has are accepted
 API, so a stale name can't be granted to anyone.
 
 Notes:
+
 - Custom names sort **after** `PROD` and are treated as the most sensitive.
 - **Any environment whose name contains "prod" gets the full production rails** —
   `PROD`, `SUPER_PROD` and `PREPROD` alike are always PHI-tokenized and can never be
@@ -303,22 +311,22 @@ Its tools call D-Pilot's own REST API over loopback, so environment capabilities
 tokenization, row limits and audit logging are enforced exactly as they are for the UI and
 cannot be bypassed. Every agent query lands in the audit log under its service account.
 
-| Tool | Does |
-|------|------|
-| `whoami` | Which account is connected and which environments it may read |
-| `list_connections` | Databases available, per environment (optional `env` filter) |
-| `list_schemas` | Schemas on a connection (Postgres/SQL Server) |
-| `list_tables` | Tables, collections or indices |
-| `describe_table` | Columns, types, nullability |
-| `run_query` | Runs a read-only query, returns rows |
-| `create_artifact` | Publishes a shareable document (prose + runnable read queries), returns its link |
-| `update_artifact` | Edits an artifact the service account created |
-| `get_artifact` | Reads one artifact's full body |
-| `list_artifacts` | Artifacts visible to the account (optional `search`) |
-| `archive_artifact` | Archives (or restores) an artifact the service account created |
-| `create_write_request` | Saves a **draft** change request for a human to review — it never runs |
-| `get_write_request` | Reads one request back, including the AI safety review a human ran on it |
-| `update_write_request` | Edits a draft the service account saved — drafts only, and it stays a draft |
+| Tool                   | Does                                                                             |
+| ---------------------- | -------------------------------------------------------------------------------- |
+| `whoami`               | Which account is connected and which environments it may read                    |
+| `list_connections`     | Databases available, per environment (optional `env` filter)                     |
+| `list_schemas`         | Schemas on a connection (Postgres/SQL Server)                                    |
+| `list_tables`          | Tables, collections or indices                                                   |
+| `describe_table`       | Columns, types, nullability                                                      |
+| `run_query`            | Runs a read-only query, returns rows                                             |
+| `create_artifact`      | Publishes a shareable document (prose + runnable read queries), returns its link |
+| `update_artifact`      | Edits an artifact the service account created                                    |
+| `get_artifact`         | Reads one artifact's full body                                                   |
+| `list_artifacts`       | Artifacts visible to the account (optional `search`)                             |
+| `archive_artifact`     | Archives (or restores) an artifact the service account created                   |
+| `create_write_request` | Saves a **draft** change request for a human to review — it never runs           |
+| `get_write_request`    | Reads one request back, including the AI safety review a human ran on it         |
+| `update_write_request` | Edits a draft the service account saved — drafts only, and it stays a draft      |
 
 Database writes are deliberately **not** exposed — those stay in the write-approval workflow,
 where a human reads the paired verify SELECT and a second person approves.
@@ -339,7 +347,7 @@ approves or runs a request, the agent can no longer change what they are signing
 edited draft stays a draft, so revising one can never become a way to run it.
 
 The artifact tools are the one exception to read-only, and only because they touch no target
-database: an artifact holds prose and *unexecuted* read queries in D-Pilot's own SQLite, an
+database: an artifact holds prose and _unexecuted_ read queries in D-Pilot's own SQLite, an
 agent may only edit the ones its own account created, and nothing it writes reaches a database
 until a human opens the artifact and runs a block as themselves. Set `APP_BASE_URL` so the
 tools hand back clickable links instead of bare `/artifacts/<id>` and `/write-requests/<id>`
@@ -349,7 +357,7 @@ paths.
 
 1. **Pick the account.** Either create a service account in Settings → User Management, or
    let each person connect with their own login — then every agent action is audited under
-   that person and bounded by their capabilities. Grant *only* the Read capability, on *only*
+   that person and bounded by their capabilities. Grant _only_ the Read capability, on _only_
    the environments agents should reach — not an admin. Add Write on an environment only if
    agents should be able to save draft write requests there (they still cannot run one).
 2. **Point the agent at the URL** with its username and password. For Claude Code:
@@ -367,7 +375,9 @@ paths.
        "d-pilot": {
          "type": "http",
          "url": "https://d-pilot.internal/api/mcp",
-         "headers": { "Authorization": "Basic YWdlbnRAZXhhbXBsZS5jb206dGhlLXBhc3N3b3Jk" }
+         "headers": {
+           "Authorization": "Basic YWdlbnRAZXhhbXBsZS5jb206dGhlLXBhc3N3b3Jk"
+         }
        }
      }
    }
@@ -384,10 +394,10 @@ agents connect from other machines — see the reverse-proxy section below.
 
 Optional server-side setting:
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `MCP_MAX_ROWS` | `1000` | Rows returned per query. Agents are told this default (via `whoami` and the `run_query` schema) and can raise it per call with `limit`; `MAX_ROWS` remains the hard ceiling. |
-| `APP_BASE_URL` | *(unset)* | The origin users browse D-Pilot on, used to build clickable artifact and write-request links in tool output. Just the origin — `BASE_PATH` is appended for you, and an origin that already spells the prefix out is left as written. Unset means agents return a bare `/artifacts/<id>` path, sub-path included. |
+| Variable       | Default   | Purpose                                                                                                                                                                                                                                                                                                          |
+| -------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MCP_MAX_ROWS` | `1000`    | Rows returned per query. Agents are told this default (via `whoami` and the `run_query` schema) and can raise it per call with `limit`; `MAX_ROWS` remains the hard ceiling.                                                                                                                                     |
+| `APP_BASE_URL` | _(unset)_ | The origin users browse D-Pilot on, used to build clickable artifact and write-request links in tool output. Just the origin — `BASE_PATH` is appended for you, and an origin that already spells the prefix out is left as written. Unset means agents return a bare `/artifacts/<id>` path, sub-path included. |
 
 **PHI:** the endpoint never sends the unmask headers, so tokenized columns stay tokenized for
 agents regardless of the account's capabilities. `run_query` names the tokenized columns so an
@@ -395,7 +405,7 @@ agent doesn't mistake mask characters for real values. Unmasking stays a UI-only
 requires a human-supplied reason.
 
 **Revoking access:** delete (or change the password of) the service account. Note this stops
-*new* logins but does not kill a token already issued — as everywhere else in D-Pilot, a JWT
+_new_ logins but does not kill a token already issued — as everywhere else in D-Pilot, a JWT
 stays valid until it expires, so revocation takes effect within `JWT_EXPIRES_IN` (24h by
 default). Lower that value if you need a tighter window.
 
@@ -407,8 +417,8 @@ routes, same behavior — just in its own window without browser chrome.
 
 **Installing.** In Chrome or Edge, use the install icon in the address bar, or the
 **Install** button in the footer (it appears only while the browser reports the app as
-installable, and disappears once installed). On iOS, use Safari's *Share → Add to Home
-Screen*.
+installable, and disappears once installed). On iOS, use Safari's _Share → Add to Home
+Screen_.
 
 A service worker requires a **secure context**: HTTPS, or `localhost`. Behind the Nginx
 setup below with a certificate, this works out of the box; over plain `http://<lan-ip>` the
@@ -425,7 +435,7 @@ or edit `scripts/generate-pwa-icons.mjs` and run:
 npm run icons:pwa
 ```
 
-**Updates.** After a deploy, open clients show a *New version available* notification with
+**Updates.** After a deploy, open clients show a _New version available_ notification with
 a **Reload** button. Nothing reloads on its own — an unattended reload would discard open
 editor tabs and any in-flight query.
 
@@ -470,6 +480,7 @@ npm run build
 ```
 
 This produces:
+
 - `dist/client/` — optimized frontend (HTML, JS, CSS)
 - `dist/server/` — compiled backend
 
@@ -622,11 +633,11 @@ cp data/audit_archive.sqlite data/audit_archive-backup-$(date +%Y%m%d).sqlite
 
 ## Troubleshooting
 
-| Issue | Fix |
-|-------|-----|
-| `EADDRINUSE` on startup | Another process is using the port. `lsof -i :3101` to find it |
-| Database connection errors | Verify the server can reach DB hosts: `telnet <host> <port>` |
-| AI assistant returns 503 | Set the `AZURE_OPENAI_*` env vars; use **Settings → Azure OpenAI → Test Connect** |
-| Logo not showing | Check file exists at `public/logo/` and `LOGO_URL` matches the path |
-| Forgot admin password | Delete `data/dbpilot.sqlite` and restart — re-seeds from `.env` |
-| Permission denied on `data/` | `chown -R www-data:www-data /opt/d-pilot/data` |
+| Issue                        | Fix                                                                               |
+| ---------------------------- | --------------------------------------------------------------------------------- |
+| `EADDRINUSE` on startup      | Another process is using the port. `lsof -i :3101` to find it                     |
+| Database connection errors   | Verify the server can reach DB hosts: `telnet <host> <port>`                      |
+| AI assistant returns 503     | Set the `AZURE_OPENAI_*` env vars; use **Settings → Azure OpenAI → Test Connect** |
+| Logo not showing             | Check file exists at `public/logo/` and `LOGO_URL` matches the path               |
+| Forgot admin password        | Delete `data/dbpilot.sqlite` and restart — re-seeds from `.env`                   |
+| Permission denied on `data/` | `chown -R www-data:www-data /opt/d-pilot/data`                                    |

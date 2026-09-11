@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { normalizeBasePath, toBaseUrl, withBase, withBaseOrigin } from "./base-path.js";
+import {
+  normalizeBasePath,
+  toBaseUrl,
+  withBase,
+  withBaseOrigin,
+} from "./base-path.js";
 
 describe("normalizeBasePath", () => {
   it("treats unset, empty and root as the domain root", () => {
@@ -12,7 +17,13 @@ describe("normalizeBasePath", () => {
   });
 
   it("canonicalises whatever an operator is likely to type", () => {
-    for (const raw of ["d-pilot", "/d-pilot", "/d-pilot/", " /d-pilot ", "//d-pilot//"]) {
+    for (const raw of [
+      "d-pilot",
+      "/d-pilot",
+      "/d-pilot/",
+      " /d-pilot ",
+      "//d-pilot//",
+    ]) {
       expect(normalizeBasePath(raw)).toBe("/d-pilot");
     }
   });
@@ -35,7 +46,9 @@ describe("withBase", () => {
     expect(withBase("/d-pilot", "https://cdn.example/logo.png")).toBe(
       "https://cdn.example/logo.png",
     );
-    expect(withBase("/d-pilot", "//cdn.example/logo.png")).toBe("//cdn.example/logo.png");
+    expect(withBase("/d-pilot", "//cdn.example/logo.png")).toBe(
+      "//cdn.example/logo.png",
+    );
   });
 
   it("passes through empty values", () => {
@@ -58,13 +71,15 @@ describe("withBaseOrigin", () => {
     expect(withBaseOrigin("https://intranet.example/d-pilot", "/d-pilot")).toBe(
       "https://intranet.example/d-pilot",
     );
-    expect(withBaseOrigin("https://intranet.example/d-pilot/", "/d-pilot")).toBe(
-      "https://intranet.example/d-pilot",
-    );
+    expect(
+      withBaseOrigin("https://intranet.example/d-pilot/", "/d-pilot"),
+    ).toBe("https://intranet.example/d-pilot");
   });
 
   it("leaves a root deployment's origin untouched", () => {
-    expect(withBaseOrigin("https://d-pilot.internal", "")).toBe("https://d-pilot.internal");
+    expect(withBaseOrigin("https://d-pilot.internal", "")).toBe(
+      "https://d-pilot.internal",
+    );
   });
 
   it("falls back to the bare base path when no origin is configured", () => {
@@ -75,10 +90,14 @@ describe("withBaseOrigin", () => {
   });
 
   it("leaves an unparseable value as the operator wrote it", () => {
-    expect(withBaseOrigin("intranet.example", "/d-pilot")).toBe("intranet.example");
+    expect(withBaseOrigin("intranet.example", "/d-pilot")).toBe(
+      "intranet.example",
+    );
   });
 
   it("is not fooled by a host that ends in the prefix", () => {
-    expect(withBaseOrigin("https://d-pilot", "/d-pilot")).toBe("https://d-pilot/d-pilot");
+    expect(withBaseOrigin("https://d-pilot", "/d-pilot")).toBe(
+      "https://d-pilot/d-pilot",
+    );
   });
 });

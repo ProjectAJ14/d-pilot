@@ -20,14 +20,20 @@ function matchPattern(columnName: string, pattern: string): boolean {
 export function findMatchingRule(
   columnName: string,
   database?: string,
-  table?: string
+  table?: string,
 ): PhiFieldRule | null {
   const rules = getPhiRules();
 
   for (const rule of rules) {
     // If rule is scoped to a specific database/table, check those first
-    if (rule.database && database && rule.database.toLowerCase() !== database.toLowerCase()) continue;
-    if (rule.table && table && rule.table.toLowerCase() !== table.toLowerCase()) continue;
+    if (
+      rule.database &&
+      database &&
+      rule.database.toLowerCase() !== database.toLowerCase()
+    )
+      continue;
+    if (rule.table && table && rule.table.toLowerCase() !== table.toLowerCase())
+      continue;
 
     if (matchPattern(columnName, rule.pattern)) {
       return rule;
@@ -79,7 +85,7 @@ export function maskQueryResults(
     isAdmin: boolean;
     database?: string;
     table?: string;
-  }
+  },
 ): {
   maskedRows: Record<string, unknown>[];
   maskedColumns: QueryColumn[];
@@ -89,7 +95,10 @@ export function maskQueryResults(
   const maskedFieldNames: string[] = [];
 
   // Determine which columns need masking
-  const columnMasks = new Map<string, { type: MaskingType; alwaysMasked: boolean }>();
+  const columnMasks = new Map<
+    string,
+    { type: MaskingType; alwaysMasked: boolean }
+  >();
 
   for (const col of columns) {
     const rule = findMatchingRule(col, options.database, options.table);
@@ -97,7 +106,10 @@ export function maskQueryResults(
       // Always-masked fields are ALWAYS masked, regardless of toggle or role
       const shouldMask = rule.alwaysMasked || options.phiEnabled;
       if (shouldMask) {
-        columnMasks.set(col, { type: rule.maskingType, alwaysMasked: rule.alwaysMasked });
+        columnMasks.set(col, {
+          type: rule.maskingType,
+          alwaysMasked: rule.alwaysMasked,
+        });
         maskedFieldNames.push(col);
       }
       columnMeta.push({

@@ -88,7 +88,8 @@ export function PhiConfigPanel() {
             alignItems: "flex-start",
             gap: 10,
             background: "color-mix(in srgb, var(--token) 8%, transparent)",
-            border: "1px solid color-mix(in srgb, var(--token) 25%, transparent)",
+            border:
+              "1px solid color-mix(in srgb, var(--token) 25%, transparent)",
             borderRadius: 10,
             padding: 14,
             marginBottom: 14,

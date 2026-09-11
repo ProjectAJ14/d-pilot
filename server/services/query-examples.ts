@@ -6,7 +6,11 @@
 // ones, so the examples are runnable on this connection. Real, working queries
 // teach the model this DB's naming, join patterns, and conventions.
 
-import type { ConnectionConfig, DatabaseType, SavedQuery } from "../types/index.js";
+import type {
+  ConnectionConfig,
+  DatabaseType,
+  SavedQuery,
+} from "../types/index.js";
 import { getConnection } from "../config/connections.js";
 
 const MAX_EXAMPLES = 3;
@@ -29,34 +33,45 @@ function singular(s: string): string {
 }
 
 /** Tables/collections/indices referenced by a query, per dialect. */
-export function extractReferencedTables(sql: string, type: DatabaseType): Set<string> {
+export function extractReferencedTables(
+  sql: string,
+  type: DatabaseType,
+): Set<string> {
   const out = new Set<string>();
   if (!sql) return out;
 
   if (type === "mongodb") {
-    for (const m of sql.matchAll(/\bdb\.([A-Za-z0-9_]+)/g)) out.add(m[1].toLowerCase());
+    for (const m of sql.matchAll(/\bdb\.([A-Za-z0-9_]+)/g))
+      out.add(m[1].toLowerCase());
     return out;
   }
   if (type === "elasticsearch") {
-    for (const m of sql.matchAll(/(?:GET|POST|PUT)\s+\/?([\w\-.*]+)\s*\/\s*_(?:search|count|doc)/gi)) {
+    for (const m of sql.matchAll(
+      /(?:GET|POST|PUT)\s+\/?([\w\-.*]+)\s*\/\s*_(?:search|count|doc)/gi,
+    )) {
       out.add(m[1].toLowerCase());
     }
     return out;
   }
   // SQL dialects (postgres, mssql): tables follow FROM / JOIN / INTO / UPDATE.
-  for (const m of sql.matchAll(/\b(?:FROM|JOIN|INTO|UPDATE)\s+("[^"]+"|\[[^\]]+\]|[A-Za-z_][\w.]*)/gi)) {
+  for (const m of sql.matchAll(
+    /\b(?:FROM|JOIN|INTO|UPDATE)\s+("[^"]+"|\[[^\]]+\]|[A-Za-z_][\w.]*)/gi,
+  )) {
     out.add(normalizeTable(m[1]));
   }
   return out;
 }
 
 /** Schema tables that the user's prompt appears to be about (with plural tolerance). */
-function candidateTablesFromPrompt(prompt: string, schemaTableNames: string[]): Set<string> {
+function candidateTablesFromPrompt(
+  prompt: string,
+  schemaTableNames: string[],
+): Set<string> {
   const tokens = new Set(
     prompt
       .toLowerCase()
       .split(/[^a-z0-9_]+/)
-      .filter(Boolean)
+      .filter(Boolean),
   );
   const singularTokens = new Set([...tokens].map(singular));
 
@@ -68,7 +83,8 @@ function candidateTablesFromPrompt(prompt: string, schemaTableNames: string[]): 
     if (
       tokens.has(name) ||
       singularTokens.has(singular(name)) ||
-      (last.length >= 4 && (tokens.has(last) || singularTokens.has(singular(last))))
+      (last.length >= 4 &&
+        (tokens.has(last) || singularTokens.has(singular(last))))
     ) {
       matched.add(name);
     }
@@ -85,7 +101,7 @@ export function selectExampleQueries(
   conn: ConnectionConfig,
   prompt: string,
   schemaTableNames: string[],
-  savedQueries: SavedQuery[]
+  savedQueries: SavedQuery[],
 ): ExampleQuery[] {
   const candidates = candidateTablesFromPrompt(prompt, schemaTableNames);
   if (candidates.size === 0) return [];
@@ -100,7 +116,10 @@ export function selectExampleQueries(
     const refs = extractReferencedTables(q.sql, conn.type);
     let overlaps = false;
     for (const t of refs) {
-      if (candidates.has(t)) { overlaps = true; break; }
+      if (candidates.has(t)) {
+        overlaps = true;
+        break;
+      }
     }
     if (!overlaps) continue;
 

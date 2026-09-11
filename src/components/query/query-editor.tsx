@@ -46,7 +46,10 @@ import {
   pushKeywordItems,
   type SqlDialect,
 } from "../../utils/sql-completions";
-import { baseSqlEditorOptions, useEditorTheme } from "../../utils/monaco-editor-options";
+import {
+  baseSqlEditorOptions,
+  useEditorTheme,
+} from "../../utils/monaco-editor-options";
 import { useVimMode } from "../../utils/vim-mode";
 
 interface Props {

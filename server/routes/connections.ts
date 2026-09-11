@@ -1,5 +1,9 @@
 import { Router, Request, Response } from "express";
-import { loadConnections, getConnectionsByEnv, getConnection } from "../config/connections.js";
+import {
+  loadConnections,
+  getConnectionsByEnv,
+  getConnection,
+} from "../config/connections.js";
 import {
   testConnection,
   getPoolStatus,
@@ -23,15 +27,19 @@ router.get("/status", requireAdmin, (_req: Request, res: Response) => {
 });
 
 // Force-close a connection's pool; it reconnects lazily on next use.
-router.post("/:id/disconnect", requireAdmin, async (req: Request, res: Response) => {
-  const conn = getConnection(req.params.id as string);
-  if (!conn) {
-    res.status(404).json({ error: "Connection not found" });
-    return;
-  }
-  const closed = await closeConnectionPool(conn.id);
-  res.json({ connectionId: conn.id, closed });
-});
+router.post(
+  "/:id/disconnect",
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    const conn = getConnection(req.params.id as string);
+    if (!conn) {
+      res.status(404).json({ error: "Connection not found" });
+      return;
+    }
+    const closed = await closeConnectionPool(conn.id);
+    res.json({ connectionId: conn.id, closed });
+  },
+);
 
 router.get("/", (req: Request, res: Response) => {
   const allowed = req.user?.allowedEnvironments || [];

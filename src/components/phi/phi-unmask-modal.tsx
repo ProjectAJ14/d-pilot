@@ -41,11 +41,13 @@ export function PhiUnmaskModal() {
       localStorage.removeItem("phi_unmask_notes");
     }
     // Log the unmask event to audit
-    api.logPhiUnmask({
-      reason,
-      notes: notes || undefined,
-      connectionId: activeConnectionId ?? undefined,
-    }).catch(() => {}); // fire-and-forget, don't block unmask on audit failure
+    api
+      .logPhiUnmask({
+        reason,
+        notes: notes || undefined,
+        connectionId: activeConnectionId ?? undefined,
+      })
+      .catch(() => {}); // fire-and-forget, don't block unmask on audit failure
     setPhi(false);
     PhiUnmaskModal.close();
   };
@@ -74,7 +76,8 @@ export function PhiUnmaskModal() {
       <Text size="sm" c="dimmed" mb="sm" style={{ lineHeight: 1.6 }}>
         You are requesting real PHI values on a{" "}
         <strong>{activeConn?.env || "PRODUCTION"}</strong> connection. Tokens
-        will be resolved server-side and real data returned to your session only.
+        will be resolved server-side and real data returned to your session
+        only.
       </Text>
 
       {/* HIPAA Warning */}
