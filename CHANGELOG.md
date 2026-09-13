@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [1.23.2](https://github.com/ProjectAJ14/d-pilot/compare/v1.23.1...v1.23.2) (2026-09-13)
+
+
+### Bug Fixes
+
+* **requests:** let the owner edit a saved draft from the dashboard ([b99d20e](https://github.com/ProjectAJ14/d-pilot/commit/b99d20e389232a588d87fe5556515c5377cc42c7))
+
 ## [1.23.1](https://github.com/ProjectAJ14/d-pilot/compare/v1.23.0...v1.23.1) (2026-09-11)
 
 
