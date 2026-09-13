@@ -135,6 +135,8 @@ interface WriteComposerProps {
   initial?: Partial<ComposerDraft>;
   /** Show a "note to reviewer" field (revise). */
   showNote?: boolean;
+  /** Override the submit button label (revise: "Save draft" for a draft edit). */
+  submitLabel?: string;
   onSubmit: (payload: ComposerSubmit) => Promise<WriteRequest>;
   /** Save the request without submitting or running it. Shows a "Save request" button. */
   onSave?: (payload: ComposerSubmit) => Promise<WriteRequest>;
@@ -156,6 +158,7 @@ export function WriteComposer({
   lockConnectionId,
   initial,
   showNote,
+  submitLabel: submitLabelOverride,
   onSubmit,
   onSave,
   onSubmitted,
@@ -469,11 +472,9 @@ export function WriteComposer({
     }
   };
 
-  const submitLabel = !isCreate
-    ? "Resubmit"
-    : isDirect
-      ? "Run write"
-      : "Submit for approval";
+  const submitLabel =
+    submitLabelOverride ??
+    (!isCreate ? "Resubmit" : isDirect ? "Run write" : "Submit for approval");
 
   // Mockup-style env strip colors: teal for direct, amber for approval.
   const modeMeta = isDirect

@@ -305,9 +305,11 @@ export function WriteRequestDetail() {
     ["DRAFT", "CANCELLED", "REJECTED", "FAILED", "EXECUTED"].includes(
       wr.status,
     );
+  // Drafts are editable too — an agent-authored draft is exactly what its owner
+  // comes to the dashboard to fill in. The server keeps a draft edit a draft.
   const canRevise =
-    wr.viewerIsRequester &&
-    ["REJECTED", "CANCELLED", "FAILED"].includes(wr.status);
+    (wr.viewerIsRequester || isAdmin) &&
+    (isDraft || ["REJECTED", "CANCELLED", "FAILED"].includes(wr.status));
   // The request's connection, as a single locked option for the edit composer.
   const editConnections: ConnectionInfo[] = [
     {
@@ -539,19 +541,20 @@ export function WriteRequestDetail() {
           </Alert>
         )}
 
-        {/* Edit & resubmit CTA for the requester on a revisable request */}
+        {/* Edit CTA: fill in a draft, or revise a request that needs changes */}
         {canRevise && (
           <Alert
             color="grape"
             mb="md"
             variant="light"
             icon={<IconEdit size={16} />}
-            title="Needs changes"
+            title={isDraft ? "Editable" : "Needs changes"}
           >
             <Group justify="space-between" wrap="nowrap">
               <Text size="sm">
-                Edit the query and resubmit it for a fresh review — the share
-                link stays the same.
+                {isDraft
+                  ? "Fill in the placeholders or change the statement — it stays a draft until you submit it."
+                  : "Edit the query and resubmit it for a fresh review — the share link stays the same."}
               </Text>
               <Button
                 size="xs"
@@ -560,7 +563,7 @@ export function WriteRequestDetail() {
                 onClick={() => setEditOpen(true)}
                 style={{ flexShrink: 0 }}
               >
-                Edit &amp; resubmit
+                {isDraft ? "Edit draft" : "Edit & resubmit"}
               </Button>
             </Group>
           </Alert>
@@ -943,20 +946,21 @@ export function WriteRequestDetail() {
         </Group>
       </Modal>
 
-      {/* Edit & resubmit — the same composer as creating, pre-filled */}
+      {/* Edit — the same composer as creating, pre-filled */}
       <Modal
         opened={editOpen}
         onClose={() => setEditOpen(false)}
-        title="Edit & resubmit"
+        title={isDraft ? "Edit draft" : "Edit & resubmit"}
         size="xl"
       >
         <WriteComposer
           mode="revise"
+          submitLabel={isDraft ? "Save draft" : undefined}
           connections={editConnections}
           lockConnectionId={wr.connectionId}
           directEnvs={directEnvs}
           writeModeEnabled={writeModeEnabled}
-          showNote
+          showNote={!isDraft}
           initial={{
             title: wr.title,
             description: wr.description,
