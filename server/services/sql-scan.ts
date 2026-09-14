@@ -128,15 +128,18 @@ export function scanSql(sql: string): SqlScan {
 
   const masked = out.join("");
 
+  // A segment counts as a statement only if it holds actual code. Test that on
+  // the *masked* slice (index-aligned with the source) so a trailing comment
+  // after the last `;` -- the usual "-- run this each morning" footer -- isn't
+  // counted as a second statement and rejected as a stacked query.
   const statements: string[] = [];
   let start = 0;
   for (const b of boundaries) {
-    const s = sql.slice(start, b).trim();
-    if (s) statements.push(s);
+    if (masked.slice(start, b).trim())
+      statements.push(sql.slice(start, b).trim());
     start = b + 1;
   }
-  const tail = sql.slice(start).trim();
-  if (tail) statements.push(tail);
+  if (masked.slice(start).trim()) statements.push(sql.slice(start).trim());
 
   return { statementCount: statements.length, masked, statements };
 }
