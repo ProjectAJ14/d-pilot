@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [1.23.3](https://github.com/ProjectAJ14/d-pilot/compare/v1.23.2...v1.23.3) (2026-09-14)
+
+
+### Bug Fixes
+
+* **query:** stop counting a trailing comment as a second statement ([d565124](https://github.com/ProjectAJ14/d-pilot/commit/d565124d675807642ef0befe55bcfbdf357b40a3))
+
 ## [1.23.2](https://github.com/ProjectAJ14/d-pilot/compare/v1.23.1...v1.23.2) (2026-09-13)
 
 
