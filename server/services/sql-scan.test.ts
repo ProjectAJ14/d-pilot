@@ -59,3 +59,16 @@ describe("scanSql", () => {
     ]);
   });
 });
+
+describe("trailing comments", () => {
+  it("does not count a comment after the final ';' as a statement", () => {
+    const r = scanSql("select 1;\n-- run this each morning; by hand\n");
+    expect(r.statementCount).toBe(1);
+    expect(r.statements).toEqual(["select 1"]);
+  });
+
+  it("ignores a comment-only segment between statements", () => {
+    const r = scanSql("select 1;\n/* note */\nselect 2;");
+    expect(r.statementCount).toBe(2);
+  });
+});
