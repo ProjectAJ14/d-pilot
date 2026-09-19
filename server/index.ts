@@ -105,9 +105,12 @@ router.get("/manifest.webmanifest", (_req, res) => {
     scope: BASE_URL,
     // The installed window is the web app, unchanged — same layout, same routes.
     display: "standalone",
-    // Mirrors --bg and --accent4 in src/styles/global.css.
-    background_color: "#f3f6f7",
-    theme_color: "#0c2340",
+    // The paper ground's --bg and --ink. A manifest is JSON served before the
+    // app boots, so these cannot be var()s — they are the one place outside
+    // src/styles/tokens.css that restates a ground value, and the splash screen
+    // an installed app shows is what they paint.
+    background_color: "#f0ede6",
+    theme_color: "#16150f",
     icons: [
       { src: `${BASE_PATH}/pwa-192.png`, sizes: "192x192", type: "image/png" },
       { src: `${BASE_PATH}/pwa-512.png`, sizes: "512x512", type: "image/png" },

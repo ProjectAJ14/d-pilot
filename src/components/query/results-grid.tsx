@@ -6,14 +6,7 @@ import {
   useState,
   Fragment,
 } from "react";
-import {
-  Text,
-  Badge,
-  SegmentedControl,
-  Menu,
-  Button,
-  useComputedColorScheme,
-} from "@mantine/core";
+import { Text, Badge, SegmentedControl, Menu, Button } from "@mantine/core";
 import {
   IconShieldLock,
   IconAlertTriangle,
@@ -75,69 +68,40 @@ function groupFormats(formats: CopyFormat[]): [string, CopyFormat[]][] {
 
 /**
  * AG Grid renders into its own CSS-variable namespace and does NOT inherit the
- * app's `--surface`/`--text` tokens, so the grid needs its own light and dark
- * definitions. These values must stay in step with `src/styles/global.css`.
+ * app's `--surface`/`--text` tokens by name — but every colour param it takes
+ * is emitted verbatim into CSS, so handing it a `var()` is enough. It then
+ * derives the rest (hover tints, header splits, range borders) from those with
+ * `color-mix`, which resolves against whichever ground is active.
  *
- * The mode is selected by `data-ag-theme-mode` on <html> — see `useAgThemeMode`
- * below. Params shared by both schemes go in the un-scoped `withParams` call.
+ * That is the whole theming integration: no palette duplicated here, no
+ * light/dark split, and no `data-ag-theme-mode` attribute to keep in sync with
+ * the colour scheme. Setting `--ag-*` on `:root` would NOT work — AG Grid emits
+ * its own defaults onto the grid element, which shadows anything inherited.
  */
-const sharedGridParams = {
+const gridTheme = themeQuartz.withParams({
+  accentColor: "var(--accent)",
+  backgroundColor: "var(--surface)",
+  foregroundColor: "var(--text)",
+  borderColor: "var(--border)",
+  chromeBackgroundColor: "var(--surface2)",
+  headerBackgroundColor: "var(--surface2)",
+  headerTextColor: "var(--muted)",
+  rowHoverColor: "var(--hover)",
+  selectedRowBackgroundColor: "var(--selected)",
+  rowBorder: "solid 1px var(--border)",
+  columnBorder: "solid 1px var(--border)",
+  // The grid is the densest thing in the app and everything in it is data, so
+  // it is mono throughout — header included, which is what lets the header read
+  // as the micro-label it is. `wrapperBorderRadius: 0` matches the square
+  // chrome; see `--radius-*` in tokens.css.
+  headerFontFamily: "var(--font-mono)",
   headerFontSize: 11,
-  headerFontWeight: 700,
+  headerFontWeight: 600,
+  fontFamily: "var(--font-mono)",
   fontSize: 12,
-  fontFamily: "IBM Plex Mono, monospace",
   spacing: 6,
   wrapperBorderRadius: 0,
-};
-
-const gridTheme = themeQuartz
-  .withParams(sharedGridParams)
-  .withParams(
-    {
-      accentColor: "#1f9196",
-      backgroundColor: "#FFFFFF",
-      borderColor: "#ccd0d2",
-      browserColorScheme: "light",
-      chromeBackgroundColor: "#f3f6f7",
-      foregroundColor: "#0c2340",
-      headerBackgroundColor: "#f3f6f7",
-      rowHoverColor: "rgba(12, 35, 64, 0.045)",
-      selectedRowBackgroundColor: "rgba(31, 145, 150, 0.12)",
-      rowBorder: { color: "#e8e8e8", style: "solid", width: 1 },
-      columnBorder: { color: "#e8e8e8", style: "solid", width: 1 },
-    },
-    "light",
-  )
-  .withParams(
-    {
-      accentColor: "#43d0d6",
-      backgroundColor: "#121e2a",
-      borderColor: "#2a3b4a",
-      browserColorScheme: "dark",
-      chromeBackgroundColor: "#182633",
-      foregroundColor: "#e4ebf1",
-      headerBackgroundColor: "#182633",
-      rowHoverColor: "rgba(255, 255, 255, 0.055)",
-      selectedRowBackgroundColor: "rgba(67, 208, 214, 0.16)",
-      // On dark the row grid lines have to be lighter than the surface, not
-      // darker, or the table reads as a solid block.
-      rowBorder: { color: "#21313f", style: "solid", width: 1 },
-      columnBorder: { color: "#21313f", style: "solid", width: 1 },
-    },
-    "dark",
-  );
-
-/**
- * Mirror Mantine's resolved color scheme onto the attribute AG Grid reads.
- * `useComputedColorScheme` collapses `auto` to the concrete light/dark value,
- * which is what the grid needs — it has no notion of "follow the system".
- */
-function useAgThemeMode() {
-  const scheme = useComputedColorScheme("light");
-  useEffect(() => {
-    document.documentElement.dataset.agThemeMode = scheme;
-  }, [scheme]);
-}
+});
 
 // Short values render fully in the cell, so opening the inspector for them is
 // just friction. Only values longer than this get a click-to-expand panel.
@@ -206,7 +170,6 @@ function FkHeader(props: {
 }
 
 export function ResultsGrid({ tab, onViewModeChange }: Props) {
-  useAgThemeMode();
   const phiEnabled = useStore((s) => s.phiEnabled);
   const updateTab = useStore((s) => s.updateTab);
   // Deployment-configured "Copy as" formats (COPY_FORMATS env), with a code

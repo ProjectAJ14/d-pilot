@@ -10,10 +10,18 @@ import { useStore } from "../store";
  * anything else.
  */
 
+/**
+ * Mantine palette names, and each of these five is overridden in `main.tsx`
+ * with a ramp tuned to the two grounds — so an env badge follows the theme
+ * rather than sitting on it in stock Mantine colours.
+ *
+ * `teal` is deliberately not in this list any more: verdigris is the brand and
+ * the PHI-tokenization hue, so an env wearing it would read as "masked".
+ */
 const ENV_COLORS: Record<string, string> = {
   PROD: "red",
   STG: "orange",
-  UAT: "teal",
+  UAT: "blue",
   QA: "violet",
   DEV: "green",
 };
@@ -25,8 +33,11 @@ const ENV_LABELS: Record<string, string> = {
   DEV: "Development",
 };
 
-/** Badge color for an environment; custom envs get a distinct fallback. */
-export const envColor = (env: string): string => ENV_COLORS[env] ?? "pink";
+/** Badge color for an environment. A deployment can define its own env name,
+ *  and there is no sixth hue that is not already spoken for, so anything
+ *  unrecognised gets the neutral ramp rather than a colour that would claim a
+ *  meaning it does not have. */
+export const envColor = (env: string): string => ENV_COLORS[env] ?? "neutral";
 
 /** Human label for an environment; custom envs show their own name. */
 export const envLabel = (env: string): string => ENV_LABELS[env] ?? env;

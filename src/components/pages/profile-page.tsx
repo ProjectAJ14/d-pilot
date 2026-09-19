@@ -182,16 +182,16 @@ function Avatar({ initials, size }: { initials: string; size: number }) {
         width: size,
         height: size,
         borderRadius: "50%",
-        // Brand mark: fixed teal->navy in BOTH schemes. Using --accent4 here
-        // inverted the circle in dark mode (that token is near-white there),
-        // which dragged the initials' color along with it.
-        background: "linear-gradient(135deg, #1f9196, #0c2340)",
+        // Brand mark: one palette on BOTH grounds. A ground role would invert
+        // the circle on ink (and drag the initials with it), so this is the
+        // fixed brand gradient from tokens.css.
+        background: "var(--brand-mark)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         fontSize: size / 3,
         fontWeight: 700,
-        color: "#fff",
+        color: "var(--brand-ink)",
         flexShrink: 0,
       }}
     >

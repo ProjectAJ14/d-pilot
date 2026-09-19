@@ -56,11 +56,11 @@ export function LoginScreen() {
         <div
           style={{
             flex: 1,
-            // Intentionally literal, not tokenized: this panel is the brand
-            // surface and stays navy in both schemes — the form beside it is
-            // what switches. Its contents are always light-on-dark.
-            background:
-              "linear-gradient(160deg, #143656 0%, #102a45 50%, #143656 100%)",
+            // The brand surface: one palette on BOTH grounds, because a logo
+            // does not invert when you turn the lights on. The form beside it
+            // is what switches. Defined in tokens.css so a new accent still
+            // re-themes it; its contents are always light-on-verdigris.
+            background: "var(--brand-bg)",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
@@ -74,8 +74,7 @@ export function LoginScreen() {
             style={{
               position: "absolute",
               inset: 0,
-              background:
-                "radial-gradient(ellipse 60% 50% at 30% 40%, rgba(31,145,150,0.15) 0%, transparent 60%)",
+              background: "var(--brand-glow)",
             }}
           />
           <div style={{ position: "relative", textAlign: "center" }}>
@@ -86,13 +85,28 @@ export function LoginScreen() {
                 style={{ height: 200, marginBottom: 36 }}
               />
             )}
-            <Text fw={700} size="28px" c="white" mb={8}>
+            {/* The one place the display face gets to be loud. The two lines
+                under it are micro-labels, so they take the mono treatment —
+                and a solved ramp step rather than white-at-35%, which was
+                2.2:1 and unreadable. */}
+            <Text
+              component="h1"
+              c="var(--brand-ink)"
+              mb={8}
+              style={{
+                fontFamily: "var(--font-disp)",
+                fontWeight: "var(--weight-extra)",
+                fontSize: "var(--display-1)",
+                letterSpacing: "var(--tracking-display)",
+                lineHeight: "var(--leading-display)",
+              }}
+            >
               {appName}
             </Text>
-            <Text size="sm" c="rgba(255,255,255,0.5)" ff="monospace">
+            <Text className="dp-eyebrow" c="var(--brand-dim)">
               Internal Query Tool
             </Text>
-            <Text size="xs" c="rgba(255,255,255,0.35)" ff="monospace" mt={4}>
+            <Text className="dp-eyebrow" c="var(--brand-faint)" mt={6}>
               HIPAA &middot; PHI Tokenized
             </Text>
           </div>

@@ -1,139 +1,95 @@
 /**
- * D-Pilot semantic design tokens.
+ * App-wide CSS: the semantic alias layer, then the base styles and the
+ * interaction utilities.
  *
- * Every color in the app resolves through one of these — components must never
- * hardcode a hex (see `.claude/skills/design/SKILL.md`). Each token is defined
- * in BOTH schemes here, so a component that reads `var(--surface)` is already
- * dark-mode correct and never needs to branch on the color scheme in JS.
+ * Colours are NOT decided here — `styles/tokens.css` owns the design system
+ * (the accent ramp, the type scale, the radii, and the two grounds). This file
+ * only maps D-Pilot's long-standing semantic names onto the roles that file
+ * defines, so a component can go on saying `var(--surface)` while the system
+ * underneath it changes. Re-theming the app means editing tokens.css and
+ * nothing else.
  *
  * Mantine owns the scheme: it writes `data-mantine-color-scheme="light|dark"`
  * onto <html> (and an inline script in index.html sets it before first paint so
  * there is no flash). "System" is Mantine's `auto`, which resolves to one of the
- * two — there is no third block below by design.
+ * two — there is no third ground by design.
  */
 
-:root,
-[data-mantine-color-scheme="light"] {
-  color-scheme: light;
+@import "./tokens.css";
 
-  /* Surfaces — canvas → raised → recessed → sunken */
-  --bg: #f3f6f7;
-  --surface: #ffffff;
-  --surface2: #f3f6f7;
-  --surface3: #e8e8e8;
+/**
+ * The alias layer.
+ *
+ * Each of these is a plain indirection, declared ONCE rather than per scheme:
+ * `--surface` means "the raised panel of whatever ground is active", and the
+ * ground blocks in tokens.css are what make that resolve differently in light
+ * and dark. A token that resolved to a literal here would have to be written
+ * twice and would drift.
+ *
+ *   D-Pilot name   role in tokens.css   means
+ *   -------------- -------------------- -----------------------------------
+ *   --surface      --panel              raised panel / card / row
+ *   --surface2     --mass               recessed strip
+ *   --surface3     --well               sunken well
+ *   --border       --line               decorative hairline
+ *   --border2      --line-strong        boundary of a CONTROL (3:1)
+ *   --text         --ink                primary text
+ *   --muted2       --dim                secondary text
+ *   --muted        --faint              tertiary text
+ *   --accent       --spot               brand, for shapes and icons
+ *   --accent-text  --spot               brand, for words
+ *   --on-accent    --spot-ink           ink ON a brand fill
+ *   --token        --spot               PHI tokenization
+ *
+ * `--bg`, `--success`, `--error`, `--warning`, `--type-special`, `--hover`,
+ * `--active`, `--focus-ring`, `--selected` and the shadows keep their names
+ * across both layers, so they need no alias.
+ *
+ * Two notes on what the verdigris palette collapsed:
+ *
+ *  - `--accent-text` used to be a darker step than `--accent`, because the old
+ *    teal cleared 3:1 (enough for an icon) but not 4.5:1 (enough for a word).
+ *    The verdigris step each ground picks clears 4.5:1 on all four of its
+ *    surfaces, so both names now resolve to the same colour. They are kept
+ *    rather than merged: they still say different things, and a future accent
+ *    may well need to split them again.
+ *  - `--accent4` was "emphatic text", and was already the primary text colour
+ *    in both schemes.
+ */
+:root {
+  --surface: var(--panel);
+  --surface2: var(--mass);
+  --surface3: var(--well);
 
-  /* Lines.
-     `--border` is decorative — separators, panel edges — and stays hairline.
-     `--border2` is the boundary of a CONTROL (input, select, scrollbar thumb),
-     which WCAG 1.4.11 requires to be identifiable at 3:1, so it is deliberately
-     heavier than it looks like it should be. IBM Carbon's field border sits at
-     the same ratio for the same reason. Do not swap the two. */
-  --border: #ccd0d2;
-  --border2: #878f97;
+  --border: var(--line);
+  --border2: var(--line-strong);
 
-  /* Text — primary / secondary / tertiary */
-  --text: #0c2340;
-  --muted2: #576e75;
-  /* Was #8f9aa7 — 2.6:1 on --surface2, i.e. tertiary text nobody could read.
-     Darkened to the minimum that clears 4.5:1 against the lighter surface. */
-  --muted: #667281;
+  --text: var(--ink);
+  --muted2: var(--dim);
+  --muted: var(--faint);
 
-  /* Brand.
-     `--accent` is the brand teal and stays exactly as it is. At 3.8:1 on white
-     it clears the 3:1 bar for UI shapes and icons but NOT the 4.5:1 bar for
-     text, so anything that renders *words* in the brand color — or white words
-     on top of it — uses `--accent-text` instead. Same hue, one step darker. */
-  --accent: #1f9196;
-  --accent-text: #1b7c81;
-  /* Ink for words sitting ON a filled brand surface. Light mode fills with the
-     dark teal, so white reads; dark mode fills with the light teal, where white
-     collapses to 1.9:1 and the navy scores 8.4:1. Mantine cannot pick this
-     itself — see the variantColorResolver note in main.tsx. */
-  --on-accent: #ffffff;
-  --accent2: #4caf50;
-  --accent4: #0c2340;
+  --accent: var(--spot);
+  --accent-text: var(--spot);
+  --accent4: var(--ink);
+  --on-accent: var(--spot-ink);
 
-  /* State */
-  --success: #2e7d32;
-  --error: #d52e2e;
-  /* #b47707 measured 3.8:1 on white; this is the nearest passing shade. */
-  --warning: #9b6606;
-
-  /* Reserved semantics — teal means PHI tokenization, never brand decoration */
-  --token: #1f9196;
-
-  /* Value-type accent for JSON/grid rendering: booleans, dates, non-scalars. */
-  --type-special: #7c3aed;
-
-  /* Interaction */
-  --hover: rgba(12, 35, 64, 0.045);
-  --active: rgba(12, 35, 64, 0.08);
-  --focus-ring: #1f9196;
-
-  /* Elevation — real shadows read on a light canvas */
-  --shadow-1: 0 1px 2px rgba(12, 35, 64, 0.1);
-  --shadow-2: 0 4px 14px rgba(12, 35, 64, 0.12);
-
-  /* Selection / highlight */
-  --selected: rgba(31, 145, 150, 0.12);
-}
-
-[data-mantine-color-scheme="dark"] {
-  color-scheme: dark;
-
-  /* Not an inversion: the dark surfaces are the brand navy desaturated down,
-     and each step up is *lighter* — on dark, elevation is surface, not shadow. */
-  --bg: #0b1620;
-  --surface: #121e2a;
-  --surface2: #182633;
-  --surface3: #21313f;
-
-  --border: #2a3b4a;
-  --border2: #547189;
-
-  --text: #e4ebf1;
-  --muted2: #a9bac8;
-  --muted: #7d90a1;
-
-  /* Saturated brand colors go muddy on dark — each of these steps a few shades
-     lighter than its light-mode twin to hold 4.5:1 against --surface. The teal
-     clears 9:1 up here, so unlike in light mode text and fill can share it. */
-  --accent: #43d0d6;
-  --accent-text: #43d0d6;
-  --on-accent: #0c2340;
-  --accent2: #66bb6a;
-  --accent4: #e4ebf1;
-
-  --success: #66bb6a;
-  --error: #e86f6f;
-  --warning: #f3ce52;
-
-  --token: #43d0d6;
-
-  --type-special: #b48cff;
-
-  --hover: rgba(255, 255, 255, 0.055);
-  --active: rgba(255, 255, 255, 0.09);
-  --focus-ring: #43d0d6;
-
-  /* Shadows are nearly invisible on dark; keep them faint and lean on borders. */
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.5);
-
-  --selected: rgba(67, 208, 214, 0.16);
+  /* Reserved semantics — verdigris means PHI/tokenized data as well as brand.
+     It always did (the old --token and --accent were the same teal); the design
+     skill's "a teal thing means masked" rule is about where you may REACH for
+     the hue, not about the hue being unique to PHI. */
+  --token: var(--spot);
 }
 
 /**
- * Mantine derives a few of its own colors from the palette rather than from the
- * tokens above, and those derivations are not contrast-checked. Pin them to the
- * solved tokens.
+ * Mantine derives a few of its own colours from the palette rather than from
+ * the tokens above, and those derivations are not contrast-checked. Pin them to
+ * the solved roles.
  *
  *  - `--mantine-color-dimmed` backs `c="dimmed"` (~157 uses). It resolves to
- *    gray[6]; since `gray` is aliased to the brand neutrals in main.tsx that
- *    landed at 3.2:1 on the canvas.
- *  - `--mantine-color-primary-light-color` is the label color of every
- *    `variant="light"` primary control, which resolved to the brand teal at
- *    3.1:1 rather than the darker text step.
+ *    gray[6]; since `gray` is aliased to the ground neutrals in main.tsx, left
+ *    alone it lands wherever that index happens to fall.
+ *  - `--mantine-color-primary-light-color` is the label colour of every
+ *    `variant="light"` primary control.
  *
  * Selector specificity is load-bearing here. Mantine writes the palette-derived
  * variables (anything `-light-color`, `-filled`, …) from a <style> tag it
@@ -156,17 +112,45 @@
 }
 
 body {
-  font-family: "Barlow", sans-serif;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
   background: var(--bg);
   color: var(--text);
   height: 100vh;
   overflow: hidden;
+  /* No grayscale smoothing: it thins light-on-dark glyphs, and half the app's
+     users are on the ink ground. */
+  -webkit-font-smoothing: auto;
 }
 
 #root {
   height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+/**
+ * Headings use the display face. The app has very few of them — a page title,
+ * an empty state, the login screen — and this is what makes those few read as
+ * deliberate rather than as large body text. The negative tracking and the
+ * sub-1 leading are most of the effect; do not soften them.
+ */
+h1,
+h2,
+h3 {
+  font-family: var(--font-disp);
+  font-weight: var(--weight-extra);
+  letter-spacing: var(--tracking-display);
+  line-height: var(--leading-display);
+}
+
+h4,
+h5,
+h6 {
+  font-family: var(--font-disp);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
 }
 
 /**
@@ -179,11 +163,30 @@ body {
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 ::selection {
-  background: var(--selected);
+  background: var(--spot);
+  color: var(--spot-ink);
+}
+
+/**
+ * The micro-label.
+ *
+ * Small, wide-tracked, uppercase mono — the counterweight to the heavy display
+ * face, and what makes a section header read as a label rather than a short
+ * sentence. Use it for section titles, panel captions and status eyebrows;
+ * never for anything the user reads as prose, because at this tracking a
+ * sentence is work.
+ */
+.dp-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-regular);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 /**
@@ -196,7 +199,7 @@ body {
  * re-render on mouse move.
  *
  * `--hover`/`--active` are translucent overlays, so they compose over whatever
- * background the element already has and work in both schemes.
+ * background the element already has and work on both grounds.
  */
 .dp-btn {
   border: none;
@@ -210,11 +213,11 @@ body {
 
 .dp-interactive {
   transition:
-    box-shadow 120ms ease,
-    background-color 120ms ease,
-    color 120ms ease,
-    border-color 120ms ease,
-    opacity 120ms ease;
+    box-shadow var(--duration-fast) var(--ease),
+    background-color var(--duration-fast) var(--ease),
+    color var(--duration-fast) var(--ease),
+    border-color var(--duration-fast) var(--ease),
+    opacity var(--duration-fast) var(--ease);
 }
 
 .dp-interactive:hover:not(:disabled):not([aria-disabled="true"]) {
@@ -245,23 +248,25 @@ body {
  */
 .dp-row {
   transition:
-    background-color 150ms ease,
-    box-shadow 150ms ease;
+    background-color var(--duration-base) var(--ease),
+    box-shadow var(--duration-base) var(--ease);
 }
 
 .dp-row:hover {
   background-color: var(--hover);
 }
 
+/* On square, hairline-ruled chrome a raised row lifts with its own surface and
+   an edge, not with a shadow — which barely reads on ink anyway. */
 .dp-row-raised:hover {
   background-color: var(--surface);
-  box-shadow: var(--shadow-1);
+  box-shadow: inset 0 0 0 1px var(--line-2);
 }
 
 .dp-row-actions {
   opacity: 0;
   pointer-events: none;
-  transition: opacity 150ms ease;
+  transition: opacity var(--duration-base) var(--ease);
 }
 
 .dp-row:hover .dp-row-actions,
@@ -274,7 +279,7 @@ body {
 /* Secondary label that firms up when its row is hovered. */
 .dp-row-label {
   color: var(--muted);
-  transition: color 150ms ease;
+  transition: color var(--duration-base) var(--ease);
 }
 
 .dp-row:hover .dp-row-label {
@@ -299,7 +304,7 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: var(--border2);
-  border-radius: 5px;
+  border-radius: var(--radius-none);
   /* Inset the thumb so the track reads as padding rather than a second line. */
   border: 3px solid transparent;
   background-clip: padding-box;

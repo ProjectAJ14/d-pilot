@@ -1,0 +1,306 @@
+/* ============================================================
+   D-Pilot design tokens — THE design system.
+
+   This file is the only place a colour, a face, a size or a radius
+   is decided. Change the theme here and the whole app follows:
+   `global.css` maps D-Pilot's semantic names onto these roles,
+   `main.tsx` hands the same values to Mantine, and AG Grid, Monaco
+   and react-obj-view all read them back out at runtime instead of
+   keeping copies. There is no second place to edit.
+
+   Two layers, and the order matters:
+
+   1. A SCALE — accent ramp, type, spacing, radii, motion. Fixed
+      values that mean the same thing on every ground.
+   2. GROUNDS — `paper` (light) and `ink` (dark), each redefining
+      the same set of ROLE tokens. Components must only ever name a
+      role (--ink, --dim, --line, --spot). Naming a scale step or a
+      raw hex in a component is a bug: it pins that component to one
+      ground and the theme toggle stops working for it.
+
+   The ground is chosen by Mantine, which stamps
+   `data-mantine-color-scheme="light|dark"` on <html> — an inline
+   script in index.html applies the stored choice before first paint.
+   Custom properties inherit, so flipping that one attribute
+   re-resolves every role for the whole tree, with no re-render and
+   no branching on the scheme in JS.
+
+   Both ground blocks also match on a bare attribute selector, not
+   just on :root. That is load-bearing: it lets a detached probe
+   element resolve the *other* ground's values, which is how Monaco
+   gets both of its themes without a hardcoded copy of this file.
+   See `utils/theme-tokens.ts`.
+   ============================================================ */
+
+:root {
+  /* ---------- ACCENT: verdigris ----------
+     Aged bronze on a bow fitting. One hue, spent sparingly. The
+     ground blocks below pick which step is --spot; these steps are
+     for the rare tint or border that needs a specific value, and
+     they are what main.tsx hands Mantine as the `primary` palette
+     (index 0-9 = --vd-50 … --vd-900, so a Mantine shade and a step
+     here are the same colour). */
+  --vd-50: #e6f7f3;
+  --vd-100: #c4ede4;
+  --vd-200: #9be0d2;
+  --vd-300: #79d5c4; /* --spot on ink   — 10.33:1 on the ground */
+  --vd-400: #3fb8a3;
+  --vd-500: #199688;
+  --vd-600: #0e6e66;
+  --vd-700: #0a5751; /* --spot on paper —  7.20:1 on the ground */
+  --vd-800: #07403c;
+  --vd-900: #052e2b;
+
+  /* ---------- TYPE FAMILIES ----------
+     Two extremes, no middle: a heavy, tightly-tracked display face
+     for headings, and a small wide-tracked uppercase mono for the
+     micro-labels. Body text stays small and quiet between them.
+
+     --font-mono is not decoration here the way it is on a marketing
+     page: it carries SQL, identifiers, values, counts and
+     timestamps, which is most of what this app renders. All three
+     are self-hosted — see styles/fonts.css. */
+  --font-disp:
+    "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-body:
+    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica,
+    sans-serif;
+  --font-mono:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* ---------- TYPE SCALE ----------
+     A dense read-heavy data tool, so this starts smaller than the
+     marketing scale it came from: 13px is the working size, 11px is
+     for labels and metadata. Mantine's own scale in main.tsx reads
+     --text-xs…--text-xl, so these five are the sizes the app has. */
+  --text-xs: 11px;
+  --lh-xs: 15px;
+  --text-sm: 13px;
+  --lh-sm: 18px;
+  --text-md: 14px;
+  --lh-md: 20px;
+  --text-lg: 16px;
+  --lh-lg: 22px;
+  --text-xl: 20px;
+  --lh-xl: 26px;
+
+  /* Display sizes, for the few places that get to be loud: the
+     login screen, an empty state, a page title. */
+  --display-1: clamp(28px, 3.2vw, 44px);
+  --display-2: clamp(22px, 2.2vw, 30px);
+  --display-3: 19px;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 800;
+  --weight-extra: 900;
+
+  /* Display tracking is aggressively negative — this, plus the
+     sub-1 leading, is most of what reads as "designed". The caps
+     tracking is the other half: it is what turns a mono label into
+     a micro-label rather than a small sentence. */
+  --tracking-display: -0.055em;
+  --tracking-tight: -0.045em;
+  --tracking-snug: -0.02em;
+  --tracking-normal: 0;
+  --tracking-caps: 0.16em;
+  --tracking-caps-wide: 0.24em;
+
+  --leading-display: 0.95;
+
+  /* ---------- SPACING (4px base) ---------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ---------- RADII ----------
+     The chrome is square: hairline rules, not rounded cards. Every
+     step is 0 on purpose rather than absent, so a component can go
+     on naming --radius-md and a future theme can round it back up
+     from this one file. --radius-pill is the exception a toggle or
+     an avatar needs to read as round at all. */
+  --radius-none: 0;
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-pill: 999px;
+
+  /* ---------- MOTION ----------
+     Colour and opacity only, never layout. A data tool that animates
+     its rows is a data tool you cannot read while it settles. */
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+  --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
+
+  /* ---------- THE BRAND MARK ----------
+     Two surfaces that keep ONE palette on both grounds instead of
+     flipping: the login screen's left panel and the avatar chip.
+     They are the product's picture of itself — a logo does not
+     invert when you turn the lights on — so they sit outside the
+     ground blocks on purpose. They are still built from the ramp,
+     so a new accent still re-themes them.
+
+     Their inks are solved against the DARKEST stop of each
+     gradient, which is the whole point of pinning the light end at
+     --vd-600 rather than --vd-500: --vd-50 scores 5.51:1 there and
+     only 3.29:1 one step lighter. */
+  --brand-bg: linear-gradient(
+    160deg,
+    var(--vd-800) 0%,
+    var(--vd-900) 50%,
+    var(--vd-800) 100%
+  );
+  --brand-glow: radial-gradient(
+    ellipse 60% 50% at 30% 40%,
+    rgb(25 150 136 / 22%) 0%,
+    transparent 60%
+  );
+  --brand-mark: linear-gradient(135deg, var(--vd-600), var(--vd-900));
+  --brand-ink: var(--vd-50); /* 10.49:1 on --vd-800 */
+  --brand-dim: var(--vd-200); /*  7.74:1 on --vd-800 */
+  --brand-faint: var(--vd-300); /*  6.71:1 on --vd-800 */
+}
+
+/* ============================================================
+   GROUNDS
+
+   Every role below exists in BOTH blocks. A role defined in only
+   one of them renders one ground's text on the other's surface —
+   `styles/color-tokens.test.ts` fails the build on that.
+
+   Contrast: every text role clears 4.5:1 against all four surfaces
+   of its own ground (--bg, --panel, --mass, --well); every
+   non-text role that has to be identifiable — the control border,
+   the focus ring — clears 3:1 against the same four. The values
+   were solved numerically, not picked by eye. Re-run that maths if
+   you touch any of them.
+   ============================================================ */
+
+:root,
+:root[data-mantine-color-scheme="light"],
+[data-mantine-color-scheme="light"] {
+  color-scheme: light;
+
+  /* Surfaces — canvas → raised → recessed → sunken.
+     Note the direction: on paper a raised panel is DARKER than the
+     canvas, not lighter. That is how a warm ground stays one
+     continuous sheet instead of turning into a pile of white cards,
+     and it is why the app leans on hairlines rather than shadows. */
+  --bg: #f0ede6;
+  --panel: #e7e3da;
+  --mass: #ddd8cc;
+  --well: #d2ccbd;
+
+  /* Text — primary / secondary / tertiary / disabled */
+  --ink: #16150f;
+  --dim: #57534a; /* 4.78:1 on --well, the darkest ground it sits on */
+  --faint: #5b574c; /* 4.50:1 on --well */
+  --faint-2: #a09a8c; /* placeholder / disabled only — never a label */
+
+  /* Lines.
+     --line is decorative (separators, panel edges) and stays
+     hairline. --line-2 is the frame edge, a touch stronger.
+     --line-strong is the boundary of a CONTROL (input, select,
+     scrollbar thumb), which WCAG 1.4.11 requires to be identifiable
+     at 3:1 — so it is deliberately heavier than it looks like it
+     should be. Do not swap them. */
+  --line: #e3dfd4;
+  --line-2: #cec8b9;
+  --line-strong: #756f61; /* 3.11:1 on --well */
+
+  /* Brand.
+     On paper the verdigris is dark enough to carry words as well as
+     shapes (7.20:1 on the canvas), so unlike the old palette there
+     is no separate "accent for text" step. --spot-ink is the ink
+     for words sitting ON a --spot fill: white scores 8.42:1 here. */
+  --spot: var(--vd-700);
+  --spot-ink: #ffffff;
+  --spot-soft: color-mix(in srgb, var(--spot) 10%, transparent);
+
+  /* State. Kept off the accent hue so state never reads as
+     branding, and re-solved per ground: the red that carries on ink
+     is 2.5:1 on cream, which fails as text and as a chart fill
+     alike. */
+  --success: #256328;
+  --error: #ac181d;
+  --warning: #7a4b00;
+  --info: #1c4fa8;
+
+  /* Value-type accent for JSON/grid rendering: booleans, dates,
+     non-scalars. */
+  --type-special: #671aea;
+
+  /* Interaction overlays — translucent, so they compose over
+     whatever surface the element already has. */
+  --hover: rgba(22, 21, 15, 0.05);
+  --active: rgba(22, 21, 15, 0.09);
+  --focus-ring: var(--spot);
+  --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--spot);
+
+  /* Elevation. Panels are separated by hairlines, not shadows —
+     these are for things that genuinely float: menus, modals,
+     popovers. */
+  --shadow-1: 0 1px 2px rgba(22, 21, 15, 0.09);
+  --shadow-2: 0 12px 28px rgba(22, 21, 15, 0.14);
+
+  /* Selection / highlight */
+  --selected: var(--spot-soft);
+}
+
+:root[data-mantine-color-scheme="dark"],
+[data-mantine-color-scheme="dark"] {
+  color-scheme: dark;
+
+  /* Not an inversion of paper: a warm near-black, and each step up
+     is LIGHTER. On ink, elevation is surface, not shadow. */
+  --bg: #17171a;
+  --panel: #1e1e22;
+  --mass: #26262a;
+  --well: #2f2f35;
+
+  --ink: #eae7e1;
+  --dim: #a29c93; /* 4.89:1 on --well */
+  --faint: #9b968d; /* 4.50:1 on --well */
+  --faint-2: #565249;
+
+  --line: #26262a;
+  --line-2: #33333a;
+  --line-strong: #807a6c; /* 3.10:1 on --well */
+
+  /* The light step of the ramp clears 7.68:1 on every ink surface,
+     so here one value serves as fill, icon and text alike. Words on
+     a --spot fill go back to the ground colour: 10.33:1. */
+  --spot: var(--vd-300);
+  --spot-ink: #17171a;
+  --spot-soft: color-mix(in srgb, var(--spot) 14%, transparent);
+
+  --success: #4caf50;
+  --error: #eb7175;
+  --warning: #e8920c;
+  --info: #4a9eff;
+
+  --type-special: #b48cff;
+
+  --hover: rgba(255, 255, 255, 0.055);
+  --active: rgba(255, 255, 255, 0.09);
+  --focus-ring: var(--spot);
+  --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--spot);
+
+  /* Shadows are nearly invisible on ink; keep them faint and lean
+     on --line-2 instead. */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 12px 28px rgba(0, 0, 0, 0.5);
+
+  --selected: var(--spot-soft);
+}

@@ -2,6 +2,7 @@ import * as monaco from "monaco-editor";
 import { loader } from "@monaco-editor/react";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
+import { readGround, bare, withAlpha, type Ground } from "./theme-tokens";
 
 /**
  * Point @monaco-editor/react at the *bundled* Monaco instead of its default
@@ -26,71 +27,73 @@ declare global {
 /**
  * Editor themes.
  *
- * Monaco is a canvas-ish surface with its own token colors — it does not read
- * the app's CSS variables, so without these it renders its built-in `vs` light
- * theme regardless of the color scheme, i.e. a white editor inside a dark app.
- * Colors mirror `src/styles/global.css`; keep them in step.
+ * Monaco does not read CSS variables — it parses these colours once, at
+ * `defineTheme()` time — so it is the one surface in the app that needs the
+ * design system's values as literals. Rather than keep a copy of the palette
+ * here (which is what used to drift), read the resolved values back out of
+ * `styles/tokens.css` through a probe element. Both grounds are defined up
+ * front, so flipping the colour scheme just switches which theme name the
+ * editors ask for; nothing is redefined.
+ *
+ * This means `styles/global.css` must already be in the document when this
+ * module is evaluated — see the import order in `main.tsx`.
  *
  * `editor.background` deliberately uses --surface (the raised panel), not --bg,
  * because the editor sits on a panel.
  */
-monaco.editor.defineTheme("d-pilot-light", {
-  base: "vs",
-  inherit: true,
-  rules: [
-    { token: "keyword", foreground: "1b7c81", fontStyle: "bold" },
-    { token: "string", foreground: "2e7d32" },
-    { token: "number", foreground: "7c3aed" },
-    { token: "comment", foreground: "667281", fontStyle: "italic" },
-    { token: "operator", foreground: "576e75" },
-    { token: "predefined", foreground: "1e579e" },
-  ],
-  colors: {
-    "editor.background": "#ffffff",
-    "editor.foreground": "#0c2340",
-    "editorLineNumber.foreground": "#878f97",
-    "editorLineNumber.activeForeground": "#1b7c81",
-    "editorGutter.background": "#ffffff",
-    "editor.lineHighlightBackground": "#f3f6f7",
-    "editor.selectionBackground": "#1f919629",
-    "editorCursor.foreground": "#1b7c81",
-    "editorIndentGuide.background1": "#e8e8e8",
-    "editorWidget.background": "#ffffff",
-    "editorWidget.border": "#ccd0d2",
-    "editorSuggestWidget.background": "#ffffff",
-    "editorSuggestWidget.border": "#ccd0d2",
-    "editorSuggestWidget.selectedBackground": "#f3f6f7",
-  },
-});
+const THEME_TOKENS = [
+  "--surface",
+  "--surface2",
+  "--surface3",
+  "--text",
+  "--muted",
+  "--muted2",
+  "--border",
+  "--border2",
+  "--accent-text",
+  "--success",
+  "--type-special",
+  "--info",
+] as const;
 
-monaco.editor.defineTheme("d-pilot-dark", {
-  base: "vs-dark",
-  inherit: true,
-  rules: [
-    { token: "keyword", foreground: "43d0d6", fontStyle: "bold" },
-    { token: "string", foreground: "9fd49f" },
-    { token: "number", foreground: "b48cff" },
-    { token: "comment", foreground: "7d90a1", fontStyle: "italic" },
-    { token: "operator", foreground: "a9bac8" },
-    { token: "predefined", foreground: "8ab7ed" },
-  ],
-  colors: {
-    "editor.background": "#121e2a",
-    "editor.foreground": "#e4ebf1",
-    "editorLineNumber.foreground": "#3a4e5f",
-    "editorLineNumber.activeForeground": "#43d0d6",
-    "editorGutter.background": "#121e2a",
-    "editor.lineHighlightBackground": "#182633",
-    "editor.selectionBackground": "#43d0d62e",
-    "editorCursor.foreground": "#43d0d6",
-    "editorIndentGuide.background1": "#21313f",
-    "editorWidget.background": "#182633",
-    "editorWidget.border": "#2a3b4a",
-    "editorSuggestWidget.background": "#182633",
-    "editorSuggestWidget.border": "#2a3b4a",
-    "editorSuggestWidget.selectedBackground": "#21313f",
-  },
-});
+function defineEditorTheme(name: string, ground: Ground) {
+  const t = readGround(ground, THEME_TOKENS);
+  monaco.editor.defineTheme(name, {
+    base: ground === "dark" ? "vs-dark" : "vs",
+    inherit: true,
+    rules: [
+      {
+        token: "keyword",
+        foreground: bare(t["--accent-text"]),
+        fontStyle: "bold",
+      },
+      { token: "string", foreground: bare(t["--success"]) },
+      { token: "number", foreground: bare(t["--type-special"]) },
+      { token: "comment", foreground: bare(t["--muted"]), fontStyle: "italic" },
+      { token: "operator", foreground: bare(t["--muted2"]) },
+      { token: "predefined", foreground: bare(t["--info"]) },
+    ],
+    colors: {
+      "editor.background": t["--surface"],
+      "editor.foreground": t["--text"],
+      "editorLineNumber.foreground": t["--border2"],
+      "editorLineNumber.activeForeground": t["--accent-text"],
+      "editorGutter.background": t["--surface"],
+      "editor.lineHighlightBackground": t["--surface2"],
+      "editor.selectionBackground": withAlpha(t["--accent-text"], 0.18),
+      "editorCursor.foreground": t["--accent-text"],
+      "editorIndentGuide.background1": t["--border"],
+      "editorWidget.background": t["--surface"],
+      "editorWidget.border": t["--border"],
+      "editorSuggestWidget.background": t["--surface"],
+      "editorSuggestWidget.border": t["--border"],
+      "editorSuggestWidget.selectedBackground": t["--surface3"],
+    },
+  });
+}
+
+defineEditorTheme("d-pilot-light", "light");
+defineEditorTheme("d-pilot-dark", "dark");
 
 // Language services run in web workers. Only `typescript`/`javascript` is
 // actually needed beyond the core (the Mongo shell editor uses the JS grammar,
