@@ -208,6 +208,26 @@ Every interactive element ships all four:
 :disabled      opacity .5 + not-allowed, and actually disabled
 ```
 
+**Mantine's own components do not use `--hover`, and on this palette that
+mattered.** Each hardcodes a palette shade — `gray-0`/`gray-1` on light,
+`dark-4`…`dark-8` on dark. On Mantine's neutral grey that reads as a faint
+tint; on ours it does not, because our `gray` IS the ground: `gray-1` is
+exactly `--panel`, so a hovered menu item on a `--panel` dropdown changed to
+the colour it already was. **The menus had no visible hover at all on paper.**
+
+`global.css` pins them to `--hover`, two ways — `--menu-item-hover` and
+`--table-highlight-on-hover-color` are the variables Mantine exposes; the rest
+are matched by selector. Those selectors deliberately do **not** use `:where()`
+(Mantine's own rules carry real specificity, so a zero-specificity override
+loses), and they key off data attributes rather than class names where one
+exists: an option renders as `.mantine-Select-option` or
+`.mantine-MultiSelect-option` depending on which component opened it, so
+`[data-combobox-option]` is the stable hook. Each rule also excludes the
+selected/active state so hover cannot paint over it.
+
+If you add a Mantine component with its own hover, check it on **paper** — that
+is the ground where a wrong hover disappears instead of merely looking off.
+
 Most of this is already done for you — put the utility classes on a hand-rolled
 control instead of re-implementing:
 

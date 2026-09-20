@@ -135,6 +135,40 @@
 }
 
 /**
+ * Interaction states for Mantine's own surfaces.
+ *
+ * `--hover` is the app's hover overlay, and every hand-rolled control already
+ * uses it through `.dp-row` / `.dp-interactive`. Mantine's components do not:
+ * each one hardcodes a palette shade, `gray-0`/`gray-1` on light and
+ * `dark-4`…`dark-8` on dark. On a neutral grey palette that reads as a faint
+ * tint; on ours it does not, because our `gray` IS the ground — `gray-1` is
+ * exactly `--panel`, so a hovered menu item on a `--panel` dropdown changed to
+ * the colour it already was. The menus had no visible hover at all on paper.
+ *
+ * Two mechanisms, because Mantine only exposes some of them as variables:
+ * `--menu-item-hover` and `--table-highlight-on-hover-color` are the supported
+ * hooks; the rest have to be matched by class. Those selectors deliberately do
+ * NOT use `:where()` — Mantine's own rules carry real specificity, so a
+ * zero-specificity override would lose.
+ */
+:root {
+  --menu-item-hover: var(--hover);
+  --table-highlight-on-hover-color: var(--hover);
+}
+
+/* `[data-combobox-option]` rather than a class: the option renders as
+   `.mantine-Select-option` / `.mantine-MultiSelect-option` / … depending on
+   which component opened it, so the class name is not the stable hook — the
+   data attribute is, and it is the same one Mantine's own JS keys off. */
+[data-combobox-option]:hover:not([data-combobox-active]),
+.mantine-NavLink-root:hover:not([data-disabled]),
+.mantine-Pagination-control:hover:not([data-active]):not(:disabled),
+.mantine-CloseButton-root:hover:not(:disabled),
+.mantine-NumberInput-control:hover:not([data-disabled]) {
+  background-color: var(--hover);
+}
+
+/**
  * Third-party chrome that bakes in a radius.
  *
  * `theme.radius` reaches almost everything, but Mantine hardcodes
