@@ -11,6 +11,7 @@ import {
   Loader,
   Code,
   Kbd,
+  SegmentedControl,
   TextInput,
   defaultVariantColorsResolver,
   type VariantColorsResolver,
@@ -338,6 +339,20 @@ const theme = createTheme({
     Avatar: Avatar.extend({
       // Mantine defaults Avatar to a circle; nothing in this theme is round.
       defaultProps: { radius: "sm" },
+    }),
+    SegmentedControl: SegmentedControl.extend({
+      // A segmented control is a row of micro-labels, so it takes the
+      // micro-label treatment — same as Badge. Doing it here rather than per
+      // instance means the view toggles, the request filters and the theme
+      // picker all read as one control rather than three.
+      styles: () => ({
+        label: {
+          fontFamily: "var(--font-mono)",
+          fontSize: "var(--text-xs)",
+          letterSpacing: "var(--tracking-caps)",
+          textTransform: "uppercase",
+        },
+      }),
     }),
     Code: Code.extend({
       styles: () => ({ root: { fontFamily: "var(--font-mono)" } }),

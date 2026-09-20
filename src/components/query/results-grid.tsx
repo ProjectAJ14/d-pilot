@@ -47,6 +47,7 @@ import {
 } from "../../utils/data-extractors";
 import type { CopyFormat } from "../../types";
 import { FkBadge } from "./fk-badge";
+import { copyFormatIcon } from "../../utils/copy-format-icons";
 
 ModuleRegistry.registerModules([
   AllCommunityModule,
@@ -684,6 +685,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
                   {formats.map((f) => (
                     <Menu.Item
                       key={f.id}
+                      leftSection={copyFormatIcon(f)}
                       onClick={() => copyScoped(f, f.label)}
                     >
                       <div
@@ -913,6 +915,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
           {columnFormats.map((f) => (
             <Menu.Item
               key={f.id}
+              leftSection={copyFormatIcon(f)}
               onClick={() => {
                 if (colMenu) {
                   copyColumn(

@@ -93,6 +93,12 @@ function defineEditorTheme(name: string, ground: Ground) {
       { token: "number", foreground: bare(t["--type-special"]) },
       { token: "comment", foreground: bare(t["--muted"]), fontStyle: "italic" },
       { token: "operator", foreground: bare(t["--muted2"]) },
+      // Monaco's built-in SQL theme styles `operator.sql` and `delimiter`
+      // itself, and `inherit: true` means those beat the generic `operator`
+      // rule above — which left `*` and `.` at Monaco's own slate grey
+      // (2.84:1 on the ink panel). Naming them explicitly takes them back.
+      { token: "operator.sql", foreground: bare(t["--muted2"]) },
+      { token: "delimiter", foreground: bare(t["--muted2"]) },
       { token: "predefined", foreground: bare(t["--info"]) },
     ],
     colors: {

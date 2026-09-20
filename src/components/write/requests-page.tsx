@@ -19,6 +19,8 @@ import {
   IconChevronRight,
   IconBell,
   IconSearch,
+  IconUser,
+  IconListDetails,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useNavigate } from "react-router-dom";
@@ -26,6 +28,37 @@ import { api } from "../../utils/api-client";
 import { useStore } from "../../store";
 import type { WriteRequest } from "../../types";
 import { StatusBadge, EnvBadge, VerdictBadge, fmtDateTime } from "./shared";
+
+/**
+ * One segment of the filter control: glyph, micro-label, count.
+ *
+ * The count is `dp-tnum` (tabular figures) so the three segments' numbers
+ * share a width and sit in a readable column instead of jittering as they
+ * update. A zero is dimmed rather than hidden — "0 need me" is information,
+ * and a segment that changes width when it hits zero is worse.
+ */
+function FilterLabel({
+  icon: Icon,
+  label,
+  count,
+}: {
+  icon: typeof IconBell;
+  label: string;
+  count: number;
+}) {
+  return (
+    <Group gap={6} wrap="nowrap">
+      <Icon size={13} stroke={1.6} />
+      <span>{label}</span>
+      <span
+        className="dp-tnum"
+        style={{ color: count > 0 ? "var(--text)" : "var(--muted)" }}
+      >
+        {count}
+      </span>
+    </Group>
+  );
+}
 
 /** Requests that need the current user's attention (approve, submit a draft, or revise their own). */
 export function needsMyAction(r: WriteRequest): boolean {
@@ -205,14 +238,46 @@ export function RequestsPage() {
         </Text>
 
         <Group justify="space-between" mb="md" wrap="wrap" gap="sm">
+          {/* Icon + micro-label + count. The count used to be "(0)" inside the
+              label, which read as part of the sentence; as a tabular figure
+              beside it, the three numbers line up and can be compared at a
+              glance — which is the only reason they are on screen. The mono
+              uppercase treatment comes from the theme, not from here. */}
           <SegmentedControl
             size="xs"
             value={filter}
             onChange={(v) => setFilter(v as Filter)}
             data={[
-              { label: `Needs my action (${counts.action})`, value: "action" },
-              { label: `My requests (${counts.mine})`, value: "mine" },
-              { label: `All (${counts.all})`, value: "all" },
+              {
+                value: "action",
+                label: (
+                  <FilterLabel
+                    icon={IconBell}
+                    label="Needs me"
+                    count={counts.action}
+                  />
+                ),
+              },
+              {
+                value: "mine",
+                label: (
+                  <FilterLabel
+                    icon={IconUser}
+                    label="Mine"
+                    count={counts.mine}
+                  />
+                ),
+              },
+              {
+                value: "all",
+                label: (
+                  <FilterLabel
+                    icon={IconListDetails}
+                    label="All"
+                    count={counts.all}
+                  />
+                ),
+              },
             ]}
           />
           <TextInput
