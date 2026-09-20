@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Drawer, Text, Badge, ActionIcon, Tooltip, Group } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import Editor from "@monaco-editor/react";
@@ -7,8 +7,13 @@ import {
   IconShieldLock,
   IconBraces,
   IconLetterCase,
+  IconExternalLink,
 } from "@tabler/icons-react";
 import { useEditorTheme } from "../../utils/monaco-editor-options";
+import {
+  jsonViewerLink,
+  type JsonViewerLink,
+} from "../../utils/json-viewer-link";
 
 export interface CellDetail {
   column: string;
@@ -80,6 +85,30 @@ export function CellDetailDrawer({ detail, onClose }: Props) {
     () => (detail ? resolveContent(detail.value) : null),
     [detail],
   );
+
+  // Built up-front so the control can be a real <a href> — middle-click, cmd-click and "copy
+  // link address" keep working, and there is no popup to block. `live` guards the drawer being
+  // closed, or another cell opened, while the compressor is still running.
+  // The link is stamped with the payload it was built from, so a link left over from the
+  // previously inspected cell is simply not rendered — no clearing, no stale href.
+  const [link, setLink] = useState<(JsonViewerLink & { json: string }) | null>(
+    null,
+  );
+  const json = content?.isJson ? content.text : null;
+  useEffect(() => {
+    if (json === null) return;
+    let live = true;
+    jsonViewerLink(json).then(
+      (v) => {
+        if (live) setLink({ ...v, json });
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [json]);
+  const viewer = link && link.json === json ? link : null;
 
   return (
     <Drawer
@@ -169,6 +198,35 @@ export function CellDetailDrawer({ detail, onClose }: Props) {
                 <IconCopy size={16} />
               </ActionIcon>
             </Tooltip>
+            {/* The payload rides in the URL fragment, which a browser never transmits — see
+                utils/json-viewer-link.ts. Too big for a URL and the viewer reads it off the
+                clipboard instead, so the click writes it there (inside the gesture, the only
+                place a clipboard write is allowed). */}
+            {viewer && (
+              <Tooltip
+                label={
+                  viewer.needsClipboard
+                    ? "Too large for a link — copies the JSON and opens the viewer, which reads it from your clipboard"
+                    : "Open in json.nonstopio.com — search, filter and graph it"
+                }
+              >
+                <ActionIcon
+                  component="a"
+                  href={viewer.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="light"
+                  color="blue"
+                  onClick={
+                    viewer.needsClipboard
+                      ? () => copyText(content.text)
+                      : undefined
+                  }
+                >
+                  <IconExternalLink size={16} />
+                </ActionIcon>
+              </Tooltip>
+            )}
           </Group>
           <div style={{ flex: 1, minHeight: 0 }}>
             <Editor
