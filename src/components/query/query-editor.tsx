@@ -57,6 +57,9 @@ interface Props {
   height?: number;
   expanded?: boolean;
   onToggleHeight?: () => void;
+  /** Bumped by the tab context menu's "Save query" — opens this editor's own
+      save modal, so Cmd+S, the toolbar button and the menu are one flow. */
+  saveSignal?: number;
 }
 
 // Cache schema data for autocomplete. Entries older than the TTL are served
@@ -479,7 +482,13 @@ function ensureCompletionProvidersRegistered(monaco: any) {
 // Toolbar + padding takes roughly 56px; subtract from total height for the editor area
 const TOOLBAR_HEIGHT = 56;
 
-export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
+export function QueryEditor({
+  tab,
+  height,
+  expanded,
+  onToggleHeight,
+  saveSignal = 0,
+}: Props) {
   const editorTheme = useEditorTheme();
   const updateTab = useStore((s) => s.updateTab);
   const setSchemaForConnection = useStore((s) => s.setSchemaForConnection);
@@ -735,6 +744,13 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
     }
     setSaveModalOpen(true);
   };
+
+  // A command from outside (the tab context menu), not derived state: the
+  // signal only ever counts up, and 0 is "never asked".
+  useEffect(() => {
+    if (saveSignal > 0) openUpdateExisting();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveSignal]);
 
   const handleExportCsv = async () => {
     if (!tab.connectionId || !tab.sql) return;

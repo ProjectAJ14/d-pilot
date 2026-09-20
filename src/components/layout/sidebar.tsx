@@ -418,72 +418,75 @@ export function Sidebar() {
           borderBottom: "1px solid var(--border)",
         }}
       >
-        {(["explorer", "saved", "history"] as const).map((section) => (
-          <button
-            key={section}
-            onClick={() => {
-              setActiveSection(section);
-              if (section === "history") loadHistory();
-            }}
-            style={{
-              flex: 1,
-              padding: "12px 0",
-              background: "none",
-              border: "none",
-              borderBottom:
-                activeSection === section
-                  ? "2px solid var(--accent)"
-                  : "2px solid transparent",
-              color:
-                activeSection === section ? "var(--accent4)" : "var(--muted)",
-              cursor: "pointer",
-              fontSize: 12,
-              fontWeight: 600,
-              letterSpacing: 0.5,
-              textTransform: "uppercase",
-              fontFamily: "var(--font-body)",
-              transition: "color 150ms ease, border-color 150ms ease",
-            }}
-          >
-            {section === "explorer" ? (
-              <>
-                <IconDatabase
-                  size={13}
-                  style={{
-                    verticalAlign: "middle",
-                    marginRight: 5,
-                    marginTop: -1,
-                  }}
-                />
-                Explorer
-              </>
-            ) : section === "saved" ? (
-              <>
-                <IconBookmark
-                  size={13}
-                  style={{
-                    verticalAlign: "middle",
-                    marginRight: 5,
-                    marginTop: -1,
-                  }}
-                />
-                Saved ({savedQueries.length + artifacts.length})
-              </>
-            ) : (
-              <>
-                <IconHistory
-                  size={13}
-                  style={{
-                    verticalAlign: "middle",
-                    marginRight: 5,
-                    marginTop: -1,
-                  }}
-                />
-                History
-              </>
-            )}
-          </button>
-        ))}
+        {(["explorer", "saved", "history"] as const).map((section) => {
+          // Only the selected tab spends width on its label; the others
+          // collapse to their icon (plus the saved count), which is what
+          // keeps the row on one line at 280px.
+          const isActive = activeSection === section;
+          const label =
+            section === "explorer"
+              ? "Explorer"
+              : section === "saved"
+                ? "Saved"
+                : "History";
+          const Icon =
+            section === "explorer"
+              ? IconDatabase
+              : section === "saved"
+                ? IconBookmark
+                : IconHistory;
+          const count =
+            section === "saved" ? savedQueries.length + artifacts.length : 0;
+          return (
+            <Tooltip key={section} label={label} disabled={isActive}>
+              <button
+                onClick={() => {
+                  setActiveSection(section);
+                  if (section === "history") loadHistory();
+                }}
+                aria-current={isActive ? "page" : undefined}
+                aria-label={count > 0 ? `${label}, ${count}` : label}
+                title={label}
+                style={{
+                  flex: isActive ? 1 : "0 0 auto",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  padding: "12px 10px",
+                  background: "none",
+                  border: "none",
+                  borderBottom: isActive
+                    ? "2px solid var(--accent)"
+                    : "2px solid transparent",
+                  color: isActive ? "var(--accent4)" : "var(--muted)",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  letterSpacing: 0.5,
+                  textTransform: "uppercase",
+                  fontFamily: "var(--font-body)",
+                  whiteSpace: "nowrap",
+                  transition: "color 150ms ease, border-color 150ms ease",
+                }}
+              >
+                <Icon size={13} />
+                {isActive && label}
+                {count > 0 && (
+                  <Badge
+                    size="xs"
+                    radius="sm"
+                    variant="light"
+                    color="gray"
+                    style={{ minWidth: 16, height: 16, padding: "0 4px" }}
+                  >
+                    {count}
+                  </Badge>
+                )}
+              </button>
+            </Tooltip>
+          );
+        })}
       </div>
 
       {/* Search */}

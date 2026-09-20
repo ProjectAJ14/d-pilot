@@ -41,18 +41,37 @@ function FilterLabel({
   icon: Icon,
   label,
   count,
+  active,
 }: {
   icon: typeof IconBell;
   label: string;
   count: number;
+  active: boolean;
 }) {
   return (
-    <Group gap={6} wrap="nowrap">
+    <Group
+      gap={6}
+      wrap="nowrap"
+      // The selected segment carries accent ink at a heavier weight while the
+      // others sit at --muted — the same current/not-current pairing the
+      // top-bar nav and the sidebar section tabs use. The indicator tint alone
+      // is not enough on paper, where it is a shade the ground already owns.
+      style={{
+        color: active ? "var(--accent-text)" : "var(--muted)",
+        fontWeight: active ? 700 : 500,
+      }}
+    >
       <Icon size={13} stroke={1.6} />
       <span>{label}</span>
       <span
         className="dp-tnum"
-        style={{ color: count > 0 ? "var(--text)" : "var(--muted)" }}
+        style={{
+          color: active
+            ? "inherit"
+            : count > 0
+              ? "var(--text)"
+              : "var(--muted)",
+        }}
       >
         {count}
       </span>
@@ -247,6 +266,13 @@ export function RequestsPage() {
             size="xs"
             value={filter}
             onChange={(v) => setFilter(v as Filter)}
+            styles={{
+              // Mantine's indicator is one step off the control's own ground,
+              // so the selected segment read as "slightly lighter" rather than
+              // as selected. Accent tint plus an accent edge instead.
+              root: { "--sc-color": "var(--selected)", "--sc-shadow": "none" },
+              indicator: { border: "1px solid var(--accent)" },
+            }}
             data={[
               {
                 value: "action",
@@ -255,6 +281,7 @@ export function RequestsPage() {
                     icon={IconBell}
                     label="Needs me"
                     count={counts.action}
+                    active={filter === "action"}
                   />
                 ),
               },
@@ -265,6 +292,7 @@ export function RequestsPage() {
                     icon={IconUser}
                     label="Mine"
                     count={counts.mine}
+                    active={filter === "mine"}
                   />
                 ),
               },
@@ -275,6 +303,7 @@ export function RequestsPage() {
                     icon={IconListDetails}
                     label="All"
                     count={counts.all}
+                    active={filter === "all"}
                   />
                 ),
               },

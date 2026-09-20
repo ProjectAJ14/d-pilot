@@ -176,8 +176,8 @@ export function Footer() {
                   src={c.avatar_url}
                   alt={c.login}
                   size={22}
-                  radius="xl"
                   style={{
+                    borderRadius: "var(--radius-round)",
                     cursor: "pointer",
                     border: "1px solid var(--border)",
                   }}

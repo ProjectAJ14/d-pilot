@@ -1,9 +1,21 @@
 import { useState, useRef, useEffect } from "react";
-import { Text, ActionIcon, Tooltip } from "@mantine/core";
-import { IconFileText, IconPlus, IconX } from "@tabler/icons-react";
+import { Text, ActionIcon, Tooltip, Menu } from "@mantine/core";
+import {
+  IconDeviceFloppy,
+  IconFileText,
+  IconPencil,
+  IconPlus,
+  IconX,
+} from "@tabler/icons-react";
 import { useStore } from "../../store";
 
-export function QueryTabs() {
+interface Props {
+  /** Asks the editor to open its save modal for the active tab — the same
+      flow as Cmd+S and the toolbar button, rather than a second save path. */
+  onSaveTab?: () => void;
+}
+
+export function QueryTabs({ onSaveTab }: Props) {
   const tabs = useStore((s) => s.tabs);
   const activeTabId = useStore((s) => s.activeTabId);
   const setActiveTab = useStore((s) => s.setActiveTab);
@@ -12,7 +24,11 @@ export function QueryTabs() {
   const updateTab = useStore((s) => s.updateTab);
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(
+    null,
+  );
   const inputRef = useRef<HTMLInputElement>(null);
+  const menuTab = tabs.find((t) => t.id === menu?.id);
 
   useEffect(() => {
     if (editingTabId && inputRef.current) {
@@ -25,6 +41,11 @@ export function QueryTabs() {
     const trimmed = editValue.trim();
     if (trimmed) updateTab(tabId, { title: trimmed });
     setEditingTabId(null);
+  };
+
+  const startRename = (tabId: string, title: string) => {
+    setEditingTabId(tabId);
+    setEditValue(title);
   };
 
   return (
@@ -43,6 +64,11 @@ export function QueryTabs() {
         <div
           key={tab.id}
           onClick={() => setActiveTab(tab.id)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setActiveTab(tab.id);
+            setMenu({ id: tab.id, x: e.clientX, y: e.clientY });
+          }}
           style={{
             display: "flex",
             alignItems: "center",
@@ -90,8 +116,7 @@ export function QueryTabs() {
               fw={tab.id === activeTabId ? 600 : 400}
               onDoubleClick={(e) => {
                 e.stopPropagation();
-                setEditingTabId(tab.id);
-                setEditValue(tab.title);
+                startRename(tab.id, tab.title);
               }}
             >
               {tab.title}
@@ -133,6 +158,60 @@ export function QueryTabs() {
           <IconPlus size={16} />
         </ActionIcon>
       </Tooltip>
+
+      {/* Tab context menu, anchored at the right-click position. */}
+      <Menu
+        opened={!!menu}
+        onChange={(open) => !open && setMenu(null)}
+        position="bottom-start"
+        shadow="md"
+        width={180}
+        withinPortal
+      >
+        <Menu.Target>
+          <div
+            style={{
+              position: "fixed",
+              left: menu?.x ?? 0,
+              top: menu?.y ?? 0,
+              width: 0,
+              height: 0,
+            }}
+          />
+        </Menu.Target>
+        <Menu.Dropdown>
+          <Menu.Item
+            leftSection={<IconPencil size={14} />}
+            onClick={() => {
+              if (menuTab) startRename(menuTab.id, menuTab.title);
+              setMenu(null);
+            }}
+          >
+            Rename
+          </Menu.Item>
+          {menuTab?.kind !== "artifact" && (
+            <Menu.Item
+              leftSection={<IconDeviceFloppy size={14} />}
+              onClick={() => {
+                onSaveTab?.();
+                setMenu(null);
+              }}
+            >
+              Save query
+            </Menu.Item>
+          )}
+          <Menu.Divider />
+          <Menu.Item
+            leftSection={<IconX size={14} />}
+            onClick={() => {
+              if (menuTab) closeTab(menuTab.id);
+              setMenu(null);
+            }}
+          >
+            Close
+          </Menu.Item>
+        </Menu.Dropdown>
+      </Menu>
     </div>
   );
 }

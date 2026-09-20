@@ -17,6 +17,9 @@ export function QueryWorkspace() {
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  // Counter, not a boolean: each "Save query" from the tab context menu is a
+  // fresh request, and the editor owns the modal that answers it.
+  const [saveSignal, setSaveSignal] = useState(0);
   const [editorHeight, setEditorHeight] = useState(DEFAULT_HEIGHT);
   const isDragging = useRef(false);
   const startY = useRef(0);
@@ -81,12 +84,13 @@ export function QueryWorkspace() {
         overflow: "hidden",
       }}
     >
-      <QueryTabs />
+      <QueryTabs onSaveTab={() => setSaveSignal((n) => n + 1)} />
       {activeTab?.kind === "artifact" && <ArtifactView tab={activeTab} />}
       {activeTab && activeTab.kind !== "artifact" && (
         <>
           <QueryEditor
             tab={activeTab}
+            saveSignal={saveSignal}
             height={editorHeight}
             expanded={expanded}
             onToggleHeight={toggleEditorHeight}
