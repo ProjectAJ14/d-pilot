@@ -100,7 +100,16 @@ const gridTheme = themeQuartz.withParams({
   fontFamily: "var(--font-mono)",
   fontSize: 12,
   spacing: 6,
-  wrapperBorderRadius: 0,
+  // AG Grid rounds several of its own parts independently of the wrapper — the
+  // row checkboxes, the header filter buttons, the filter inputs — so each one
+  // has to be named or the grid ends up "mostly square". They are handed the
+  // scale rather than a literal 0, so they follow tokens.css like everything
+  // else; AG Grid passes a string param straight through to CSS.
+  wrapperBorderRadius: "var(--radius-md)",
+  borderRadius: "var(--radius-sm)",
+  checkboxBorderRadius: "var(--radius-xs)",
+  inputBorderRadius: "var(--radius-sm)",
+  iconButtonBorderRadius: "var(--radius-sm)",
 });
 
 // Short values render fully in the cell, so opening the inspector for them is
@@ -706,7 +715,12 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
         )}
 
         {/* Discoverability hint — table view only (the JSON view shows full
-            values already, so these gestures don't apply there). */}
+            values already, so these gestures don't apply there).
+
+            Each tip is kept to two or three words on purpose: the row sits on
+            one line with `whiteSpace: nowrap`, so anything longer pushes the
+            last tip off the edge. A trailing "…" is especially bad here — it
+            reads as truncated text rather than as a menu. */}
         {viewMode === "table" && (
           <div
             style={{
@@ -715,7 +729,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
               alignItems: "center",
               gap: 8,
               padding: "3px 10px",
-              borderRadius: "var(--radius-pill)",
+              borderRadius: "var(--radius-sm)",
               background: "color-mix(in srgb, var(--token) 7%, transparent)",
               border:
                 "1px solid color-mix(in srgb, var(--token) 16%, transparent)",
@@ -736,7 +750,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
               style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
             >
               <IconClick size={13} style={{ color: "var(--accent)" }} />
-              click a long value to expand
+              click to expand
             </span>
             <span style={{ opacity: 0.35 }}>·</span>
             <span
@@ -750,14 +764,14 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
               style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
             >
               <IconCopy size={13} style={{ color: "var(--accent)" }} />
-              right-click a column to copy as…
+              right-click a column to copy
             </span>
             <span style={{ opacity: 0.35 }}>·</span>
             <span
               style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
             >
               <IconCopyCheck size={13} style={{ color: "var(--accent)" }} />
-              drag to select cells, then Copy as
+              drag to select cells
             </span>
           </div>
         )}

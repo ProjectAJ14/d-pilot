@@ -102,7 +102,7 @@ export function QueryTabs() {
               style={{
                 width: 8,
                 height: 8,
-                borderRadius: "50%",
+                borderRadius: "var(--radius-sm)",
                 background: "var(--accent)",
                 animation: "pulse 1s infinite",
               }}

@@ -125,15 +125,19 @@
      The chrome is square: hairline rules, not rounded cards. Every
      step is 0 on purpose rather than absent, so a component can go
      on naming --radius-md and a future theme can round it back up
-     from this one file. --radius-pill is the exception a toggle or
-     an avatar needs to read as round at all. */
+     from this one file.
+
+     There is deliberately NO pill or circle step. "Mostly square
+     with a few round things left in" is the failure mode here — a
+     stray pill reads as a mistake rather than as an accent — so
+     status dots and avatars are square too, and the guard in
+     styles/color-tokens.test.ts rejects `50%` to keep it that way. */
   --radius-none: 0;
   --radius-xs: 0;
   --radius-sm: 0;
   --radius-md: 0;
   --radius-lg: 0;
   --radius-xl: 0;
-  --radius-pill: 999px;
 
   /* ---------- MOTION ----------
      Colour and opacity only, never layout. A data tool that animates
@@ -206,7 +210,11 @@
   --ink: #16150f;
   --dim: #57534a; /* 4.78:1 on --well, the darkest ground it sits on */
   --faint: #5b574c; /* 4.50:1 on --well */
-  --faint-2: #a09a8c; /* placeholder / disabled only — never a label */
+  /* Placeholder and disabled only — never a label. WCAG exempts an inactive
+     control, but the first pass landed this at 1.75:1 on --mass, where a
+     disabled "Submit for approval" was barely visible. 2.5:1 reads as off
+     without reading as enabled. */
+  --faint-2: #857e6e; /* 2.52:1 on --well */
 
   /* Lines.
      --line is decorative (separators, panel edges) and stays
@@ -272,7 +280,7 @@
   --ink: #eae7e1;
   --dim: #a29c93; /* 4.89:1 on --well */
   --faint: #9b968d; /* 4.50:1 on --well */
-  --faint-2: #565249;
+  --faint-2: #706b5f; /* 2.51:1 on --well — see the paper note above */
 
   --line: #26262a;
   --line-2: #33333a;

@@ -289,7 +289,7 @@ export function RequestsPage() {
                                 style={{
                                   width: 8,
                                   height: 8,
-                                  borderRadius: "50%",
+                                  borderRadius: "var(--radius-sm)",
                                   background: "var(--mantine-color-red-filled)",
                                 }}
                               />

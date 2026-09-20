@@ -44,6 +44,15 @@ const PALETTE_FILES = ["src/styles/tokens.css", "src/main.tsx"];
  * just been deleted.
  */
 const FONT_FAMILY = /font-?[Ff]amily:\s*("[^"]*"|'[^']*'|[^,;\n}]+)/g;
+
+/**
+ * Mantine's shorthand prop. `ff="monospace"` is fine — it is a keyword that
+ * resolves through `theme.fontFamilyMonospace`, which points at `--font-mono`
+ * — but `ff="Barlow, sans-serif"` names a face directly and would sail past
+ * the `fontFamily:` pattern above. There are ~65 `ff=` uses, so this matters.
+ */
+const FF_PROP = /\bff="([^"]*)"/g;
+const FF_KEYWORDS = new Set(["monospace", "text", "heading"]);
 const FONT_FILES = ["src/styles/tokens.css", "src/styles/fonts.css"];
 
 /**
@@ -55,7 +64,7 @@ const FONT_FILES = ["src/styles/tokens.css", "src/styles/fonts.css"];
  *
  * `50%` is exempt: that is a circle, a shape rather than a step on the scale.
  */
-const RADIUS = /border-?[Rr]adius: *("[^"]*"|'[^']*'|[^,;\n}]+)/g;
+const RADIUS = /\b[A-Za-z]*[Bb]order-?[Rr]adius: *("[^"]*"|'[^']*'|[^,;\n}]+)/g;
 
 /**
  * Blank out comments before scanning. A hex in a doc comment pins nothing —
@@ -118,6 +127,11 @@ describe("color tokens", () => {
     for (const file of sourceFiles("src")) {
       if (FONT_FILES.includes(file)) continue;
       const text = stripComments(readFileSync(file, "utf8"));
+      for (const [, value] of text.matchAll(FF_PROP)) {
+        if (!FF_KEYWORDS.has(value.trim()) && !value.includes("var(--font-")) {
+          offenders.push(`${file}  ff="${value}"`);
+        }
+      }
       for (const [, value] of text.matchAll(FONT_FAMILY)) {
         // `var(--mantine-font-family*)` is fine: main.tsx points those at
         // ours. `inherit` opts out of naming a face at all, which is the
@@ -148,7 +162,7 @@ ${offenders.join("\n")}
       const text = stripComments(readFileSync(file, "utf8"));
       for (const [, value] of text.matchAll(RADIUS)) {
         const v = value.trim().replace(/["']/g, "");
-        if (v.includes("var(--radius-") || v === "50%" || v === "inherit") {
+        if (v.includes("var(--radius-") || v === "inherit") {
           continue;
         }
         offenders.push(`${file}  ${v}`);
@@ -186,6 +200,49 @@ ${offenders.join("\n")}
       [...ink].filter((r) => !paper.has(r)),
       "roles defined on ink but not on paper",
     ).toEqual([]);
+  });
+
+  /**
+   * Monaco is the one consumer that resolves tokens through a probe element
+   * (`utils/theme-tokens.ts`), and a custom property inherits its COMPUTED
+   * value — so a token declared only on `:root` hands the probe whatever the
+   * ACTIVE ground already resolved it to, not the ground the probe asked for.
+   * That silently built Monaco's dark theme out of paper colours once.
+   *
+   * Every name Monaco reads therefore has to be declared inside a per-ground
+   * block, in both grounds.
+   */
+  it("only lets Monaco read tokens that are declared per ground", () => {
+    const monaco = readFileSync("src/utils/monaco-setup.ts", "utf8");
+    const block = /const THEME_TOKENS = \[([\s\S]*?)\] as const;/.exec(monaco);
+    expect(block, "THEME_TOKENS in monaco-setup.ts").not.toBeNull();
+    const wanted = [...block![1].matchAll(/"(--[\w-]+)"/g)].map((m) => m[1]);
+    expect(wanted.length).toBeGreaterThan(0);
+
+    const tokens = readFileSync("src/styles/tokens.css", "utf8");
+    const global = readFileSync("src/styles/global.css", "utf8");
+    // Declarations that live under a selector mentioning a ground attribute.
+    const perGround = (css: string, scheme: string) => {
+      const names = new Set<string>();
+      for (const rule of css.split("}")) {
+        const [selector, body] = rule.split("{");
+        if (!body) continue;
+        if (!selector.includes(`data-mantine-color-scheme="${scheme}"`))
+          continue;
+        for (const m of body.matchAll(/^\s*(--[\w-]+):/gm)) names.add(m[1]);
+      }
+      return names;
+    };
+    for (const scheme of ["light", "dark"]) {
+      const declared = new Set([
+        ...perGround(tokens, scheme),
+        ...perGround(global, scheme),
+      ]);
+      expect(
+        wanted.filter((t) => !declared.has(t)),
+        `tokens Monaco reads that are not declared for the ${scheme} ground — the probe would return the OTHER ground's value`,
+      ).toEqual([]);
+    }
   });
 
   it("keeps the semantic aliases pointing at roles that exist", () => {

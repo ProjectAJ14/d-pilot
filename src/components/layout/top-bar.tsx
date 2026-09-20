@@ -222,7 +222,7 @@ export function TopBar() {
             style={{
               width: 7,
               height: 7,
-              borderRadius: "50%",
+              borderRadius: "var(--radius-sm)",
               background: phiEnabled ? "var(--token)" : "var(--error)",
               boxShadow: `0 0 6px ${phiEnabled ? "var(--token)" : "var(--error)"}`,
               animation: !phiEnabled ? "pulsered 1.5s infinite" : undefined,
@@ -257,7 +257,7 @@ export function TopBar() {
             style={{
               width: 34,
               height: 34,
-              borderRadius: "50%",
+              borderRadius: "var(--radius-sm)",
               // Brand mark: one palette on BOTH grounds. A ground role would
               // invert the circle on ink (and drag the initials with it), so
               // this is the fixed brand gradient from tokens.css.

@@ -145,15 +145,24 @@ stays hairline. Don't swap them.
 disabled ink only; using it for a label is the one easy way to ship something
 unreadable that the gate will not catch.
 
-One known gap, a product decision rather than a bug: **env badges** (`PROD`,
-`STG`, `UAT`…) and other `variant="filled"` controls render white on Mantine's
-computed fill at ~2.4-4:1. Mantine resolves the filled-variant ink **once**,
-from the palette shade it picks without knowing the ground, and bakes the result
-into `--button-color` inline. `variantColorResolver` in `main.tsx` hands filled
-_brand_ controls `var(--on-accent)` instead, moving that choice to CSS, which
-does know the ground. Any other palette needing the same treatment goes through
-there — but changing the env badges also changes how loud `PROD` looks, so don't
-do it silently.
+**Ink on a filled control is solved, and this used to be the app's worst gap.**
+Mantine picks that ink ONCE, from the palette shade it resolves without knowing
+the ground, so it read the paper shade, concluded white, and baked
+`--button-color: white` in for both. On ink every fill is the light end of its
+ramp, so white collapsed — 2.4:1 on the green `Run` button and on every `PROD`
+env badge.
+
+It is fixable because the ramps share a rhythm: `primaryShade` picks index 7 on
+paper (dark end, wants white) and index 3 on ink (light end, wants the ground
+colour) for **every** palette. So `variantColorResolver` in `main.tsx` hands all
+filled variants `var(--on-fill)` and the choice moves to CSS, which does know
+the ground. Only the ink changes — no fill moves, so `PROD` is exactly as loud
+as it was, just legible. `contrast.test.ts` reads the real tuples out of
+`main.tsx` and checks every palette, so **a new palette that does not follow the
+rhythm fails the build**.
+
+One thing to keep in mind: a few labels still sit at 4.1-4.4:1 on tinted
+backgrounds, which the token-level gate cannot see. Audit the rendered page.
 
 ## 3. Theming: light / dark / system
 

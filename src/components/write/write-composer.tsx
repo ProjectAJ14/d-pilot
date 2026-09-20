@@ -597,7 +597,7 @@ export function WriteComposer({
               style={{
                 width: 8,
                 height: 8,
-                borderRadius: "50%",
+                borderRadius: "var(--radius-sm)",
                 background: modeMeta.dot,
                 boxShadow: `0 0 0 3px ${modeMeta.halo}`,
               }}
@@ -640,7 +640,7 @@ export function WriteComposer({
               background: "color-mix(in srgb, var(--accent) 12%, transparent)",
               border:
                 "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
-              borderRadius: "var(--radius-pill)",
+              borderRadius: "var(--radius-sm)",
               padding: "1px 9px",
             }}
           >

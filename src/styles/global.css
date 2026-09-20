@@ -38,7 +38,7 @@
  *   --muted        --faint              tertiary text
  *   --accent       --spot               brand, for shapes and icons
  *   --accent-text  --spot               brand, for words
- *   --on-accent    --spot-ink           ink ON a brand fill
+ *   --on-fill      --spot-ink           ink ON any filled control
  *   --token        --spot               PHI tokenization
  *
  * `--bg`, `--success`, `--error`, `--warning`, `--type-special`, `--hover`,
@@ -55,8 +55,20 @@
  *    may well need to split them again.
  *  - `--accent4` was "emphatic text", and was already the primary text colour
  *    in both schemes.
+ *
+ * The selector list matters, and is not decoration. A custom property inherits
+ * its COMPUTED value, so an alias declared only on `:root` hands every
+ * descendant the value `:root` already resolved — the active ground's. That is
+ * invisible in the app (everything descends from one ground) but it broke the
+ * probe in `utils/theme-tokens.ts`: an element carrying the other ground's
+ * attribute got that ground's `--panel` and the *active* ground's `--surface`,
+ * so Monaco's dark theme was built out of paper colours. Re-declaring the
+ * aliases on the attribute selectors makes them re-resolve wherever a ground is
+ * set, which is what makes reading any name off the probe correct.
  */
-:root {
+:root,
+[data-mantine-color-scheme="light"],
+[data-mantine-color-scheme="dark"] {
   --surface: var(--panel);
   --surface2: var(--mass);
   --surface3: var(--well);
@@ -71,7 +83,7 @@
   --accent: var(--spot);
   --accent-text: var(--spot);
   --accent4: var(--ink);
-  --on-accent: var(--spot-ink);
+  --on-fill: var(--spot-ink);
 
   /* Reserved semantics — verdigris means PHI/tokenized data as well as brand.
      It always did (the old --token and --accent were the same teal); the design
@@ -103,6 +115,41 @@
 :root {
   --mantine-color-dimmed: var(--muted);
   --mantine-color-primary-light-color: var(--accent-text);
+
+  /* Mantine's light scheme assumes the app is white: `--mantine-color-body`
+     (Modal, Menu, Popover, Notification) and the `default` variant's surface
+     both resolve to `--mantine-color-white`. On a warm ground that reads as a
+     sheet of paper floating over cream. The dark scheme already came out right,
+     because those derive from the `dark` tuple — which is the ink ground. */
+  --mantine-color-body: var(--surface);
+  --mantine-color-text: var(--text);
+  --mantine-color-default: var(--surface);
+  --mantine-color-default-hover: var(--surface2);
+  --mantine-color-default-color: var(--text);
+  --mantine-color-default-border: var(--border2);
+
+  /* Mantine derives the error ink from the red ramp one shade off the filled
+     step, which landed at 4.46:1 on --panel for the "required" hints. Ours is
+     the contrast-solved value. */
+  --mantine-color-error: var(--error);
+}
+
+/**
+ * Third-party chrome that bakes in a radius.
+ *
+ * `theme.radius` reaches almost everything, but Mantine hardcodes
+ * `border-radius: 28px` on the notification icon and `50%` on the loader's
+ * dots, with no variable in between — so those two stayed round in an app of
+ * squares. AG Grid has the same problem for its checkboxes and filter buttons,
+ * but those ARE reachable as theme params and are set in `results-grid.tsx`.
+ *
+ * `:where()` keeps the specificity at zero so a component can still opt out,
+ * and the values come from the same scale as everything else — re-rounding the
+ * app stays a one-file edit in tokens.css.
+ */
+:where(.mantine-Notification-icon),
+:where(.mantine-Loader-root) > * {
+  border-radius: var(--radius-sm);
 }
 
 * {

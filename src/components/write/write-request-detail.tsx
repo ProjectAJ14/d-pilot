@@ -420,7 +420,7 @@ export function WriteRequestDetail() {
               textTransform: "uppercase",
               color: `var(--mantine-color-${statusMeta.color}-light-color)`,
               background: `var(--mantine-color-${statusMeta.color}-light)`,
-              borderRadius: "var(--radius-pill)",
+              borderRadius: "var(--radius-sm)",
               padding: "4px 11px",
             }}
           >
@@ -428,7 +428,7 @@ export function WriteRequestDetail() {
               style={{
                 width: 7,
                 height: 7,
-                borderRadius: "50%",
+                borderRadius: "var(--radius-sm)",
                 background: `var(--mantine-color-${statusMeta.color}-filled)`,
               }}
             />
@@ -792,7 +792,7 @@ export function WriteRequestDetail() {
                         width: 8,
                         height: 8,
                         marginTop: 5,
-                        borderRadius: "50%",
+                        borderRadius: "var(--radius-sm)",
                         background: `var(--mantine-color-${EVENT_COLORS[ev.event] || "gray"}-filled)`,
                       }}
                     />

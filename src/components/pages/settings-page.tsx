@@ -829,7 +829,7 @@ function AnalyticsTab() {
                           style={{
                             width: 8,
                             height: 8,
-                            borderRadius: "50%",
+                            borderRadius: "var(--radius-sm)",
                             flexShrink: 0,
                             background: c.live
                               ? "var(--success)"

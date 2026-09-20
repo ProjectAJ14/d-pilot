@@ -669,7 +669,7 @@ export function Sidebar() {
                                       style={{
                                         width: 5,
                                         height: 5,
-                                        borderRadius: "50%",
+                                        borderRadius: "var(--radius-sm)",
                                         background: "var(--surface)",
                                         boxShadow:
                                           "0 0 5px color-mix(in srgb, var(--surface) 90%, transparent)",
@@ -683,7 +683,11 @@ export function Sidebar() {
                               </div>
                               <Text
                                 size="xs"
-                                c="dimmed"
+                                // Not `dimmed`: the active card is a brand
+                                // tint, and --muted is solved against the flat
+                                // surface (4.46:1 here). --muted2 is the
+                                // tinted-surface step.
+                                c="var(--muted2)"
                                 style={{ marginTop: 2, fontSize: 10 }}
                               >
                                 {conn.database || ""}

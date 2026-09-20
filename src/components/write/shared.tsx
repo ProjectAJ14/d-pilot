@@ -40,7 +40,7 @@ export function StepBadge({ n }: { n: number }) {
         flexShrink: 0,
         width: 20,
         height: 20,
-        borderRadius: "var(--radius-pill)",
+        borderRadius: "var(--radius-sm)",
         background: "color-mix(in srgb, var(--accent) 12%, transparent)",
         color: "var(--accent-text)",
         fontSize: 12,

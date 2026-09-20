@@ -105,6 +105,11 @@ function defineEditorTheme(name: string, ground: Ground) {
       "editor.selectionBackground": withAlpha(t["--accent-text"], 0.18),
       "editorCursor.foreground": t["--accent-text"],
       "editorIndentGuide.background1": t["--border"],
+      // Monaco paints its own placeholder overlay and its own inline
+      // suggestion; neither inherits from `editor.foreground`, so without
+      // these two they keep Monaco's stock grey on our ground.
+      "editor.placeholder.foreground": t["--muted"],
+      "editorGhostText.foreground": t["--muted"],
       "editorWidget.background": t["--surface"],
       "editorWidget.border": t["--border"],
       "editorSuggestWidget.background": t["--surface"],

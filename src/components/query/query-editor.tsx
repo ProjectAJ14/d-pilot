@@ -1059,7 +1059,7 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
               pointerEvents: "none",
             }}
           >
-            <Loader size="sm" color="var(--accent)" type="dots" />
+            <Loader size="sm" color="var(--accent)" />
             <Text size="xs" c="dimmed" style={{ letterSpacing: 0.3 }}>
               Preparing editor…
             </Text>

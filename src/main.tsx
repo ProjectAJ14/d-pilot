@@ -7,6 +7,8 @@ import {
   Title,
   Button,
   Badge,
+  Avatar,
+  Loader,
   Code,
   Kbd,
   TextInput,
@@ -78,7 +80,9 @@ const neutral: MantineColorsTuple = [
   "#ddd8cc",
   "#d2ccbd",
   "#b5ae9d",
-  "#a09a8c",
+  // Mantine takes its disabled/placeholder ink from gray[5]; this is the same
+  // value as --faint-2 on paper, for the reason tokens.css gives there.
+  "#857e6e",
   "#807a6c",
   "#5b574c",
   "#3d3a33",
@@ -151,6 +155,21 @@ const violet: MantineColorsTuple = [
   "#361077",
 ];
 
+/** The AI features (Generate, write-request review) ask for `grape`. Kept a
+ *  distinct hue from `violet` because violet is the QA environment. */
+const grape: MantineColorsTuple = [
+  "#f4ebf7",
+  "#e6d1f0",
+  "#d9b1ec",
+  "#d18cff",
+  "#c46ef7",
+  "#b350ee",
+  "#9c34d8",
+  "#7b1aab",
+  "#5d1482",
+  "#3f0e58",
+];
+
 /**
  * Mantine's own dark ramp is a neutral grey; ours is the ink ground. These are
  * the SAME surfaces tokens.css defines — Mantine reads fixed indices out of
@@ -172,21 +191,30 @@ const dark: MantineColorsTuple = [
 ];
 
 /**
- * Mantine picks the ink for a `filled` control once, from the palette shade it
- * resolves without knowing the colour scheme — so it reads one ground's brand
- * shade, decides white is right, and emits `--button-color: white` inline for
- * both. On ink the brand fill is the LIGHT verdigris, where white collapses to
- * 1.4:1.
+ * The ink on a filled control.
  *
- * Handing back a token instead moves the decision to CSS, which does know the
- * ground: white on the dark verdigris (paper, 8.42:1), the ground colour on the
- * light verdigris (ink, 10.33:1). Only the brand fill is overridden — the stock
- * red/orange badges keep their documented treatment.
+ * Mantine picks this ONCE, from the palette shade it resolves without knowing
+ * the colour scheme (`parsed.isLight` in its default resolver) — so it reads
+ * the paper-ground shade, decides white is right, and emits
+ * `--button-color: white` inline for BOTH grounds. On ink every fill is the
+ * light end of its ramp, where white collapses: 2.4:1 on the green Run button,
+ * and the same on every `PROD`/`STG` env badge. That gap was documented as
+ * unfixable-without-a-redesign for a long time.
+ *
+ * It is fixable now because the ramps share a rhythm. `primaryShade` picks
+ * index 7 on paper (the dark end, wants white ink) and index 3 on ink (the
+ * light end, wants the ground colour) — for EVERY palette, not just the brand.
+ * So the choice is one token, and handing it back moves the decision to CSS,
+ * which does know the ground.
+ *
+ * Every combination clears 4.5:1; `styles/contrast.test.ts` checks all of them
+ * against these tuples on every run. Note this changes only the INK — no fill
+ * moves, so `PROD` is exactly as loud as it was, just legible.
  */
 const variantColorResolver: VariantColorsResolver = (input) => {
   const resolved = defaultVariantColorsResolver(input);
-  if (input.variant === "filled" && input.color === "primary") {
-    return { ...resolved, color: "var(--on-accent)" };
+  if (input.variant === "filled") {
+    return { ...resolved, color: "var(--on-fill)" };
   }
   return resolved;
 };
@@ -210,6 +238,12 @@ const theme = createTheme({
   // index 7 = the paper-ground step, index 3 = the ink-ground step. See the
   // palette note above.
   primaryShade: { light: 7, dark: 3 },
+  // Mantine hardcodes `--mantine-color-white` as the light-scheme surface of a
+  // few components (Notification, most visibly), so leaving it at #fff floats a
+  // sheet of literal white over the cream ground. On a warm ground the "white"
+  // IS the paper's raised surface. Safe now that no filled control takes its
+  // ink from here — see variantColorResolver above.
+  white: "#e7e3da",
   black: "#16150f",
   fontSizes: {
     xs: "var(--text-xs)",
@@ -242,11 +276,7 @@ const theme = createTheme({
     xl: "var(--radius-xl)",
   },
   defaultRadius: "sm",
-  // Flips label text to black on filled backgrounds too light to carry white.
-  // Note: this does NOT reach the env badges (PROD/STG/UAT) — Mantine only
-  // applies it to `filled` variants and those still resolve to white here.
-  // Fixing that means changing the env badge treatment, which is a product
-  // decision about how loud PROD looks.
+  // Kept on for the variants `variantColorResolver` does not override.
   autoContrast: true,
   variantColorResolver,
   cursorType: "pointer",
@@ -254,6 +284,11 @@ const theme = createTheme({
     primary,
     neutral,
     red,
+    grape,
+    // Teal is the reserved PHI/tokenization hue and verdigris IS that hue, so
+    // `color="teal"` and the brand resolve to one ramp. Left on the stock
+    // Mantine teal it was a second, colder green sitting next to the brand.
+    teal: primary,
     orange,
     green,
     blue,
@@ -281,6 +316,11 @@ const theme = createTheme({
       // A badge is a micro-label, so it takes the micro-label treatment: mono,
       // wide-tracked, square. This is the loudest single carrier of the theme,
       // because env badges and status pills are everywhere.
+      //
+      // `radius` has to be passed explicitly: Badge only emits `--badge-radius`
+      // when the prop is set, and falls back to a hardcoded 1000px otherwise —
+      // so `theme.radius` alone left every badge a pill in an app of squares.
+      defaultProps: { radius: "sm" },
       styles: () => ({
         label: {
           fontFamily: "var(--font-mono)",
@@ -288,6 +328,16 @@ const theme = createTheme({
           fontWeight: "var(--weight-medium)",
         },
       }),
+    }),
+    Loader: Loader.extend({
+      // The default "oval" spinner and the "dots" variant are both circles.
+      // Bars are rectangles, so the one animated thing in the app matches the
+      // square chrome instead of being the lone round shape on screen.
+      defaultProps: { type: "bars" },
+    }),
+    Avatar: Avatar.extend({
+      // Mantine defaults Avatar to a circle; nothing in this theme is round.
+      defaultProps: { radius: "sm" },
     }),
     Code: Code.extend({
       styles: () => ({ root: { fontFamily: "var(--font-mono)" } }),

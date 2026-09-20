@@ -181,7 +181,7 @@ function Avatar({ initials, size }: { initials: string; size: number }) {
       style={{
         width: size,
         height: size,
-        borderRadius: "50%",
+        borderRadius: "var(--radius-sm)",
         // Brand mark: one palette on BOTH grounds. A ground role would invert
         // the circle on ink (and drag the initials with it), so this is the
         // fixed brand gradient from tokens.css.

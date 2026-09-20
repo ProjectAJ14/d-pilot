@@ -132,6 +132,47 @@ describe.each([
   });
 });
 
+/**
+ * Ink on a filled control, for EVERY palette.
+ *
+ * `variantColorResolver` in main.tsx hands all filled variants `--on-fill`,
+ * which resolves to white on paper and the ground colour on ink. That only
+ * works because every ramp shares one rhythm — `primaryShade` picks index 7 on
+ * paper and index 3 on ink — so this reads the real tuples out of main.tsx and
+ * checks the claim rather than trusting it. It is what makes the `PROD` badge
+ * legible, and it would silently stop being true if someone added a palette
+ * that did not follow the rhythm.
+ */
+describe("ink on a filled control", () => {
+  const src = readFileSync("src/main.tsx", "utf8");
+  const tuples = [
+    ...src.matchAll(/const (\w+): MantineColorsTuple = \[([^\]]+)\]/g),
+  ]
+    .map(([, name, body]) => ({
+      name,
+      shades: [...body.matchAll(/"(#[0-9a-fA-F]{6})"/g)].map((m) => m[1]),
+    }))
+    // `dark` is the ink ground's surfaces, not a fill palette.
+    .filter((t) => t.name !== "dark" && t.shades.length === 10);
+
+  it("covers every palette in main.tsx", () => {
+    expect(tuples.length).toBeGreaterThanOrEqual(7);
+  });
+
+  // primaryShade: { light: 7, dark: 3 } — see main.tsx.
+  it.each([
+    ["paper", 7, "#ffffff"],
+    ["ink", 3, "#17171a"],
+  ] as const)("%s: --on-fill reads on shade %i", (_ground, shade, onFill) => {
+    for (const { name, shades } of tuples) {
+      expect(
+        Number(ratio(onFill, shades[shade]).toFixed(2)),
+        `${name}[${shade}] = ${shades[shade]}`,
+      ).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
+
 describe("the brand mark", () => {
   // The login panel and the avatar keep one palette on BOTH grounds, so their
   // inks are solved against the lightest stop their gradients reach.
