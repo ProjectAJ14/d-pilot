@@ -111,6 +111,13 @@ const gridTheme = themeQuartz.withParams({
   checkboxBorderRadius: "var(--radius-xs)",
   inputBorderRadius: "var(--radius-sm)",
   iconButtonBorderRadius: "var(--radius-sm)",
+  // The grid's UA-rendered chrome — the scrollbar corner, the pickers inside
+  // filter popups — follows `color-scheme`, which tokens.css sets on each
+  // ground. `inherit` is what hands that decision to the ground; the default is
+  // a hardcoded "light", which came from `colorSchemeVariable`'s base params
+  // and used to be corrected by the `data-ag-theme-mode` attribute this theme
+  // no longer needs. Without it the grid stays light-schemed on ink.
+  browserColorScheme: "inherit",
 });
 
 // Short values render fully in the cell, so opening the inspector for them is
@@ -473,8 +480,10 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
       // and the copy looked like it had done something else entirely. The copy
       // did still happen, but the drawer flying out is what you noticed.
       //
-      // A lone single click now opens the panel one frame later than it used
-      // to; losing the copy gesture is the worse trade.
+      // The cost is real and worth naming: a lone single click now waits 500ms
+      // instead of 250ms before the panel opens. Losing the copy gesture is
+      // still the worse trade — a late panel is a pause, a hijacked
+      // double-click is the wrong thing happening.
       openTimerRef.current = window.setTimeout(() => {
         setCellDetail(detail);
         openTimerRef.current = null;
@@ -735,10 +744,13 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
         {/* Discoverability hint — table view only (the JSON view shows full
             values already, so these gestures don't apply there).
 
-            Each tip is kept to two or three words on purpose: the row sits on
-            one line with `whiteSpace: nowrap`, so anything longer pushes the
-            last tip off the edge. A trailing "…" is especially bad here — it
-            reads as truncated text rather than as a menu. */}
+            Each tip is kept short on purpose: the row sits on one line with
+            `whiteSpace: nowrap`, so anything longer pushes the last tip off
+            the edge. A trailing "…" is especially bad here — it reads as
+            truncated text rather than as a menu. What a tip must NOT do is buy
+            that brevity with accuracy: only values over INSPECT_MIN_CHARS
+            expand, and the drag gesture is pointless without the Copy as it
+            feeds, so both say so. */}
         {viewMode === "table" && (
           <div
             style={{
@@ -768,7 +780,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
               style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
             >
               <IconClick size={13} style={{ color: "var(--accent)" }} />
-              click to expand
+              click long values
             </span>
             <span style={{ opacity: 0.35 }}>·</span>
             <span
@@ -789,7 +801,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
               style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
             >
               <IconCopyCheck size={13} style={{ color: "var(--accent)" }} />
-              drag to select cells
+              drag, then Copy as
             </span>
           </div>
         )}

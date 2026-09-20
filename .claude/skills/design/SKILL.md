@@ -38,9 +38,21 @@ tokens through a hidden probe element at startup. Do not reintroduce a second co
 the palette anywhere; `styles/color-tokens.test.ts` fails the build on a hex
 outside `tokens.css` and `main.tsx`.
 
-The one deliberate exception is the `dark` tuple in `main.tsx`: Mantine reads
-fixed indices out of it for its own chrome, so it restates the ink surfaces.
-Change a surface in tokens.css, change it there too — the comment says so.
+Two deliberate exceptions, both guarded:
+
+- The `dark` tuple in `main.tsx`: Mantine reads fixed indices out of it for its
+  own chrome, so it restates the ink surfaces. Change a surface in tokens.css,
+  change it there too — the comment says so.
+- The `theme-color` metas in `index.html` and the web manifest in
+  `server/index.ts`. These paint the chrome _around_ the app — the mobile URL
+  bar, the installed title bar, the boot splash — and both are read before any
+  stylesheet loads, so neither can be a `var()`. `color-tokens.test.ts` pins
+  each of them to a ground's `--bg`.
+
+Reaching for a Mantine palette name is the third way to opt out without
+noticing: `color="yellow"` is not a hex and not a warning, but `main.tsx` only
+overrides the stock names the app actually uses, so an unlisted one renders in
+stock Mantine beside the themed ones. That is guarded too.
 
 ## 1. Two grounds, and roles — never a hex
 
@@ -299,6 +311,8 @@ the same decision as `--space-2`, `--radius-md` and `--text-sm`.
 
 - [ ] No new hex or brand-colour `rgba()` outside `tokens.css` / `main.tsx` —
       `color-tokens.test.ts` enforces it
+- [ ] Any `color="…"` names a palette `main.tsx` defines, not just any stock
+      Mantine one — same test
 - [ ] Renders correctly on ink **and** paper (toggle it, don't assume)
 - [ ] No `--mantine-color-<name>-<digit>`
 - [ ] If a token changed: `contrast.test.ts` still passes, and you believed it

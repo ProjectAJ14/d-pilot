@@ -716,7 +716,10 @@ export function WriteComposer({
           <Checkbox
             checked={noTransaction}
             onChange={(e) => setNoTransaction(e.currentTarget.checked)}
-            color="yellow"
+            // `orange` IS the --warning ramp (see main.tsx); `yellow` is the
+            // one stock Mantine palette this theme does not override, so it
+            // rendered an un-themed hue inside a callout drawn in --warning.
+            color="orange"
             label={
               <Text size="sm" fw={600} c="var(--warning)">
                 Run without rollback

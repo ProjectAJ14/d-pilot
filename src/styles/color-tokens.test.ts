@@ -82,7 +82,7 @@ function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) return sourceFiles(full);
-    return /\.(ts|tsx|css)$/.test(entry) && !entry.endsWith(".test.ts")
+    return /\.(ts|tsx|css)$/.test(entry) && !/\.test\.tsx?$/.test(entry)
       ? [full]
       : [];
   });
@@ -171,7 +171,8 @@ ${offenders.join("\n")}
     expect(
       offenders,
       `A literal radius will not follow the theme. Use a step from the scale
-in tokens.css (--radius-xs … --radius-xl, or --radius-pill):
+in tokens.css (--radius-none … --radius-xl). There is no pill or circle
+step on purpose — see the RADII note in tokens.css:
 
 ${offenders.join("\n")}
 `,
@@ -243,6 +244,91 @@ ${offenders.join("\n")}
         `tokens Monaco reads that are not declared for the ${scheme} ground — the probe would return the OTHER ground's value`,
       ).toEqual([]);
     }
+  });
+
+  /**
+   * The browser and OS chrome — the mobile URL bar, the installed window's
+   * title bar, the splash screen behind the app while it boots.
+   *
+   * These are the one class of colour the guards above cannot reach: a
+   * `theme-color` meta is read out of index.html before any stylesheet loads,
+   * and the manifest is JSON served by Express, so neither can be a `var()`.
+   * That makes them the last real mirror of tokens.css — and an unguarded
+   * mirror is one a re-theme leaves behind, which is the whole failure mode
+   * this file exists to prevent. The splash screen showing the OLD ground
+   * behind the new app is exactly how it would surface.
+   *
+   * The invariant is narrow on purpose: each one must be a ground's `--bg`,
+   * because what they paint is the app's canvas extending past the viewport.
+   */
+  it("paints the installed app out of the design system", () => {
+    const tokens = readFileSync("src/styles/tokens.css", "utf8");
+    const grounds = ["light", "dark"].map((scheme) => {
+      const start = tokens.indexOf(
+        `:root[data-mantine-color-scheme="${scheme}"]`,
+      );
+      const block = tokens.slice(start, tokens.indexOf("}", start));
+      return /^\s*--bg:\s*(#[0-9a-fA-F]{3,8});/m.exec(block)![1].toLowerCase();
+    });
+
+    const offenders: string[] = [];
+    for (const file of ["index.html", "server/index.ts"]) {
+      const text = stripComments(readFileSync(file, "utf8"));
+      for (const hit of text.match(HEX) ?? []) {
+        if (!grounds.includes(hit.toLowerCase()))
+          offenders.push(`${file}  ${hit}`);
+      }
+    }
+    expect(
+      offenders,
+      `The theme-color metas and the web manifest paint the chrome around the
+app, so they have to be a ground's --bg from src/styles/tokens.css
+(${grounds.join(" or ")}) — they cannot be var()s, so this is what keeps
+them in step:\n\n${offenders.join("\n")}\n`,
+    ).toEqual([]);
+  });
+
+  /**
+   * `color="yellow"` is not an error and not a warning — it is a stock Mantine
+   * palette rendering next to a themed one, which is the same drift a hex
+   * would cause and is harder to spot because it looks like it followed the
+   * rules. `main.tsx` overrides the stock names it uses precisely so the ~100
+   * existing `color=` props re-theme themselves; a name it does NOT override
+   * quietly opts out of that.
+   *
+   * This is how the `noTransaction` checkbox ended up in Mantine's own yellow
+   * inside a callout drawn in `--warning`.
+   *
+   * Only string literals are checked. `color={envColor(env)}` is computed, and
+   * `utils/environments.ts` is where that mapping is reviewed.
+   */
+  it("names only palettes main.tsx defines", () => {
+    const main = readFileSync("src/main.tsx", "utf8");
+    // Non-greedy to the first `},` on a line of its own: the colors block is a
+    // flat list of palette names, so nothing nested can end it early.
+    const block = /colors: \{([\s\S]*?)\n\s*\},/.exec(main);
+    expect(block, "the colors block in main.tsx").not.toBeNull();
+    const defined = new Set(
+      [...block![1].matchAll(/^\s*(\w+)[,:]/gm)].map((m) => m[1]),
+    );
+    expect(defined.size).toBeGreaterThan(5);
+
+    const offenders: string[] = [];
+    for (const file of sourceFiles("src")) {
+      const text = stripComments(readFileSync(file, "utf8"));
+      text.split("\n").forEach((line, i) => {
+        for (const [, name] of line.matchAll(/\bcolor="([a-z]+)"/g)) {
+          if (!defined.has(name))
+            offenders.push(`${file}:${i + 1}  color="${name}"`);
+        }
+      });
+    }
+    expect(
+      offenders,
+      `These name a Mantine palette that main.tsx does not override, so they
+render in stock Mantine colours beside the themed ones. Use a palette from
+the colors block (${[...defined].join(", ")}):\n\n${offenders.join("\n")}\n`,
+    ).toEqual([]);
   });
 
   it("keeps the semantic aliases pointing at roles that exist", () => {

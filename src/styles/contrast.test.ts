@@ -56,6 +56,21 @@ function ratio(a: string, b: string): number {
 }
 
 /**
+ * Assert a ratio, reporting the rounded value but COMPARING the exact one.
+ *
+ * Rounding before the comparison is the subtle way a floor like this stops
+ * holding: 4.4951 renders as "4.50" and sails past `>= 4.5`. The message is
+ * for a human, the comparison is the gate, and they do not have to be the
+ * same number.
+ */
+function atLeast(actual: number, floor: number, what: string) {
+  expect(
+    actual,
+    `${what} — ${actual.toFixed(4)}, floor ${floor}`,
+  ).toBeGreaterThanOrEqual(floor);
+}
+
+/**
  * Pull one ground's role → value map out of tokens.css, following `var()`
  * indirections into the shared scale (`--spot: var(--vd-300)`). Roles whose
  * value is not a flat colour — `color-mix()`, a gradient, `rgba()` — are left
@@ -101,10 +116,7 @@ describe.each([
   it.each(TEXT_ROLES)("%s carries text on every surface (4.5:1)", (role) => {
     expect(roles[role], `${role} is not a flat colour`).toBeTruthy();
     for (const surface of SURFACES) {
-      expect(
-        Number(ratio(roles[role], roles[surface]).toFixed(2)),
-        `${role} on ${surface}`,
-      ).toBeGreaterThanOrEqual(4.5);
+      atLeast(ratio(roles[role], roles[surface]), 4.5, `${role} on ${surface}`);
     }
   });
 
@@ -113,10 +125,7 @@ describe.each([
     (role) => {
       expect(roles[role], `${role} is not a flat colour`).toBeTruthy();
       for (const surface of SURFACES) {
-        expect(
-          Number(ratio(roles[role], roles[surface]).toFixed(2)),
-          `${role} on ${surface}`,
-        ).toBeGreaterThanOrEqual(3);
+        atLeast(ratio(roles[role], roles[surface]), 3, `${role} on ${surface}`);
       }
     },
   );
@@ -125,10 +134,11 @@ describe.each([
     // --spot-ink is the ink for a filled brand control. Mantine cannot pick it
     // (see variantColorResolver in main.tsx), so it is a token — and a token
     // nobody re-checks is a token that drifts.
-    expect(
-      Number(ratio(roles["--spot-ink"], roles["--spot"]).toFixed(2)),
+    atLeast(
+      ratio(roles["--spot-ink"], roles["--spot"]),
+      4.5,
       "--spot-ink on --spot",
-    ).toBeGreaterThanOrEqual(4.5);
+    );
   });
 });
 
@@ -165,10 +175,11 @@ describe("ink on a filled control", () => {
     ["ink", 3, "#17171a"],
   ] as const)("%s: --on-fill reads on shade %i", (_ground, shade, onFill) => {
     for (const { name, shades } of tuples) {
-      expect(
-        Number(ratio(onFill, shades[shade]).toFixed(2)),
+      atLeast(
+        ratio(onFill, shades[shade]),
+        4.5,
         `${name}[${shade}] = ${shades[shade]}`,
-      ).toBeGreaterThanOrEqual(4.5);
+      );
     }
   });
 });
@@ -190,16 +201,18 @@ describe("the brand mark", () => {
   );
 
   it.each(inks)("%s reads on the brand panel (4.5:1)", (name) => {
-    expect(
-      Number(ratio(resolved[name], scale["--vd-800"]).toFixed(2)),
+    atLeast(
+      ratio(resolved[name], scale["--vd-800"]),
+      4.5,
       `${name} on --vd-800`,
-    ).toBeGreaterThanOrEqual(4.5);
+    );
   });
 
   it("reads on the lightest stop of the avatar gradient", () => {
-    expect(
-      Number(ratio(resolved["--brand-ink"], scale["--vd-600"]).toFixed(2)),
+    atLeast(
+      ratio(resolved["--brand-ink"], scale["--vd-600"]),
+      4.5,
       "--brand-ink on --vd-600",
-    ).toBeGreaterThanOrEqual(4.5);
+    );
   });
 });
