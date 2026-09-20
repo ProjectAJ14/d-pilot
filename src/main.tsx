@@ -368,7 +368,11 @@ const theme = createTheme({
 
 createRoot(document.getElementById("root")!).render(
   <MantineProvider theme={theme} defaultColorScheme="auto">
-    <Notifications position="bottom-right" />
+    {/* Mantine's default is 4s, and the copy toast used to override it down to
+        2s — which is not long enough to read a message that quotes up to 60
+        characters of the value you copied. One number here rather than a
+        per-call override, so "how long does a toast live" has one answer. */}
+    <Notifications position="bottom-right" autoClose={5000} />
     <App />
   </MantineProvider>,
 );

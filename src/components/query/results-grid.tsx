@@ -117,6 +117,13 @@ const gridTheme = themeQuartz.withParams({
 // just friction. Only values longer than this get a click-to-expand panel.
 const INSPECT_MIN_CHARS = 24;
 
+/**
+ * How long to wait before treating a click as "not part of a double-click".
+ * Matches the platform's own double-click speed rather than guessing shorter —
+ * see `onCellClicked`.
+ */
+const DBLCLICK_WINDOW_MS = 500;
+
 interface Props {
   tab: QueryTab;
   /**
@@ -457,12 +464,21 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
         value: v,
         isMasked: maskedByColumn.get(field) ?? false,
       };
-      // Defer the open so onCellDoubleClicked can cancel it within the dbl-click
-      // window (~250ms). A lone single click just opens ~250ms later.
+      // Defer the open so onCellDoubleClicked can cancel it — this gesture may
+      // still turn out to be a copy.
+      //
+      // 250ms was too tight: a platform double-click can have up to ~500ms
+      // between clicks (macOS ships ~500ms as the default speed), so a
+      // leisurely double-click on a long value opened the inspector mid-gesture
+      // and the copy looked like it had done something else entirely. The copy
+      // did still happen, but the drawer flying out is what you noticed.
+      //
+      // A lone single click now opens the panel one frame later than it used
+      // to; losing the copy gesture is the worse trade.
       openTimerRef.current = window.setTimeout(() => {
         setCellDetail(detail);
         openTimerRef.current = null;
-      }, 250);
+      }, DBLCLICK_WINDOW_MS);
     },
     [maskedByColumn],
   );
