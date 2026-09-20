@@ -280,9 +280,17 @@ ${offenders.join("\n")}
     const declared = new Set(
       (stripComments(tokens).match(HEX) ?? []).map((h) => h.toLowerCase()),
     );
+    // Bounded at the closing </style>, not run to EOF: everything after the
+    // block — the theme-color metas included — belongs to the strict ground
+    // check below, and an open-ended slice would quietly demote it to this
+    // one. If the block cannot be located the whole file falls through to the
+    // strict check, which fails loudly rather than silently guarding nothing.
     const html = stripComments(readFileSync("index.html", "utf8"));
     const bootStart = html.indexOf("#boot {");
-    const boot = bootStart === -1 ? "" : html.slice(bootStart);
+    const bootEnd = bootStart === -1 ? -1 : html.indexOf("</style>", bootStart);
+    const found = bootStart !== -1 && bootEnd !== -1;
+    const boot = found ? html.slice(bootStart, bootEnd) : "";
+    const rest = found ? html.slice(0, bootStart) + html.slice(bootEnd) : html;
 
     const offenders: string[] = [];
     for (const hit of boot.match(HEX) ?? []) {
@@ -294,7 +302,7 @@ ${offenders.join("\n")}
     for (const file of ["index.html", "server/index.ts"]) {
       const text =
         file === "index.html"
-          ? html.slice(0, bootStart === -1 ? undefined : bootStart)
+          ? rest
           : stripComments(readFileSync(file, "utf8"));
       for (const hit of text.match(HEX) ?? []) {
         if (!grounds.includes(hit.toLowerCase()))
