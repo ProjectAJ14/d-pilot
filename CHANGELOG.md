@@ -5,6 +5,23 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.24.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.23.3...v1.24.0) (2026-09-20)
+
+
+### Bug Fixes
+
+* **query:** stop the copy toast lying, vanishing and stacking ([2bec4f2](https://github.com/ProjectAJ14/d-pilot/commit/2bec4f22374f011c0decb6204abff738662919f0))
+* **ui:** bring the faces and corners under the design system too ([2c46cec](https://github.com/ProjectAJ14/d-pilot/commit/2c46cec4de3b49d26f0b187515fed5c4e6c8f3fa))
+* **ui:** close the gaps the design system left open ([e4b26b2](https://github.com/ProjectAJ14/d-pilot/commit/e4b26b2af69bf0342b50b2daa6b517eab8022e8e))
+* **ui:** give Mantine's menus and options the design system's hover ([51d7f3c](https://github.com/ProjectAJ14/d-pilot/commit/51d7f3c315c0035fcc21c03859cb02ce974ba6ed))
+* **ui:** make the radius scale actually reach every corner ([10fa8b7](https://github.com/ProjectAJ14/d-pilot/commit/10fa8b71e32341b32e14c62b4ba5492de37447ff))
+
+
+### Features
+
+* **ui:** icons for the copy menus, and a readable requests filter ([3ce51ec](https://github.com/ProjectAJ14/d-pilot/commit/3ce51ec704ffb793bd0cf4d24958df7af1e0e057))
+* **ui:** rebuild the theme on a single-file design system ([06a9ddd](https://github.com/ProjectAJ14/d-pilot/commit/06a9dddd913eb4dcf063833613ed43f9b12ce5a9))
+
 ## [1.23.3](https://github.com/ProjectAJ14/d-pilot/compare/v1.23.2...v1.23.3) (2026-09-14)
 
 
