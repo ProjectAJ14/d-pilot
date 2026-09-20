@@ -5,6 +5,14 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [1.25.1](https://github.com/ProjectAJ14/d-pilot/compare/v1.25.0...v1.25.1) (2026-09-20)
+
+
+### Bug Fixes
+
+* **ui:** label the cell drawer's copy and viewer buttons ([ab7da13](https://github.com/ProjectAJ14/d-pilot/commit/ab7da1363780ca9a88be503a09db7797b8821ac9))
+* **ui:** stop double-click smearing a selection down sidebar rows ([7f84eb3](https://github.com/ProjectAJ14/d-pilot/commit/7f84eb31972700a917488106173f8a79dbe2341f))
+
 # [1.25.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.24.0...v1.25.0) (2026-09-20)
 
 
