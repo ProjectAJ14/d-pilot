@@ -14,11 +14,11 @@ export function GridCellTooltip(props: { value?: unknown }) {
     background: "var(--surface)",
     color: "var(--text)",
     border: "1px solid var(--border)",
-    borderRadius: 8,
+    borderRadius: "var(--radius-md)",
     boxShadow: "var(--shadow-2)",
     padding: "10px 12px",
     maxWidth: 360,
-    fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+    fontFamily: "var(--font-body)",
     lineHeight: 1.45,
   };
 
@@ -55,7 +55,7 @@ export function GridCellTooltip(props: { value?: unknown }) {
         </div>
         <div
           style={{
-            fontFamily: "IBM Plex Mono, monospace",
+            fontFamily: "var(--font-mono)",
             fontSize: 11.5,
             color: "var(--muted2)",
             wordBreak: "break-all",
@@ -85,7 +85,7 @@ export function GridCellTooltip(props: { value?: unknown }) {
     <div
       style={{
         ...card,
-        fontFamily: "IBM Plex Mono, monospace",
+        fontFamily: "var(--font-mono)",
         fontSize: 11.5,
         maxWidth: 440,
         maxHeight: 320,

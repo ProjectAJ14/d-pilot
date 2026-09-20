@@ -6,18 +6,33 @@ table), Monaco (SQL/query editor). Entry `src/main.tsx` → `src/App.tsx`. Read 
 
 ## Design system
 
-**Before touching any UI, read `.claude/skills/design/SKILL.md`.** In short: colors come
-from the semantic tokens in `src/styles/global.css` (never a hex or a brand `rgba()` in a
-component); the palette is defined in both light and dark and is WCAG-AA verified, so
-changing a token means re-running the contrast math; Mantine owns the color scheme via
-`data-mantine-color-scheme` on `<html>`, with `index.html` applying it before first paint
-and `<ColorSchemeToggle>` (top-bar account menu) offering Light/Dark/System.
+**Before touching any UI, read `.claude/skills/design/SKILL.md`.** In short:
+`src/styles/tokens.css` is the entire design system — one file decides every
+colour, face, size, radius and duration, and re-theming the app means editing
+it and nothing else. It defines a SCALE (the verdigris accent ramp, type,
+spacing, radii, motion) and two GROUNDS, `paper` (light) and `ink` (dark), each
+declaring the same ROLE tokens. `global.css` maps D-Pilot's semantic names
+(`--surface`, `--text`, `--accent`, …) onto those roles, so components keep
+naming what they always did. Mantine owns the ground via
+`data-mantine-color-scheme` on `<html>`, with `index.html` applying it before
+first paint and `<ColorSchemeToggle>` (top-bar account menu) offering
+Light/Dark/System.
 
-AG Grid, Monaco and react-obj-view cannot see the CSS variables and each carry a mirrored
-copy of the token values (`results-grid.tsx`, `utils/monaco-setup.ts`,
-`query/results-json-view.tsx`) — **change a token, change the mirrors.** Interaction
-states come from the `dp-*` utility classes in `global.css`; never track hover in React
-state.
+**There are no colour mirrors.** AG Grid takes `var(--surface)` and friends
+straight through `themeQuartz.withParams()`; react-obj-view takes `var()` too;
+Monaco — which parses literals and cannot read CSS variables — resolves the
+tokens at startup through `utils/theme-tokens.ts`. `src/styles/color-tokens.test.ts` fails the
+build on a hex outside `tokens.css`/`main.tsx`, and `contrast.test.ts` re-solves
+the WCAG floors on every run, so a token change is checked rather than trusted.
+
+`main.tsx` is the one place the palette is restated in JS, because Mantine
+derives its `light`/`filled`/`outline` variants in JS. It overrides the _stock_
+Mantine palette names (`gray`, `red`, `orange`, `green`, `blue`, `violet`), which
+is what re-themes the ~100 existing `color="red"` uses; everything else it takes
+— fonts, sizes, radii, spacing — is handed over as a `var()`.
+
+Interaction states come from the `dp-*` utility classes in `global.css`; never
+track hover in React state.
 
 ## State — Zustand (`store/index.ts`)
 

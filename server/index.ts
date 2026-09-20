@@ -105,9 +105,20 @@ router.get("/manifest.webmanifest", (_req, res) => {
     scope: BASE_URL,
     // The installed window is the web app, unchanged — same layout, same routes.
     display: "standalone",
-    // Mirrors --bg and --accent4 in src/styles/global.css.
-    background_color: "#f3f6f7",
-    theme_color: "#0c2340",
+    // Both are the paper ground's --bg. A manifest is JSON served before the
+    // app boots, so these cannot be var()s — they and the theme-color metas in
+    // index.html are the only place outside src/styles/tokens.css that restates
+    // a ground value, and `color tokens > paints the installed app out of the
+    // design system` in src/styles/color-tokens.test.ts is what keeps them from
+    // drifting away from it.
+    //
+    // A manifest has no media query, so it gets ONE answer where the metas get
+    // two — and that answer has to be the light one, since it is also what an
+    // installer shows before it knows the user's scheme. Same value for both
+    // keys so the splash screen and the title bar are one sheet rather than a
+    // cream panel under a near-black bar.
+    background_color: "#f0ede6",
+    theme_color: "#f0ede6",
     icons: [
       { src: `${BASE_PATH}/pwa-192.png`, sizes: "192x192", type: "image/png" },
       { src: `${BASE_PATH}/pwa-512.png`, sizes: "512x512", type: "image/png" },

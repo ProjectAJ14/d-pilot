@@ -74,7 +74,7 @@ export function WriteWorkspace() {
           style={{
             background: "var(--surface)",
             border: "1px solid var(--border)",
-            borderRadius: 16,
+            borderRadius: "var(--radius-xl)",
             padding: 26,
             boxShadow: "var(--shadow-2)",
           }}

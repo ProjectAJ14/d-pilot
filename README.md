@@ -501,11 +501,16 @@ mkdir -p public/logo
 cp /path/to/your-logo.svg public/logo/your-logo.svg
 ```
 
-For custom fonts (e.g. Barlow):
+The app ships its own faces (Archivo, Inter and JetBrains Mono, as variable
+woff2 under `public/fonts/`) and never requests a font CDN, so an air-gapped
+deployment needs nothing here. To swap in your own, drop the files alongside
+them and point the three family tokens at the new names:
 
 ```bash
-mkdir -p public/fonts/Barlow
-cp /path/to/Barlow-*.ttf public/fonts/Barlow/
+mkdir -p public/fonts/YourFace
+cp /path/to/YourFace-*.woff2 public/fonts/YourFace/
+# then: add an @font-face to src/styles/fonts.css and set
+# --font-disp / --font-body / --font-mono in src/styles/tokens.css
 ```
 
 > These directories are gitignored — they won't be pushed back to the repo.

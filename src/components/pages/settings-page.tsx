@@ -211,7 +211,7 @@ export function SettingsPage() {
                 leftSection={<Icon size={18} />}
                 onClick={() => setSearchParams({ tab: s.value })}
                 variant="light"
-                style={{ borderRadius: 8, marginBottom: 2 }}
+                style={{ borderRadius: "var(--radius-md)", marginBottom: 2 }}
               />
             );
           })}
@@ -348,7 +348,7 @@ function StatCard({
       style={{
         background: "var(--surface)",
         border: "1px solid var(--border)",
-        borderRadius: 12,
+        borderRadius: "var(--radius-lg)",
         padding: "16px 18px",
         display: "flex",
         flexDirection: "column",
@@ -436,7 +436,7 @@ function BarChart({
                   height: `${(d.value / max) * 100}%`,
                   minHeight: d.value > 0 ? 3 : 0,
                   background: color,
-                  borderRadius: "3px 3px 0 0",
+                  borderRadius: "var(--radius-xs) var(--radius-xs) 0 0",
                   transition: "height .2s",
                 }}
               />
@@ -465,7 +465,7 @@ function Panel({ children }: { children: ReactNode }) {
       style={{
         background: "var(--surface)",
         border: "1px solid var(--border)",
-        borderRadius: 12,
+        borderRadius: "var(--radius-lg)",
         padding: 18,
       }}
     >
@@ -673,7 +673,7 @@ function AnalyticsTab() {
                   style={{
                     height: 6,
                     background: "var(--surface2)",
-                    borderRadius: 4,
+                    borderRadius: "var(--radius-sm)",
                     overflow: "hidden",
                   }}
                 >
@@ -682,7 +682,7 @@ function AnalyticsTab() {
                       height: "100%",
                       width: `${(a.count / maxAction) * 100}%`,
                       background: `var(--mantine-color-${ACTION_COLORS[a.action] || "gray"}-filled)`,
-                      borderRadius: 4,
+                      borderRadius: "var(--radius-sm)",
                     }}
                   />
                 </div>
@@ -722,7 +722,7 @@ function AnalyticsTab() {
                     style={{
                       height: 5,
                       background: "var(--surface2)",
-                      borderRadius: 4,
+                      borderRadius: "var(--radius-sm)",
                       overflow: "hidden",
                     }}
                   >
@@ -731,7 +731,7 @@ function AnalyticsTab() {
                         height: "100%",
                         width: `${(u.queries / maxTopUser) * 100}%`,
                         background: "var(--accent)",
-                        borderRadius: 4,
+                        borderRadius: "var(--radius-sm)",
                       }}
                     />
                   </div>
@@ -829,7 +829,7 @@ function AnalyticsTab() {
                           style={{
                             width: 8,
                             height: 8,
-                            borderRadius: "50%",
+                            borderRadius: "var(--radius-sm)",
                             flexShrink: 0,
                             background: c.live
                               ? "var(--success)"
@@ -943,7 +943,7 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
         style={{
           background: "var(--surface)",
           border: "1px solid var(--border)",
-          borderRadius: 10,
+          borderRadius: "var(--radius-lg)",
           overflow: "hidden",
         }}
       >
@@ -1351,7 +1351,7 @@ function CapabilityFields({
       <div
         style={{
           border: "1px solid var(--border)",
-          borderRadius: 8,
+          borderRadius: "var(--radius-md)",
           padding: "10px 12px",
           marginBottom: isAdmin ? 4 : 10,
           background: "var(--surface2)",
@@ -1758,7 +1758,7 @@ function CredentialsModal({
       <div
         style={{
           border: "1px solid var(--border)",
-          borderRadius: 10,
+          borderRadius: "var(--radius-lg)",
           padding: "12px 14px",
           background: "var(--surface2)",
           display: "flex",
@@ -1893,7 +1893,7 @@ function WriteModeTab() {
           background: "color-mix(in srgb, var(--accent) 6%, transparent)",
           border:
             "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
-          borderRadius: 10,
+          borderRadius: "var(--radius-lg)",
           padding: 16,
           marginBottom: 20,
         }}
@@ -2162,7 +2162,7 @@ function PhiManagementTab() {
           background: "color-mix(in srgb, var(--accent) 6%, transparent)",
           border:
             "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
-          borderRadius: 10,
+          borderRadius: "var(--radius-lg)",
           padding: 16,
           marginBottom: 20,
         }}
@@ -2297,7 +2297,7 @@ function PhiManagementTab() {
         style={{
           background: "var(--surface)",
           border: "1px solid var(--border)",
-          borderRadius: 10,
+          borderRadius: "var(--radius-lg)",
           overflow: "hidden",
         }}
       >
@@ -2803,7 +2803,7 @@ function AuditLogTab() {
         style={{
           background: "var(--surface)",
           border: "1px solid var(--border)",
-          borderRadius: 10,
+          borderRadius: "var(--radius-lg)",
           overflow: "hidden",
         }}
       >
@@ -2997,9 +2997,9 @@ function AuditDetailModal({
               style={{
                 background: "var(--surface2)",
                 border: "1px solid var(--border)",
-                borderRadius: 8,
+                borderRadius: "var(--radius-md)",
                 padding: "10px 14px",
-                fontFamily: "IBM Plex Mono, monospace",
+                fontFamily: "var(--font-mono)",
                 fontSize: 12,
                 lineHeight: 1.6,
                 whiteSpace: "pre-wrap",
@@ -3044,7 +3044,7 @@ function AuditDetailModal({
                 ? "color-mix(in srgb, var(--error) 6%, transparent)"
                 : "color-mix(in srgb, var(--warning) 6%, transparent)",
               border: `1px solid ${entry.phiAccessed ? "color-mix(in srgb, var(--error) 20%, transparent)" : "color-mix(in srgb, var(--warning) 20%, transparent)"}`,
-              borderRadius: 8,
+              borderRadius: "var(--radius-md)",
               padding: 14,
             }}
           >
@@ -3156,7 +3156,7 @@ function AzureOpenAiTab() {
           background: "color-mix(in srgb, var(--accent) 6%, transparent)",
           border:
             "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
-          borderRadius: 10,
+          borderRadius: "var(--radius-lg)",
           padding: 16,
           marginBottom: 20,
         }}
@@ -3205,7 +3205,7 @@ function AzureOpenAiTab() {
               ? "color-mix(in srgb, var(--success) 6%, transparent)"
               : "color-mix(in srgb, var(--error) 6%, transparent)",
             border: `1px solid ${result.success ? "color-mix(in srgb, var(--success) 25%, transparent)" : "color-mix(in srgb, var(--error) 25%, transparent)"}`,
-            borderRadius: 10,
+            borderRadius: "var(--radius-lg)",
             padding: 16,
           }}
         >
@@ -3353,7 +3353,7 @@ function AiChatLogTab() {
         style={{
           background: "var(--surface)",
           border: "1px solid var(--border)",
-          borderRadius: 10,
+          borderRadius: "var(--radius-lg)",
           overflow: "hidden",
         }}
       >
@@ -3583,9 +3583,9 @@ function CodeBlock({
           style={{
             background: "var(--surface2)",
             border: "1px solid var(--border)",
-            borderRadius: 8,
+            borderRadius: "var(--radius-md)",
             padding: "10px 14px",
-            fontFamily: "IBM Plex Mono, monospace",
+            fontFamily: "var(--font-mono)",
             fontSize: 12,
             lineHeight: 1.6,
             whiteSpace: "pre-wrap",
@@ -3736,7 +3736,7 @@ function AiChatDetailModal({
               background: "color-mix(in srgb, var(--error) 6%, transparent)",
               border:
                 "1px solid color-mix(in srgb, var(--error) 20%, transparent)",
-              borderRadius: 8,
+              borderRadius: "var(--radius-md)",
               padding: 12,
             }}
           >

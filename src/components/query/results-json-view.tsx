@@ -28,7 +28,7 @@ const jsonViewTheme = extendTheme(themeGitHubLight, {
   "--bigobjview-action-btn": "var(--muted)",
   "--bigobjview-action-success": "var(--success)",
   "--bigobjview-action-error": "var(--error)",
-  fontFamily: "IBM Plex Mono, monospace",
+  fontFamily: "var(--font-mono)",
 });
 
 interface Props {

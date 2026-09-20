@@ -420,7 +420,7 @@ export function WriteRequestDetail() {
               textTransform: "uppercase",
               color: `var(--mantine-color-${statusMeta.color}-light-color)`,
               background: `var(--mantine-color-${statusMeta.color}-light)`,
-              borderRadius: 999,
+              borderRadius: "var(--radius-sm)",
               padding: "4px 11px",
             }}
           >
@@ -428,7 +428,7 @@ export function WriteRequestDetail() {
               style={{
                 width: 7,
                 height: 7,
-                borderRadius: "50%",
+                borderRadius: "var(--radius-sm)",
                 background: `var(--mantine-color-${statusMeta.color}-filled)`,
               }}
             />
@@ -574,7 +574,7 @@ export function WriteRequestDetail() {
           style={{
             background: "var(--surface)",
             border: "1px solid var(--border)",
-            borderRadius: 16,
+            borderRadius: "var(--radius-xl)",
             padding: 26,
             boxShadow: "var(--shadow-2)",
           }}
@@ -658,7 +658,7 @@ export function WriteRequestDetail() {
                     alignItems: "center",
                     gap: 10,
                     border: "1px solid var(--border)",
-                    borderRadius: 12,
+                    borderRadius: "var(--radius-lg)",
                     background: "var(--surface2)",
                     padding: "14px 16px",
                   }}
@@ -792,7 +792,7 @@ export function WriteRequestDetail() {
                         width: 8,
                         height: 8,
                         marginTop: 5,
-                        borderRadius: "50%",
+                        borderRadius: "var(--radius-sm)",
                         background: `var(--mantine-color-${EVENT_COLORS[ev.event] || "gray"}-filled)`,
                       }}
                     />
@@ -831,7 +831,7 @@ export function WriteRequestDetail() {
         opened={!!decisionModal}
         onClose={() => setDecisionModal(null)}
         centered
-        radius={16}
+        radius="xl"
         size={460}
         overlayProps={{ backgroundOpacity: 0.55, blur: 3 }}
         title={
@@ -840,7 +840,7 @@ export function WriteRequestDetail() {
               style={{
                 width: 38,
                 height: 38,
-                borderRadius: 10,
+                borderRadius: "var(--radius-lg)",
                 flexShrink: 0,
                 display: "flex",
                 alignItems: "center",

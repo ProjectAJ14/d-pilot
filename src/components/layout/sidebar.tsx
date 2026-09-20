@@ -441,7 +441,7 @@ export function Sidebar() {
               fontWeight: 600,
               letterSpacing: 0.5,
               textTransform: "uppercase",
-              fontFamily: "Barlow, sans-serif",
+              fontFamily: "var(--font-body)",
               transition: "color 150ms ease, border-color 150ms ease",
             }}
           >
@@ -515,7 +515,7 @@ export function Sidebar() {
             input: {
               background: "var(--surface)",
               border: "1px solid var(--border)",
-              borderRadius: 6,
+              borderRadius: "var(--radius-sm)",
               fontSize: 12,
               transition: "border-color 150ms ease",
             },
@@ -538,7 +538,7 @@ export function Sidebar() {
                     alignItems: "center",
                     gap: 8,
                     padding: "8px 10px",
-                    borderRadius: 6,
+                    borderRadius: "var(--radius-sm)",
                     cursor: "pointer",
                   }}
                 >
@@ -602,7 +602,7 @@ export function Sidebar() {
                               alignItems: "center",
                               gap: 8,
                               padding: "8px 12px",
-                              borderRadius: 8,
+                              borderRadius: "var(--radius-md)",
                               cursor: "pointer",
                               marginBottom: 3,
                               border: isActive
@@ -660,7 +660,7 @@ export function Sidebar() {
                                       letterSpacing: 0.7,
                                       textTransform: "uppercase",
                                       padding: "2px 6px",
-                                      borderRadius: 5,
+                                      borderRadius: "var(--radius-sm)",
                                       lineHeight: 1,
                                       flexShrink: 0,
                                     }}
@@ -669,7 +669,7 @@ export function Sidebar() {
                                       style={{
                                         width: 5,
                                         height: 5,
-                                        borderRadius: "50%",
+                                        borderRadius: "var(--radius-sm)",
                                         background: "var(--surface)",
                                         boxShadow:
                                           "0 0 5px color-mix(in srgb, var(--surface) 90%, transparent)",
@@ -683,7 +683,11 @@ export function Sidebar() {
                               </div>
                               <Text
                                 size="xs"
-                                c="dimmed"
+                                // Not `dimmed`: the active card is a brand
+                                // tint, and --muted is solved against the flat
+                                // surface (4.46:1 here). --muted2 is the
+                                // tinted-surface step.
+                                c="var(--muted2)"
                                 style={{ marginTop: 2, fontSize: 10 }}
                               >
                                 {conn.database || ""}
@@ -696,7 +700,7 @@ export function Sidebar() {
                                 alignItems: "center",
                                 flexShrink: 0,
                                 padding: isActive ? "2px 4px" : undefined,
-                                borderRadius: 6,
+                                borderRadius: "var(--radius-sm)",
                                 background: isActive
                                   ? "color-mix(in srgb, var(--accent) 10%, transparent)"
                                   : undefined,
@@ -736,7 +740,7 @@ export function Sidebar() {
                                 styles={{
                                   input: {
                                     background: "var(--surface)",
-                                    fontFamily: "IBM Plex Mono, monospace",
+                                    fontFamily: "var(--font-mono)",
                                     fontSize: 11,
                                     minHeight: 28,
                                     height: 28,
@@ -850,7 +854,7 @@ export function Sidebar() {
                                           alignItems: "center",
                                           gap: 6,
                                           padding: "6px 10px",
-                                          borderRadius: 5,
+                                          borderRadius: "var(--radius-sm)",
                                           cursor: "pointer",
                                         }}
                                       >
@@ -958,7 +962,7 @@ export function Sidebar() {
                                                   padding: "4px 8px",
                                                   fontSize: 11,
                                                   fontFamily:
-                                                    "IBM Plex Mono, monospace",
+                                                    "var(--font-mono)",
                                                 }}
                                               >
                                                 {col.isPrimaryKey ? (
@@ -1088,7 +1092,7 @@ export function Sidebar() {
                       alignItems: "center",
                       gap: 8,
                       padding: "10px 12px",
-                      borderRadius: 6,
+                      borderRadius: "var(--radius-sm)",
                       cursor: "pointer",
                       marginBottom: 2,
                     }}
@@ -1175,7 +1179,7 @@ export function Sidebar() {
                       alignItems: "center",
                       gap: 8,
                       padding: "10px 12px",
-                      borderRadius: 6,
+                      borderRadius: "var(--radius-sm)",
                       cursor: "pointer",
                       marginBottom: 2,
                     }}
@@ -1294,7 +1298,7 @@ export function Sidebar() {
                       alignItems: "flex-start",
                       gap: 8,
                       padding: "10px 12px",
-                      borderRadius: 6,
+                      borderRadius: "var(--radius-sm)",
                       cursor: "pointer",
                       marginBottom: 2,
                     }}

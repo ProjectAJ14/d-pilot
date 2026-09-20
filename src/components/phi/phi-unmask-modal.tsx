@@ -85,7 +85,7 @@ export function PhiUnmaskModal() {
         style={{
           background: "color-mix(in srgb, var(--error) 8%, transparent)",
           border: "1px solid color-mix(in srgb, var(--error) 25%, transparent)",
-          borderRadius: 8,
+          borderRadius: "var(--radius-md)",
           padding: "12px 14px",
           fontSize: 12,
           color: "var(--error)",
@@ -102,13 +102,13 @@ export function PhiUnmaskModal() {
         style={{
           background: "color-mix(in srgb, var(--token) 8%, transparent)",
           border: "1px solid color-mix(in srgb, var(--token) 25%, transparent)",
-          borderRadius: 8,
+          borderRadius: "var(--radius-md)",
           padding: "10px 14px",
           fontSize: 11,
           color: "var(--token)",
           marginBottom: 16,
           lineHeight: 1.5,
-          fontFamily: "IBM Plex Mono, monospace",
+          fontFamily: "var(--font-mono)",
         }}
       >
         Tokens remain in query results after de-tokenization session ends. Real

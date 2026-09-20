@@ -6,14 +6,7 @@ import {
   useState,
   Fragment,
 } from "react";
-import {
-  Text,
-  Badge,
-  SegmentedControl,
-  Menu,
-  Button,
-  useComputedColorScheme,
-} from "@mantine/core";
+import { Text, Badge, SegmentedControl, Menu, Button } from "@mantine/core";
 import {
   IconShieldLock,
   IconAlertTriangle,
@@ -54,6 +47,7 @@ import {
 } from "../../utils/data-extractors";
 import type { CopyFormat } from "../../types";
 import { FkBadge } from "./fk-badge";
+import { copyFormatIcon } from "../../utils/copy-format-icons";
 
 ModuleRegistry.registerModules([
   AllCommunityModule,
@@ -75,73 +69,67 @@ function groupFormats(formats: CopyFormat[]): [string, CopyFormat[]][] {
 
 /**
  * AG Grid renders into its own CSS-variable namespace and does NOT inherit the
- * app's `--surface`/`--text` tokens, so the grid needs its own light and dark
- * definitions. These values must stay in step with `src/styles/global.css`.
+ * app's `--surface`/`--text` tokens by name — but every colour param it takes
+ * is emitted verbatim into CSS, so handing it a `var()` is enough. It then
+ * derives the rest (hover tints, header splits, range borders) from those with
+ * `color-mix`, which resolves against whichever ground is active.
  *
- * The mode is selected by `data-ag-theme-mode` on <html> — see `useAgThemeMode`
- * below. Params shared by both schemes go in the un-scoped `withParams` call.
+ * That is the whole theming integration: no palette duplicated here, no
+ * light/dark split, and no `data-ag-theme-mode` attribute to keep in sync with
+ * the colour scheme. Setting `--ag-*` on `:root` would NOT work — AG Grid emits
+ * its own defaults onto the grid element, which shadows anything inherited.
  */
-const sharedGridParams = {
+const gridTheme = themeQuartz.withParams({
+  accentColor: "var(--accent)",
+  backgroundColor: "var(--surface)",
+  foregroundColor: "var(--text)",
+  borderColor: "var(--border)",
+  chromeBackgroundColor: "var(--surface2)",
+  headerBackgroundColor: "var(--surface2)",
+  headerTextColor: "var(--muted)",
+  rowHoverColor: "var(--hover)",
+  selectedRowBackgroundColor: "var(--selected)",
+  rowBorder: "solid 1px var(--border)",
+  columnBorder: "solid 1px var(--border)",
+  // The grid is the densest thing in the app and everything in it is data, so
+  // it is mono throughout — header included, which is what lets the header read
+  // as the micro-label it is. `wrapperBorderRadius: 0` matches the square
+  // chrome; see `--radius-*` in tokens.css.
+  headerFontFamily: "var(--font-mono)",
   headerFontSize: 11,
-  headerFontWeight: 700,
+  headerFontWeight: 600,
+  fontFamily: "var(--font-mono)",
   fontSize: 12,
-  fontFamily: "IBM Plex Mono, monospace",
   spacing: 6,
-  wrapperBorderRadius: 0,
-};
-
-const gridTheme = themeQuartz
-  .withParams(sharedGridParams)
-  .withParams(
-    {
-      accentColor: "#1f9196",
-      backgroundColor: "#FFFFFF",
-      borderColor: "#ccd0d2",
-      browserColorScheme: "light",
-      chromeBackgroundColor: "#f3f6f7",
-      foregroundColor: "#0c2340",
-      headerBackgroundColor: "#f3f6f7",
-      rowHoverColor: "rgba(12, 35, 64, 0.045)",
-      selectedRowBackgroundColor: "rgba(31, 145, 150, 0.12)",
-      rowBorder: { color: "#e8e8e8", style: "solid", width: 1 },
-      columnBorder: { color: "#e8e8e8", style: "solid", width: 1 },
-    },
-    "light",
-  )
-  .withParams(
-    {
-      accentColor: "#43d0d6",
-      backgroundColor: "#121e2a",
-      borderColor: "#2a3b4a",
-      browserColorScheme: "dark",
-      chromeBackgroundColor: "#182633",
-      foregroundColor: "#e4ebf1",
-      headerBackgroundColor: "#182633",
-      rowHoverColor: "rgba(255, 255, 255, 0.055)",
-      selectedRowBackgroundColor: "rgba(67, 208, 214, 0.16)",
-      // On dark the row grid lines have to be lighter than the surface, not
-      // darker, or the table reads as a solid block.
-      rowBorder: { color: "#21313f", style: "solid", width: 1 },
-      columnBorder: { color: "#21313f", style: "solid", width: 1 },
-    },
-    "dark",
-  );
-
-/**
- * Mirror Mantine's resolved color scheme onto the attribute AG Grid reads.
- * `useComputedColorScheme` collapses `auto` to the concrete light/dark value,
- * which is what the grid needs — it has no notion of "follow the system".
- */
-function useAgThemeMode() {
-  const scheme = useComputedColorScheme("light");
-  useEffect(() => {
-    document.documentElement.dataset.agThemeMode = scheme;
-  }, [scheme]);
-}
+  // AG Grid rounds several of its own parts independently of the wrapper — the
+  // row checkboxes, the header filter buttons, the filter inputs — so each one
+  // has to be named or the grid ends up "mostly square". They are handed the
+  // scale rather than a literal 0, so they follow tokens.css like everything
+  // else; AG Grid passes a string param straight through to CSS.
+  wrapperBorderRadius: "var(--radius-md)",
+  borderRadius: "var(--radius-sm)",
+  checkboxBorderRadius: "var(--radius-xs)",
+  inputBorderRadius: "var(--radius-sm)",
+  iconButtonBorderRadius: "var(--radius-sm)",
+  // The grid's UA-rendered chrome — the scrollbar corner, the pickers inside
+  // filter popups — follows `color-scheme`, which tokens.css sets on each
+  // ground. `inherit` is what hands that decision to the ground; the default is
+  // a hardcoded "light", which came from `colorSchemeVariable`'s base params
+  // and used to be corrected by the `data-ag-theme-mode` attribute this theme
+  // no longer needs. Without it the grid stays light-schemed on ink.
+  browserColorScheme: "inherit",
+});
 
 // Short values render fully in the cell, so opening the inspector for them is
 // just friction. Only values longer than this get a click-to-expand panel.
 const INSPECT_MIN_CHARS = 24;
+
+/**
+ * How long to wait before treating a click as "not part of a double-click".
+ * Matches the platform's own double-click speed rather than guessing shorter —
+ * see `onCellClicked`.
+ */
+const DBLCLICK_WINDOW_MS = 500;
 
 interface Props {
   tab: QueryTab;
@@ -161,7 +149,7 @@ function PhiCellRenderer(props: any) {
         border: "1px solid color-mix(in srgb, var(--token) 30%, transparent)",
         color: "var(--token)",
         padding: "2px 8px",
-        borderRadius: 4,
+        borderRadius: "var(--radius-sm)",
         fontSize: 11,
         fontWeight: 600,
         letterSpacing: 0.3,
@@ -206,7 +194,6 @@ function FkHeader(props: {
 }
 
 export function ResultsGrid({ tab, onViewModeChange }: Props) {
-  useAgThemeMode();
   const phiEnabled = useStore((s) => s.phiEnabled);
   const updateTab = useStore((s) => s.updateTab);
   // Deployment-configured "Copy as" formats (COPY_FORMATS env), with a code
@@ -484,12 +471,23 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
         value: v,
         isMasked: maskedByColumn.get(field) ?? false,
       };
-      // Defer the open so onCellDoubleClicked can cancel it within the dbl-click
-      // window (~250ms). A lone single click just opens ~250ms later.
+      // Defer the open so onCellDoubleClicked can cancel it — this gesture may
+      // still turn out to be a copy.
+      //
+      // 250ms was too tight: a platform double-click can have up to ~500ms
+      // between clicks (macOS ships ~500ms as the default speed), so a
+      // leisurely double-click on a long value opened the inspector mid-gesture
+      // and the copy looked like it had done something else entirely. The copy
+      // did still happen, but the drawer flying out is what you noticed.
+      //
+      // The cost is real and worth naming: a lone single click now waits 500ms
+      // instead of 250ms before the panel opens. Losing the copy gesture is
+      // still the worse trade — a late panel is a pause, a hijacked
+      // double-click is the wrong thing happening.
       openTimerRef.current = window.setTimeout(() => {
         setCellDetail(detail);
         openTimerRef.current = null;
-      }, 250);
+      }, DBLCLICK_WINDOW_MS);
     },
     [maskedByColumn],
   );
@@ -589,7 +587,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
             textAlign: "center",
             background: "color-mix(in srgb, var(--error) 8%, transparent)",
             padding: "10px 16px",
-            borderRadius: 8,
+            borderRadius: "var(--radius-md)",
             border:
               "1px solid color-mix(in srgb, var(--error) 25%, transparent)",
             whiteSpace: "pre-wrap",
@@ -712,6 +710,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
                   {formats.map((f) => (
                     <Menu.Item
                       key={f.id}
+                      leftSection={copyFormatIcon(f)}
                       onClick={() => copyScoped(f, f.label)}
                     >
                       <div
@@ -727,7 +726,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
                             style={{
                               fontSize: 10,
                               color: "var(--muted)",
-                              fontFamily: "IBM Plex Mono, monospace",
+                              fontFamily: "var(--font-mono)",
                             }}
                           >
                             {f.example}
@@ -743,7 +742,15 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
         )}
 
         {/* Discoverability hint — table view only (the JSON view shows full
-            values already, so these gestures don't apply there). */}
+            values already, so these gestures don't apply there).
+
+            Each tip is kept short on purpose: the row sits on one line with
+            `whiteSpace: nowrap`, so anything longer pushes the last tip off
+            the edge. A trailing "…" is especially bad here — it reads as
+            truncated text rather than as a menu. What a tip must NOT do is buy
+            that brevity with accuracy: only values over INSPECT_MIN_CHARS
+            expand, and the drag gesture is pointless without the Copy as it
+            feeds, so both say so. */}
         {viewMode === "table" && (
           <div
             style={{
@@ -752,7 +759,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
               alignItems: "center",
               gap: 8,
               padding: "3px 10px",
-              borderRadius: 999,
+              borderRadius: "var(--radius-sm)",
               background: "color-mix(in srgb, var(--token) 7%, transparent)",
               border:
                 "1px solid color-mix(in srgb, var(--token) 16%, transparent)",
@@ -773,7 +780,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
               style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
             >
               <IconClick size={13} style={{ color: "var(--accent)" }} />
-              click a long value to expand
+              click long values
             </span>
             <span style={{ opacity: 0.35 }}>·</span>
             <span
@@ -787,14 +794,14 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
               style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
             >
               <IconCopy size={13} style={{ color: "var(--accent)" }} />
-              right-click a column to copy as…
+              right-click a column to copy
             </span>
             <span style={{ opacity: 0.35 }}>·</span>
             <span
               style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
             >
               <IconCopyCheck size={13} style={{ color: "var(--accent)" }} />
-              drag to select cells, then Copy as
+              drag, then Copy as
             </span>
           </div>
         )}
@@ -936,6 +943,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
           {columnFormats.map((f) => (
             <Menu.Item
               key={f.id}
+              leftSection={copyFormatIcon(f)}
               onClick={() => {
                 if (colMenu) {
                   copyColumn(

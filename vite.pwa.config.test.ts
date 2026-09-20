@@ -108,10 +108,14 @@ describe.each(DEPLOYMENTS)(
 
     it("caches every self-hosted font face, whatever the format", () => {
       for (const font of [
-        "/fonts/Barlow/Barlow-Regular.ttf",
-        // Plex Mono is self-hosted woff2. A .ttf-only rule silently misses it,
-        // which is exactly how it regressed once already.
-        "/fonts/IBMPlexMono/IBMPlexMono-400-latin.woff2",
+        // The app's own faces are variable woff2. A .ttf-only rule silently
+        // misses them, which is exactly how this regressed once already —
+        // hence a format-based pattern rather than one naming the families,
+        // which would have gone stale when they changed.
+        "/fonts/Archivo/Archivo-latin.woff2",
+        "/fonts/Inter/Inter-latin.woff2",
+        "/fonts/JetBrainsMono/JetBrainsMono-latin.woff2",
+        // Monaco's codicon face still ships as .ttf.
         "/assets/codicon-a1b2.ttf",
       ]) {
         expect(

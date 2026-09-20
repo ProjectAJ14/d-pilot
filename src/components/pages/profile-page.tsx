@@ -137,7 +137,7 @@ export function ProfilePage() {
                 leftSection={<Icon size={18} />}
                 onClick={() => setSearchParams({ tab: s.value })}
                 variant="light"
-                style={{ borderRadius: 8, marginBottom: 2 }}
+                style={{ borderRadius: "var(--radius-md)", marginBottom: 2 }}
               />
             );
           })}
@@ -181,17 +181,17 @@ function Avatar({ initials, size }: { initials: string; size: number }) {
       style={{
         width: size,
         height: size,
-        borderRadius: "50%",
-        // Brand mark: fixed teal->navy in BOTH schemes. Using --accent4 here
-        // inverted the circle in dark mode (that token is near-white there),
-        // which dragged the initials' color along with it.
-        background: "linear-gradient(135deg, #1f9196, #0c2340)",
+        borderRadius: "var(--radius-sm)",
+        // Brand mark: one palette on BOTH grounds. A ground role would invert
+        // the circle on ink (and drag the initials with it), so this is the
+        // fixed brand gradient from tokens.css.
+        background: "var(--brand-mark)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         fontSize: size / 3,
         fontWeight: 700,
-        color: "#fff",
+        color: "var(--brand-ink)",
         flexShrink: 0,
       }}
     >
@@ -216,7 +216,7 @@ function Card({
       style={{
         background: "var(--surface)",
         border: "1px solid var(--border)",
-        borderRadius: 12,
+        borderRadius: "var(--radius-lg)",
         padding: 24,
         marginBottom: 20,
       }}
@@ -318,7 +318,7 @@ function AccountTab({ initials }: { initials: string }) {
           background:
             "linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%)",
           border: "1px solid var(--border)",
-          borderRadius: 12,
+          borderRadius: "var(--radius-lg)",
           padding: 24,
           marginBottom: 20,
         }}

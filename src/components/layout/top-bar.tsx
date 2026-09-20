@@ -147,7 +147,7 @@ export function TopBar() {
           gap: 2,
           background: "var(--surface2)",
           border: "1px solid var(--border)",
-          borderRadius: 8,
+          borderRadius: "var(--radius-md)",
           padding: 3,
         }}
       >
@@ -201,7 +201,7 @@ export function TopBar() {
             alignItems: "center",
             gap: 7,
             padding: "6px 12px",
-            borderRadius: 8,
+            borderRadius: "var(--radius-md)",
             cursor: "pointer",
             // color-mix keeps the tint derived from the token, so it tracks
             // the color scheme instead of freezing a light-mode rgba().
@@ -222,7 +222,7 @@ export function TopBar() {
             style={{
               width: 7,
               height: 7,
-              borderRadius: "50%",
+              borderRadius: "var(--radius-sm)",
               background: phiEnabled ? "var(--token)" : "var(--error)",
               boxShadow: `0 0 6px ${phiEnabled ? "var(--token)" : "var(--error)"}`,
               animation: !phiEnabled ? "pulsered 1.5s infinite" : undefined,
@@ -257,17 +257,17 @@ export function TopBar() {
             style={{
               width: 34,
               height: 34,
-              borderRadius: "50%",
-              // Brand mark: fixed teal->navy in BOTH schemes. Using --accent4 here
-              // inverted the circle in dark mode (that token is near-white there),
-              // which dragged the initials' color along with it.
-              background: "linear-gradient(135deg, #1f9196, #0c2340)",
+              borderRadius: "var(--radius-sm)",
+              // Brand mark: one palette on BOTH grounds. A ground role would
+              // invert the circle on ink (and drag the initials with it), so
+              // this is the fixed brand gradient from tokens.css.
+              background: "var(--brand-mark)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               fontSize: 12,
               fontWeight: 700,
-              color: "#fff",
+              color: "var(--brand-ink)",
               flexShrink: 0,
             }}
           >
@@ -377,12 +377,12 @@ function NavTab({
         display: "flex",
         alignItems: "center",
         gap: 6,
-        fontFamily: "Barlow, sans-serif",
+        fontFamily: "var(--font-body)",
         fontSize: 12,
         fontWeight: 700,
         letterSpacing: 0.2,
         padding: "6px 12px",
-        borderRadius: 6,
+        borderRadius: "var(--radius-sm)",
         background: active ? "var(--surface)" : "transparent",
         color: active ? "var(--accent-text)" : "var(--muted2)",
         boxShadow: active ? "var(--shadow-1)" : "none",

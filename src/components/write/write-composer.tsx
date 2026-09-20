@@ -577,7 +577,7 @@ export function WriteComposer({
             padding: "11px 14px",
             background: "var(--surface2)",
             border: "1px solid var(--border)",
-            borderRadius: 11,
+            borderRadius: "var(--radius-lg)",
             marginBottom: 16,
           }}
         >
@@ -597,7 +597,7 @@ export function WriteComposer({
               style={{
                 width: 8,
                 height: 8,
-                borderRadius: "50%",
+                borderRadius: "var(--radius-sm)",
                 background: modeMeta.dot,
                 boxShadow: `0 0 0 3px ${modeMeta.halo}`,
               }}
@@ -640,7 +640,7 @@ export function WriteComposer({
               background: "color-mix(in srgb, var(--accent) 12%, transparent)",
               border:
                 "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
-              borderRadius: 999,
+              borderRadius: "var(--radius-sm)",
               padding: "1px 9px",
             }}
           >
@@ -655,7 +655,7 @@ export function WriteComposer({
         style={{
           border:
             "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
-          borderRadius: 12,
+          borderRadius: "var(--radius-lg)",
           overflow: "hidden",
           marginBottom: 20,
           height: 132,
@@ -708,7 +708,7 @@ export function WriteComposer({
             border:
               "1px solid color-mix(in srgb, var(--warning) 50%, transparent)",
             background: "color-mix(in srgb, var(--warning) 8%, transparent)",
-            borderRadius: 11,
+            borderRadius: "var(--radius-lg)",
             padding: "12px 14px",
             marginBottom: 16,
           }}
@@ -716,7 +716,10 @@ export function WriteComposer({
           <Checkbox
             checked={noTransaction}
             onChange={(e) => setNoTransaction(e.currentTarget.checked)}
-            color="yellow"
+            // `orange` IS the --warning ramp (see main.tsx); `yellow` is the
+            // one stock Mantine palette this theme does not override, so it
+            // rendered an un-themed hue inside a callout drawn in --warning.
+            color="orange"
             label={
               <Text size="sm" fw={600} c="var(--warning)">
                 Run without rollback
@@ -745,7 +748,7 @@ export function WriteComposer({
           <div
             style={{
               border: "1px solid var(--border)",
-              borderRadius: 12,
+              borderRadius: "var(--radius-lg)",
               overflow: "hidden",
               background: "var(--surface)",
             }}

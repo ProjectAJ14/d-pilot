@@ -11,6 +11,7 @@ import {
   Tooltip,
   Loader,
   SegmentedControl,
+  Stack,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
@@ -263,6 +264,42 @@ export function AiAssistantPanel() {
     }
   };
 
+  // Shared by both branches of the context row below, so the refresh toggle and
+  // "New chat" sit in the same place whether or not a connection is selected.
+  const actions = (
+    <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
+      <Tooltip
+        label={
+          refreshArmed
+            ? "Schema will be re-fetched on next generate"
+            : "Re-fetch schema on next generate (bypass cache)"
+        }
+      >
+        <ActionIcon
+          variant={refreshArmed ? "filled" : "subtle"}
+          color={refreshArmed ? "primary" : "gray"}
+          size="md"
+          onClick={() => setRefreshArmed((a) => !a)}
+          disabled={!activeConn}
+        >
+          <IconRefresh size={15} />
+        </ActionIcon>
+      </Tooltip>
+      <Tooltip label="Clear this tab's chat and start over">
+        <Button
+          size="compact-xs"
+          variant="subtle"
+          color="gray"
+          leftSection={<IconMessagePlus size={13} />}
+          onClick={handleNewChat}
+          disabled={loading || (messages.length === 0 && !input.trim())}
+        >
+          New chat
+        </Button>
+      </Tooltip>
+    </Group>
+  );
+
   return (
     <Drawer
       opened={open}
@@ -282,13 +319,22 @@ export function AiAssistantPanel() {
         </Group>
       }
       styles={{
+        content: {
+          boxShadow: "var(--shadow-2)",
+          display: "flex",
+          flexDirection: "column",
+        },
+        // `flex: 1` rather than `calc(100% - <header height>)`: the header is
+        // sized by the type and spacing scales, so any magic number here goes
+        // stale the moment the design system changes and leaves dead space
+        // under the composer.
         body: {
-          height: "calc(100% - 60px)",
+          flex: 1,
+          minHeight: 0,
           display: "flex",
           flexDirection: "column",
           padding: 0,
         },
-        content: { boxShadow: "var(--shadow-2)" },
       }}
     >
       {/* Connection context + New chat */}
@@ -298,89 +344,52 @@ export function AiAssistantPanel() {
           borderBottom: "1px solid var(--border)",
         }}
       >
-        <Group justify="space-between" wrap="nowrap" gap={8}>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            {activeConn ? (
-              <Group gap={6} wrap="nowrap" style={{ overflow: "hidden" }}>
-                <IconDatabase
-                  size={14}
-                  color="var(--mantine-color-dimmed)"
-                  style={{ flexShrink: 0 }}
-                />
-                <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
-                  Context:
-                </Text>
-                <Badge
-                  size="sm"
-                  variant="light"
-                  color="gray"
-                  ff="monospace"
-                  style={{ flexShrink: 1, overflow: "hidden" }}
-                >
-                  {activeConn.name}
-                </Badge>
-                <Badge
-                  size="xs"
-                  variant="light"
-                  color="blue"
-                  style={{ flexShrink: 0 }}
-                >
+        {activeConn ? (
+          <Stack gap={6}>
+            {/* The connection name is the thing you actually need to read
+                before asking for SQL, so it gets its own row and the whole
+                width. Sharing one line with the type, the env and two buttons
+                truncated it to "APP CORE (…". */}
+            <Group gap={6} wrap="nowrap">
+              <IconDatabase
+                size={14}
+                color="var(--mantine-color-dimmed)"
+                style={{ flexShrink: 0 }}
+              />
+              <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
+                Context:
+              </Text>
+              <Badge size="sm" variant="light" color="gray" ff="monospace">
+                {activeConn.name}
+              </Badge>
+            </Group>
+            <Group justify="space-between" wrap="nowrap" gap={8}>
+              <Group gap={6} wrap="wrap">
+                <Badge size="xs" variant="light" color="blue">
                   {activeConn.type}
                 </Badge>
-                <Badge
-                  size="xs"
-                  variant="light"
-                  color="gray"
-                  style={{ flexShrink: 0 }}
-                >
+                <Badge size="xs" variant="light" color="gray">
                   {activeConn.env}
                 </Badge>
               </Group>
-            ) : (
-              <Group gap={6} wrap="nowrap">
-                <IconAlertTriangle
-                  size={14}
-                  color="var(--warning)"
-                  style={{ flexShrink: 0 }}
-                />
-                <Text size="xs" c="dimmed">
-                  Select a connection for the active tab to enable generation.
-                </Text>
-              </Group>
-            )}
-          </div>
-          <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
-            <Tooltip
-              label={
-                refreshArmed
-                  ? "Schema will be re-fetched on next generate"
-                  : "Re-fetch schema on next generate (bypass cache)"
-              }
-            >
-              <ActionIcon
-                variant={refreshArmed ? "filled" : "subtle"}
-                color={refreshArmed ? "primary" : "gray"}
-                size="md"
-                onClick={() => setRefreshArmed((a) => !a)}
-                disabled={!activeConn}
-              >
-                <IconRefresh size={15} />
-              </ActionIcon>
-            </Tooltip>
-            <Tooltip label="Clear this tab's chat and start over">
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                color="gray"
-                leftSection={<IconMessagePlus size={13} />}
-                onClick={handleNewChat}
-                disabled={loading || (messages.length === 0 && !input.trim())}
-              >
-                New chat
-              </Button>
-            </Tooltip>
+              {actions}
+            </Group>
+          </Stack>
+        ) : (
+          <Group justify="space-between" wrap="nowrap" gap={8}>
+            <Group gap={6} wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
+              <IconAlertTriangle
+                size={14}
+                color="var(--warning)"
+                style={{ flexShrink: 0 }}
+              />
+              <Text size="xs" c="dimmed">
+                Select a connection for the active tab to enable generation.
+              </Text>
+            </Group>
+            {actions}
           </Group>
-        </Group>
+        )}
       </div>
 
       {/* Messages */}
@@ -432,7 +441,8 @@ export function AiAssistantPanel() {
                     background: "var(--accent)",
                     color: "white",
                     padding: "8px 12px",
-                    borderRadius: "12px 12px 2px 12px",
+                    borderRadius:
+                      "var(--radius-lg) var(--radius-lg) var(--radius-xs) var(--radius-lg)",
                     fontSize: 13,
                     lineHeight: 1.5,
                     whiteSpace: "pre-wrap",
@@ -457,7 +467,7 @@ export function AiAssistantPanel() {
                         "color-mix(in srgb, var(--error) 6%, transparent)",
                       border:
                         "1px solid color-mix(in srgb, var(--error) 25%, transparent)",
-                      borderRadius: 10,
+                      borderRadius: "var(--radius-lg)",
                       padding: "10px 12px",
                     }}
                   >
@@ -476,7 +486,7 @@ export function AiAssistantPanel() {
                     style={{
                       background: "var(--surface)",
                       border: "1px solid var(--border)",
-                      borderRadius: 10,
+                      borderRadius: "var(--radius-lg)",
                       overflow: "hidden",
                     }}
                   >
@@ -493,7 +503,7 @@ export function AiAssistantPanel() {
                       style={{
                         margin: 0,
                         padding: "10px 12px",
-                        fontFamily: "IBM Plex Mono, monospace",
+                        fontFamily: "var(--font-mono)",
                         fontSize: 12,
                         lineHeight: 1.6,
                         whiteSpace: "pre-wrap",

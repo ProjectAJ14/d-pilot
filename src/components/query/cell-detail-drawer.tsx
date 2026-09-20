@@ -181,7 +181,7 @@ export function CellDetailDrawer({ detail, onClose }: Props) {
                 readOnly: true,
                 minimap: { enabled: false },
                 fontSize: 12,
-                fontFamily: "IBM Plex Mono, monospace",
+                fontFamily: "var(--font-mono)",
                 lineNumbers: content.isJson ? "on" : "off",
                 wordWrap: "on",
                 scrollBeyondLastLine: false,
