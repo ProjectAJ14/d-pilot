@@ -271,9 +271,31 @@ ${offenders.join("\n")}
       return /^\s*--bg:\s*(#[0-9a-fA-F]{3,8});/m.exec(block)![1].toLowerCase();
     });
 
+    // The boot screen (the #boot style block in index.html) is the same kind
+    // of mirror for the same reason — it paints before any stylesheet is in
+    // the document — but it is the app's canvas rather than the chrome around
+    // it, so it draws with ink and the spot colour too, not just --bg. Held to
+    // the weaker invariant that fits it: every value must still be one
+    // tokens.css declares, so a re-theme cannot leave it behind either.
+    const declared = new Set(
+      (stripComments(tokens).match(HEX) ?? []).map((h) => h.toLowerCase()),
+    );
+    const html = stripComments(readFileSync("index.html", "utf8"));
+    const bootStart = html.indexOf("#boot {");
+    const boot = bootStart === -1 ? "" : html.slice(bootStart);
+
     const offenders: string[] = [];
+    for (const hit of boot.match(HEX) ?? []) {
+      if (!declared.has(hit.toLowerCase()))
+        offenders.push(
+          `index.html (#boot)  ${hit} — not a value in tokens.css`,
+        );
+    }
     for (const file of ["index.html", "server/index.ts"]) {
-      const text = stripComments(readFileSync(file, "utf8"));
+      const text =
+        file === "index.html"
+          ? html.slice(0, bootStart === -1 ? undefined : bootStart)
+          : stripComments(readFileSync(file, "utf8"));
       for (const hit of text.match(HEX) ?? []) {
         if (!grounds.includes(hit.toLowerCase()))
           offenders.push(`${file}  ${hit}`);
