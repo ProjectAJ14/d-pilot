@@ -5,6 +5,19 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.25.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.24.0...v1.25.0) (2026-09-20)
+
+
+### Bug Fixes
+
+* **ui:** say which tab is selected, and stop the sidebar wrapping ([2292cf8](https://github.com/ProjectAJ14/d-pilot/commit/2292cf88006851eb0a1e89704ec536052abc8b13))
+
+
+### Features
+
+* **query:** open a JSON cell in an external JSON viewer ([306832a](https://github.com/ProjectAJ14/d-pilot/commit/306832adee7ea3e94e7ea628388b0db9aa634348))
+* **query:** rename, save or close a tab from a right-click menu ([6903c65](https://github.com/ProjectAJ14/d-pilot/commit/6903c65f8caa77fe4524a3da80d3bf04b9b8ec78))
+
 # [1.24.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.23.3...v1.24.0) (2026-09-20)
 
 
