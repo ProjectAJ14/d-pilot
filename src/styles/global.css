@@ -331,6 +331,13 @@ h6 {
   transition:
     background-color var(--duration-base) var(--ease),
     box-shadow var(--duration-base) var(--ease);
+  /* These rows are click-to-act, and several are also double-click-to-act (a
+     table opens and runs a query). A double click still dispatches both clicks
+     first, so the browser's word-select on the second one lands on a row whose
+     children the first click just expanded — dragging a selection across the
+     whole column list. Nothing in a row is text worth copying; the labels are
+     truncated previews. */
+  user-select: none;
 }
 
 .dp-row:hover {

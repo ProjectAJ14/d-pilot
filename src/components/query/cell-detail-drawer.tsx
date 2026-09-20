@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Drawer, Text, Badge, ActionIcon, Tooltip, Group } from "@mantine/core";
+import { Drawer, Text, Badge, Button, Tooltip, Group } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import Editor from "@monaco-editor/react";
 import {
@@ -189,15 +189,15 @@ export function CellDetailDrawer({ detail, onClose }: Props) {
             py={8}
             style={{ borderBottom: "1px solid var(--border)", flexShrink: 0 }}
           >
-            <Tooltip label="Copy value">
-              <ActionIcon
-                variant="light"
-                color="teal"
-                onClick={() => copyText(content.text)}
-              >
-                <IconCopy size={16} />
-              </ActionIcon>
-            </Tooltip>
+            <Button
+              size="xs"
+              variant="light"
+              color="teal"
+              leftSection={<IconCopy size={14} />}
+              onClick={() => copyText(content.text)}
+            >
+              Copy
+            </Button>
             {/* The payload rides in the URL fragment, which a browser never transmits — see
                 utils/json-viewer-link.ts. Too big for a URL and the viewer reads it off the
                 clipboard instead, so the click writes it there (inside the gesture, the only
@@ -210,21 +210,23 @@ export function CellDetailDrawer({ detail, onClose }: Props) {
                     : "Open in json.nonstopio.com — search, filter and graph it"
                 }
               >
-                <ActionIcon
+                <Button
                   component="a"
                   href={viewer.url}
                   target="_blank"
                   rel="noopener noreferrer"
+                  size="xs"
                   variant="light"
                   color="blue"
+                  leftSection={<IconExternalLink size={14} />}
                   onClick={
                     viewer.needsClipboard
                       ? () => copyText(content.text)
                       : undefined
                   }
                 >
-                  <IconExternalLink size={16} />
-                </ActionIcon>
+                  Open in viewer
+                </Button>
               </Tooltip>
             )}
           </Group>
