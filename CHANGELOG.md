@@ -5,6 +5,14 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [1.25.2](https://github.com/ProjectAJ14/d-pilot/compare/v1.25.1...v1.25.2) (2026-09-20)
+
+
+### Bug Fixes
+
+* **ui:** close the boot screen's unguarded mirrors of tokens.css ([37df454](https://github.com/ProjectAJ14/d-pilot/commit/37df45457df248893aa918349d3f1a7fb0d18b15))
+* **ui:** paint a boot screen instead of a blank first load ([2a867b6](https://github.com/ProjectAJ14/d-pilot/commit/2a867b6ca9b4df379acdfb9393d62ebf1145adf5))
+
 ## [1.25.1](https://github.com/ProjectAJ14/d-pilot/compare/v1.25.0...v1.25.1) (2026-09-20)
 
 
