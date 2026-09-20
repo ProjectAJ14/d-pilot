@@ -141,7 +141,7 @@ export function LoginScreen() {
                   color: "var(--error)",
                   fontSize: 12,
                   padding: "10px 14px",
-                  borderRadius: 7,
+                  borderRadius: "var(--radius-md)",
                   marginBottom: 14,
                 }}
               >
@@ -166,7 +166,7 @@ export function LoginScreen() {
                 input: {
                   background: "var(--surface2)",
                   border: "1px solid var(--border2)",
-                  fontFamily: "IBM Plex Mono, monospace",
+                  fontFamily: "var(--font-mono)",
                   fontSize: 13,
                 },
               }}
@@ -189,7 +189,7 @@ export function LoginScreen() {
                 input: {
                   background: "var(--surface2)",
                   border: "1px solid var(--border2)",
-                  fontFamily: "IBM Plex Mono, monospace",
+                  fontFamily: "var(--font-mono)",
                   fontSize: 13,
                 },
               }}

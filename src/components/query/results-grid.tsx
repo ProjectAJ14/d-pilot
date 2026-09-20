@@ -125,7 +125,7 @@ function PhiCellRenderer(props: any) {
         border: "1px solid color-mix(in srgb, var(--token) 30%, transparent)",
         color: "var(--token)",
         padding: "2px 8px",
-        borderRadius: 4,
+        borderRadius: "var(--radius-sm)",
         fontSize: 11,
         fontWeight: 600,
         letterSpacing: 0.3,
@@ -552,7 +552,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
             textAlign: "center",
             background: "color-mix(in srgb, var(--error) 8%, transparent)",
             padding: "10px 16px",
-            borderRadius: 8,
+            borderRadius: "var(--radius-md)",
             border:
               "1px solid color-mix(in srgb, var(--error) 25%, transparent)",
             whiteSpace: "pre-wrap",
@@ -690,7 +690,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
                             style={{
                               fontSize: 10,
                               color: "var(--muted)",
-                              fontFamily: "IBM Plex Mono, monospace",
+                              fontFamily: "var(--font-mono)",
                             }}
                           >
                             {f.example}
@@ -715,7 +715,7 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
               alignItems: "center",
               gap: 8,
               padding: "3px 10px",
-              borderRadius: 999,
+              borderRadius: "var(--radius-pill)",
               background: "color-mix(in srgb, var(--token) 7%, transparent)",
               border:
                 "1px solid color-mix(in srgb, var(--token) 16%, transparent)",

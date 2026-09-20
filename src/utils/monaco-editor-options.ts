@@ -12,7 +12,7 @@ export const baseSqlEditorOptions: editor.IStandaloneEditorConstructionOptions =
   {
     minimap: { enabled: false },
     fontSize: 13,
-    fontFamily: "IBM Plex Mono, monospace",
+    fontFamily: "var(--font-mono)",
     lineNumbers: "on",
     scrollBeyondLastLine: false,
     padding: { top: 10, bottom: 10 },

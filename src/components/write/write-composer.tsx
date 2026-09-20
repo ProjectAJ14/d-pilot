@@ -577,7 +577,7 @@ export function WriteComposer({
             padding: "11px 14px",
             background: "var(--surface2)",
             border: "1px solid var(--border)",
-            borderRadius: 11,
+            borderRadius: "var(--radius-lg)",
             marginBottom: 16,
           }}
         >
@@ -640,7 +640,7 @@ export function WriteComposer({
               background: "color-mix(in srgb, var(--accent) 12%, transparent)",
               border:
                 "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
-              borderRadius: 999,
+              borderRadius: "var(--radius-pill)",
               padding: "1px 9px",
             }}
           >
@@ -655,7 +655,7 @@ export function WriteComposer({
         style={{
           border:
             "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
-          borderRadius: 12,
+          borderRadius: "var(--radius-lg)",
           overflow: "hidden",
           marginBottom: 20,
           height: 132,
@@ -708,7 +708,7 @@ export function WriteComposer({
             border:
               "1px solid color-mix(in srgb, var(--warning) 50%, transparent)",
             background: "color-mix(in srgb, var(--warning) 8%, transparent)",
-            borderRadius: 11,
+            borderRadius: "var(--radius-lg)",
             padding: "12px 14px",
             marginBottom: 16,
           }}
@@ -745,7 +745,7 @@ export function WriteComposer({
           <div
             style={{
               border: "1px solid var(--border)",
-              borderRadius: 12,
+              borderRadius: "var(--radius-lg)",
               overflow: "hidden",
               background: "var(--surface)",
             }}

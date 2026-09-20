@@ -40,7 +40,7 @@ export function StepBadge({ n }: { n: number }) {
         flexShrink: 0,
         width: 20,
         height: 20,
-        borderRadius: 999,
+        borderRadius: "var(--radius-pill)",
         background: "color-mix(in srgb, var(--accent) 12%, transparent)",
         color: "var(--accent-text)",
         fontSize: 12,
@@ -85,7 +85,7 @@ export function SqlView({
         scrollBeyondLastLine: false,
         wordWrap: "on",
         fontSize: 13,
-        fontFamily: "IBM Plex Mono, monospace",
+        fontFamily: "var(--font-mono)",
         padding: { top: 8, bottom: 8 },
         automaticLayout: true,
         renderLineHighlight: "none",
@@ -172,7 +172,7 @@ export function SqlBlock({
       <div
         style={{
           border: `1px solid var(--mantine-color-${accent}-outline, var(--border))`,
-          borderRadius: 12,
+          borderRadius: "var(--radius-lg)",
           overflow: "hidden",
           background: "var(--surface)",
         }}
@@ -202,7 +202,7 @@ export function SqlBlock({
           <div
             style={{
               padding: "10px 14px",
-              fontFamily: "IBM Plex Mono, monospace",
+              fontFamily: "var(--font-mono)",
               fontSize: 12.5,
               color: "var(--muted)",
             }}
@@ -317,7 +317,7 @@ export function AiReviewCard({
         // variant colors are recomputed per scheme.
         border: `1px solid var(--mantine-color-${meta.color}-outline)`,
         background: `var(--mantine-color-${meta.color}-light)`,
-        borderRadius: 10,
+        borderRadius: "var(--radius-lg)",
         padding: 16,
       }}
     >
@@ -450,9 +450,9 @@ function SuggestedSql({ label, code }: { label: string; code: string }) {
           padding: "8px 10px",
           background: "var(--surface)",
           border: "1px solid var(--border)",
-          borderRadius: 6,
+          borderRadius: "var(--radius-sm)",
           fontSize: 12,
-          fontFamily: "IBM Plex Mono, monospace",
+          fontFamily: "var(--font-mono)",
           lineHeight: 1.5,
           overflowX: "auto",
           whiteSpace: "pre-wrap",
@@ -579,9 +579,9 @@ export function CodeBlock({
           padding: "12px 14px",
           background: "var(--surface2)",
           border: `1px solid var(--mantine-color-${color}-outline, var(--border))`,
-          borderRadius: 8,
+          borderRadius: "var(--radius-md)",
           fontSize: 12.5,
-          fontFamily: "IBM Plex Mono, monospace",
+          fontFamily: "var(--font-mono)",
           lineHeight: 1.6,
           overflowX: "auto",
           whiteSpace: "pre-wrap",

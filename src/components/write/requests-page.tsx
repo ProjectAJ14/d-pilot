@@ -245,7 +245,7 @@ export function RequestsPage() {
             style={{
               background: "var(--surface)",
               border: "1px solid var(--border)",
-              borderRadius: 10,
+              borderRadius: "var(--radius-lg)",
               overflow: "hidden",
             }}
           >

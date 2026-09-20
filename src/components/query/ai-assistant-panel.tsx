@@ -432,7 +432,8 @@ export function AiAssistantPanel() {
                     background: "var(--accent)",
                     color: "white",
                     padding: "8px 12px",
-                    borderRadius: "12px 12px 2px 12px",
+                    borderRadius:
+                      "var(--radius-lg) var(--radius-lg) var(--radius-xs) var(--radius-lg)",
                     fontSize: 13,
                     lineHeight: 1.5,
                     whiteSpace: "pre-wrap",
@@ -457,7 +458,7 @@ export function AiAssistantPanel() {
                         "color-mix(in srgb, var(--error) 6%, transparent)",
                       border:
                         "1px solid color-mix(in srgb, var(--error) 25%, transparent)",
-                      borderRadius: 10,
+                      borderRadius: "var(--radius-lg)",
                       padding: "10px 12px",
                     }}
                   >
@@ -476,7 +477,7 @@ export function AiAssistantPanel() {
                     style={{
                       background: "var(--surface)",
                       border: "1px solid var(--border)",
-                      borderRadius: 10,
+                      borderRadius: "var(--radius-lg)",
                       overflow: "hidden",
                     }}
                   >
@@ -493,7 +494,7 @@ export function AiAssistantPanel() {
                       style={{
                         margin: 0,
                         padding: "10px 12px",
-                        fontFamily: "IBM Plex Mono, monospace",
+                        fontFamily: "var(--font-mono)",
                         fontSize: 12,
                         lineHeight: 1.6,
                         whiteSpace: "pre-wrap",

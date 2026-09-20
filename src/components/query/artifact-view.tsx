@@ -357,7 +357,7 @@ export function ArtifactView({ tab }: Props) {
               <div
                 style={{
                   border: "1px solid var(--border)",
-                  borderRadius: 8,
+                  borderRadius: "var(--radius-md)",
                   overflow: "hidden",
                   background: "var(--surface)",
                 }}
@@ -496,7 +496,7 @@ export function ArtifactView({ tab }: Props) {
                     display: "flex",
                     flexDirection: "column",
                     border: "1px solid var(--border)",
-                    borderRadius: 8,
+                    borderRadius: "var(--radius-md)",
                     overflow: "hidden",
                   }}
                 >

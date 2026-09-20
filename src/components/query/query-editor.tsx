@@ -990,7 +990,7 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
               disabled={!defaultLimitEnabled}
               w={80}
               styles={{
-                input: { fontFamily: "IBM Plex Mono, monospace", fontSize: 12 },
+                input: { fontFamily: "var(--font-mono)", fontSize: 12 },
               }}
             />
           </div>
@@ -1014,7 +1014,7 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
                 comboboxProps={{ withinPortal: true }}
                 styles={{
                   input: {
-                    fontFamily: "IBM Plex Mono, monospace",
+                    fontFamily: "var(--font-mono)",
                     fontSize: 12,
                   },
                 }}
@@ -1035,7 +1035,7 @@ export function QueryEditor({ tab, height, expanded, onToggleHeight }: Props) {
             position: "relative",
             margin: "0 14px 12px",
             border: "1px solid var(--border)",
-            borderRadius: 6,
+            borderRadius: "var(--radius-sm)",
             overflow: "hidden",
           }}
         >

@@ -90,7 +90,7 @@ export function PhiConfigPanel() {
             background: "color-mix(in srgb, var(--token) 8%, transparent)",
             border:
               "1px solid color-mix(in srgb, var(--token) 25%, transparent)",
-            borderRadius: 10,
+            borderRadius: "var(--radius-lg)",
             padding: 14,
             marginBottom: 14,
           }}
@@ -107,11 +107,11 @@ export function PhiConfigPanel() {
             </Text>
             <div
               style={{
-                fontFamily: "IBM Plex Mono, monospace",
+                fontFamily: "var(--font-mono)",
                 fontSize: 10,
                 color: "var(--token)",
                 background: "color-mix(in srgb, var(--token) 10%, transparent)",
-                borderRadius: 4,
+                borderRadius: "var(--radius-sm)",
                 padding: "6px 8px",
                 marginTop: 8,
               }}
@@ -147,7 +147,7 @@ export function PhiConfigPanel() {
               alignItems: "center",
               gap: 10,
               padding: 10,
-              borderRadius: 8,
+              borderRadius: "var(--radius-md)",
               border: "1px solid var(--border)",
               marginBottom: 6,
               background: "var(--surface2)",
@@ -168,7 +168,7 @@ export function PhiConfigPanel() {
               style={{
                 color: "var(--token)",
                 background: "color-mix(in srgb, var(--token) 10%, transparent)",
-                borderRadius: 4,
+                borderRadius: "var(--radius-sm)",
                 padding: "2px 6px",
                 whiteSpace: "nowrap",
                 fontSize: 9,
@@ -202,7 +202,7 @@ export function PhiConfigPanel() {
             color: "var(--muted2)",
             padding: "10px 12px",
             background: "var(--surface2)",
-            borderRadius: 8,
+            borderRadius: "var(--radius-md)",
             border: "1px solid var(--border)",
             lineHeight: 1.7,
           }}
@@ -233,7 +233,7 @@ export function PhiConfigPanel() {
             color: "var(--muted2)",
             padding: "10px 12px",
             background: "var(--surface2)",
-            borderRadius: 8,
+            borderRadius: "var(--radius-md)",
             border: "1px solid var(--border)",
             lineHeight: 1.7,
           }}

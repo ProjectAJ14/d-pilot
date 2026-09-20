@@ -109,7 +109,7 @@ export function QueryWorkspace() {
                 transform: "translate(-50%, -50%)",
                 width: 32,
                 height: 4,
-                borderRadius: 2,
+                borderRadius: "var(--radius-xs)",
                 background: "var(--border2)",
                 transition: "background 0.15s",
               }}

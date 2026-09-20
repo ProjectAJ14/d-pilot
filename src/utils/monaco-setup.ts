@@ -58,8 +58,30 @@ const THEME_TOKENS = [
 
 function defineEditorTheme(name: string, ground: Ground) {
   const t = readGround(ground, THEME_TOKENS);
+  const base = ground === "dark" ? "vs-dark" : "vs";
+
+  // If the stylesheet somehow is not in the document yet, every token resolves
+  // to "" and Monaco would choke parsing the colours — taking the whole app
+  // down at import time over a styling detail. Fall back to its stock theme
+  // instead: the wrong palette in the editor beats a blank screen.
+  const missing = THEME_TOKENS.filter((name) => !t[name]);
+  if (missing.length > 0) {
+    console.warn(
+      `[d-pilot] editor theme "${name}" fell back to Monaco's stock ${base}: ` +
+        `design tokens unresolved (${missing.join(", ")}). ` +
+        `styles/global.css must be imported before utils/monaco-setup.`,
+    );
+    monaco.editor.defineTheme(name, {
+      base,
+      inherit: true,
+      rules: [],
+      colors: {},
+    });
+    return;
+  }
+
   monaco.editor.defineTheme(name, {
-    base: ground === "dark" ? "vs-dark" : "vs",
+    base,
     inherit: true,
     rules: [
       {

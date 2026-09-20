@@ -98,12 +98,12 @@ export const createPwaOptions = (baseUrl: string): Partial<VitePWAOptions> => ({
         },
       },
       {
-        // Every font face the app serves itself: Barlow (.ttf) and IBM Plex
-        // Mono (.woff2) under public/fonts, plus Monaco's codicon face in
-        // /assets. The woff2 arm matters — Plex Mono used to come from Google's
-        // CDN and was covered by a gstatic rule; now that it is self-hosted, a
-        // .ttf-only pattern would leave it uncached on every load. There is no
-        // longer any Google Fonts request to cache, so those rules are gone.
+        // Every font face the app serves itself: Archivo, Inter and JetBrains
+        // Mono (.woff2, variable) under public/fonts, plus Monaco's codicon
+        // face (.ttf) in /assets. The pattern is by FORMAT rather than by path
+        // on purpose — the families have changed once already, and a rule
+        // naming them would have silently stopped caching anything. There is no
+        // Google Fonts request to cache: every face is served by this app.
         urlPattern: /\.(?:ttf|woff2?)$/i,
         handler: "CacheFirst",
         options: {

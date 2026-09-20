@@ -147,7 +147,7 @@ export function TopBar() {
           gap: 2,
           background: "var(--surface2)",
           border: "1px solid var(--border)",
-          borderRadius: 8,
+          borderRadius: "var(--radius-md)",
           padding: 3,
         }}
       >
@@ -201,7 +201,7 @@ export function TopBar() {
             alignItems: "center",
             gap: 7,
             padding: "6px 12px",
-            borderRadius: 8,
+            borderRadius: "var(--radius-md)",
             cursor: "pointer",
             // color-mix keeps the tint derived from the token, so it tracks
             // the color scheme instead of freezing a light-mode rgba().
@@ -377,12 +377,12 @@ function NavTab({
         display: "flex",
         alignItems: "center",
         gap: 6,
-        fontFamily: "Barlow, sans-serif",
+        fontFamily: "var(--font-body)",
         fontSize: 12,
         fontWeight: 700,
         letterSpacing: 0.2,
         padding: "6px 12px",
-        borderRadius: 6,
+        borderRadius: "var(--radius-sm)",
         background: active ? "var(--surface)" : "transparent",
         color: active ? "var(--accent-text)" : "var(--muted2)",
         boxShadow: active ? "var(--shadow-1)" : "none",

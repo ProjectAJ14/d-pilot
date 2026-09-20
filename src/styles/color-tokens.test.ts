@@ -34,6 +34,30 @@ const HEX = /#[0-9a-fA-F]{3,8}\b/g;
 const PALETTE_FILES = ["src/styles/tokens.css", "src/main.tsx"];
 
 /**
+ * A font-family declaration, in CSS or in a JSX style object. The design system
+ * names three faces (`--font-disp`, `--font-body`, `--font-mono`) and the whole
+ * point is that swapping one is a single edit — so a literal family name
+ * anywhere else is a face that will NOT change with it.
+ *
+ * This is not hypothetical: the verdigris re-theme left 24 `"IBM Plex Mono,
+ * monospace"` literals behind, every one of them pointing at a file that had
+ * just been deleted.
+ */
+const FONT_FAMILY = /font-?[Ff]amily:\s*("[^"]*"|'[^']*'|[^,;\n}]+)/g;
+const FONT_FILES = ["src/styles/tokens.css", "src/styles/fonts.css"];
+
+/**
+ * A corner radius. The chrome is square, and `--radius-*` is how it stays that
+ * way — but Mantine's `radius: 0` only reaches Mantine components, so the 75
+ * inline `borderRadius: 8` on hand-rolled divs are what actually decide whether
+ * the app looks like one thing. A literal here is a corner that will not follow
+ * the next theme.
+ *
+ * `50%` is exempt: that is a circle, a shape rather than a step on the scale.
+ */
+const RADIUS = /border-?[Rr]adius: *("[^"]*"|'[^']*'|[^,;\n}]+)/g;
+
+/**
  * Blank out comments before scanning. A hex in a doc comment pins nothing —
  * and the files that explain the token plumbing quote example values by
  * necessity. Line comments are matched only when not preceded by `:`, so a
@@ -86,6 +110,57 @@ describe("color tokens", () => {
     expect(
       offenders,
       `A literal color pins an element to one ground. Name a role from\nsrc/styles/tokens.css (or a semantic alias from global.css) instead:\n\n${offenders.join("\n")}\n`,
+    ).toEqual([]);
+  });
+
+  it("names a face only through the type tokens", () => {
+    const offenders: string[] = [];
+    for (const file of sourceFiles("src")) {
+      if (FONT_FILES.includes(file)) continue;
+      const text = stripComments(readFileSync(file, "utf8"));
+      for (const [, value] of text.matchAll(FONT_FAMILY)) {
+        // `var(--mantine-font-family*)` is fine: main.tsx points those at
+        // ours. `inherit` opts out of naming a face at all, which is the
+        // correct thing for a control that should match its surroundings.
+        const followsSystem =
+          value.includes("var(--font-") ||
+          value.includes("var(--mantine-font-family") ||
+          value.trim().replace(/["']/g, "") === "inherit";
+        if (!followsSystem) {
+          offenders.push(`${file}  ${value.trim()}`);
+        }
+      }
+    }
+    expect(
+      offenders,
+      `A literal font family does not follow the design system. Use
+--font-disp / --font-body / --font-mono from tokens.css:
+
+${offenders.join("\n")}
+`,
+    ).toEqual([]);
+  });
+
+  it("names a corner radius only through the radius scale", () => {
+    const offenders: string[] = [];
+    for (const file of sourceFiles("src")) {
+      if (file === "src/styles/tokens.css") continue;
+      const text = stripComments(readFileSync(file, "utf8"));
+      for (const [, value] of text.matchAll(RADIUS)) {
+        const v = value.trim().replace(/["']/g, "");
+        if (v.includes("var(--radius-") || v === "50%" || v === "inherit") {
+          continue;
+        }
+        offenders.push(`${file}  ${v}`);
+      }
+    }
+    expect(
+      offenders,
+      `A literal radius will not follow the theme. Use a step from the scale
+in tokens.css (--radius-xs … --radius-xl, or --radius-pill):
+
+${offenders.join("\n")}
+`,
     ).toEqual([]);
   });
 

@@ -137,7 +137,7 @@ export function ProfilePage() {
                 leftSection={<Icon size={18} />}
                 onClick={() => setSearchParams({ tab: s.value })}
                 variant="light"
-                style={{ borderRadius: 8, marginBottom: 2 }}
+                style={{ borderRadius: "var(--radius-md)", marginBottom: 2 }}
               />
             );
           })}
@@ -216,7 +216,7 @@ function Card({
       style={{
         background: "var(--surface)",
         border: "1px solid var(--border)",
-        borderRadius: 12,
+        borderRadius: "var(--radius-lg)",
         padding: 24,
         marginBottom: 20,
       }}
@@ -318,7 +318,7 @@ function AccountTab({ initials }: { initials: string }) {
           background:
             "linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%)",
           border: "1px solid var(--border)",
-          borderRadius: 12,
+          borderRadius: "var(--radius-lg)",
           padding: 24,
           marginBottom: 20,
         }}
