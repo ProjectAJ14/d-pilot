@@ -127,17 +127,23 @@
      on naming --radius-md and a future theme can round it back up
      from this one file.
 
-     There is deliberately NO pill or circle step. "Mostly square
-     with a few round things left in" is the failure mode here — a
-     stray pill reads as a mistake rather than as an accent — so
-     status dots and avatars are square too, and the guard in
-     styles/color-tokens.test.ts rejects `50%` to keep it that way. */
+     There is deliberately NO pill step. "Mostly square with a few
+     round things left in" is the failure mode here — a stray pill
+     reads as a mistake rather than as an accent — so status dots and
+     chips are square too. The single exception is --radius-round
+     below, and it is named so a component still never writes `50%`
+     itself. */
   --radius-none: 0;
   --radius-xs: 0;
   --radius-sm: 0;
   --radius-md: 0;
   --radius-lg: 0;
   --radius-xl: 0;
+
+  /* Human faces only — a photo of a person reads as a person when it is
+     round. Deliberately outside the square scale above, and the only
+     exception to it; chrome (dots, chips, buttons) stays square. */
+  --radius-round: 50%;
 
   /* ---------- MOTION ----------
      Colour and opacity only, never layout. A data tool that animates

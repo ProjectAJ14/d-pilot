@@ -132,7 +132,16 @@ export function TopBar() {
               />
             </>
           )}
-          <Text fw={700} size="sm" c="var(--accent-text)">
+          <Text
+            fw={800}
+            size="sm"
+            c="var(--accent-text)"
+            style={{
+              fontFamily: "var(--font-disp)",
+              textTransform: "uppercase",
+              letterSpacing: "var(--tracking-caps)",
+            }}
+          >
             {appName}
           </Text>
         </button>

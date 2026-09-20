@@ -279,9 +279,11 @@ the same decision as `--space-2`, `--radius-md` and `--text-sm`.
   4px-based: `xs` 8 / `sm` 12 / `md` 16 / `lg` 20 / `xl` 32. Raw px only for
   fixed chrome (top-bar height, sidebar width).
 - **Radius**: the chrome is **square**. Every `--radius-*` step is `0`, and
-  `--radius-pill` (999px) is the exception for a toggle or an avatar. Keep
-  naming the scale (`radius="md"`) rather than writing `0` — that is what makes
-  rounding the app back up a one-file edit. Never an ad-hoc 7/9px.
+  there is no pill step. Keep naming the scale (`radius="md"`) rather than
+  writing `0` — that is what makes rounding the app back up a one-file edit.
+  Never an ad-hoc 7/9px. The one exception is `--radius-round` (50%), for
+  **human faces only** — the contributor avatars in `footer.tsx`. A face reads
+  as a person when it is round; chrome (dots, chips, toggles) stays square.
 - **Type**: `xs` 11 / `sm` 13 / `md` 14 / `lg` 16 / `xl` 20, and `<Text>`
   defaults to `sm`. 13px is the working size; 11px for labels and metadata. Do
   not reintroduce a 16px body size — Mantine text sitting 3px larger than the
