@@ -271,9 +271,39 @@ ${offenders.join("\n")}
       return /^\s*--bg:\s*(#[0-9a-fA-F]{3,8});/m.exec(block)![1].toLowerCase();
     });
 
+    // The boot screen (the #boot style block in index.html) is the same kind
+    // of mirror for the same reason — it paints before any stylesheet is in
+    // the document — but it is the app's canvas rather than the chrome around
+    // it, so it draws with ink and the spot colour too, not just --bg. Held to
+    // the weaker invariant that fits it: every value must still be one
+    // tokens.css declares, so a re-theme cannot leave it behind either.
+    const declared = new Set(
+      (stripComments(tokens).match(HEX) ?? []).map((h) => h.toLowerCase()),
+    );
+    // Bounded at the closing </style>, not run to EOF: everything after the
+    // block — the theme-color metas included — belongs to the strict ground
+    // check below, and an open-ended slice would quietly demote it to this
+    // one. If the block cannot be located the whole file falls through to the
+    // strict check, which fails loudly rather than silently guarding nothing.
+    const html = stripComments(readFileSync("index.html", "utf8"));
+    const bootStart = html.indexOf("#boot {");
+    const bootEnd = bootStart === -1 ? -1 : html.indexOf("</style>", bootStart);
+    const found = bootStart !== -1 && bootEnd !== -1;
+    const boot = found ? html.slice(bootStart, bootEnd) : "";
+    const rest = found ? html.slice(0, bootStart) + html.slice(bootEnd) : html;
+
     const offenders: string[] = [];
+    for (const hit of boot.match(HEX) ?? []) {
+      if (!declared.has(hit.toLowerCase()))
+        offenders.push(
+          `index.html (#boot)  ${hit} — not a value in tokens.css`,
+        );
+    }
     for (const file of ["index.html", "server/index.ts"]) {
-      const text = stripComments(readFileSync(file, "utf8"));
+      const text =
+        file === "index.html"
+          ? rest
+          : stripComments(readFileSync(file, "utf8"));
       for (const hit of text.match(HEX) ?? []) {
         if (!grounds.includes(hit.toLowerCase()))
           offenders.push(`${file}  ${hit}`);

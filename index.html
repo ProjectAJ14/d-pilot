@@ -30,6 +30,108 @@
       })();
     </script>
 
+    <!-- Boot screen. Nothing the bundle paints can help here: the entry graph
+         is ~1.8 MB gzipped (Monaco alone is 4.2 MB raw) and #root stays empty
+         until all of it has downloaded, parsed and run — several seconds on a
+         cold first load, which is exactly the blank screen this replaces. So
+         the markup lives in the document itself, styled by this inline block,
+         and costs no request of its own.
+
+         The values are literals rather than var()s on purpose: tokens.css
+         arrives with the bundle, so it is not in the document yet. They are
+         --bg, --dim and --spot for each ground, copied from styles/tokens.css.
+         color-tokens.test.ts holds them to that, for the same reason the
+         pre-paint script above has to restate the colour-scheme key.
+
+         createRoot().render() drops every child of #root on its first render,
+         so React tears this down on mount with no cleanup code. -->
+    <style>
+      #boot {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        background: #f0ede6;
+        /* Held invisible for a beat so a warm load — where the bundle is
+           already cached and React mounts in well under this — never flashes a
+           loader on its way past. Only a genuinely slow load ever shows it. */
+        opacity: 0;
+        animation: boot-in 200ms ease-out 400ms forwards;
+      }
+      #boot-bars {
+        display: flex;
+        align-items: flex-end;
+        gap: 4px;
+        height: 24px;
+      }
+      /* Bars, not a disc: the app's Loader is type="bars" and nothing in this
+         theme is round. Same shape the user sees for every later wait. */
+      #boot-bars i {
+        display: block;
+        width: 5px;
+        height: 100%;
+        background: #0a5751;
+        transform-origin: bottom;
+        animation: boot-bar 1s ease-in-out infinite;
+      }
+      #boot-bars i:nth-child(2) {
+        animation-delay: 0.15s;
+      }
+      #boot-bars i:nth-child(3) {
+        animation-delay: 0.3s;
+      }
+      #boot-label {
+        /* The generic stack, not --font-mono's face: fonts.css arrives with
+           the bundle, so on the slow load this screen exists for the @font-face
+           is not in the document and the face would fall through to this
+           anyway. Naming it would only add a second mirror of tokens.css that
+           nothing checks. */
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #57534a;
+      }
+      :root[data-mantine-color-scheme="dark"] #boot {
+        background: #17171a;
+      }
+      :root[data-mantine-color-scheme="dark"] #boot-bars i {
+        background: #79d5c4;
+      }
+      :root[data-mantine-color-scheme="dark"] #boot-label {
+        color: #a29c93;
+      }
+      @keyframes boot-in {
+        to {
+          opacity: 1;
+        }
+      }
+      @keyframes boot-bar {
+        0%,
+        100% {
+          transform: scaleY(0.35);
+        }
+        50% {
+          transform: scaleY(1);
+        }
+      }
+      /* Only the bars' travel goes. The delayed fade above stays: it carries
+         no movement, and dropping it would trade a reduced-motion user out of
+         a flash-free warm load for nothing. The bars are the whole signal, so
+         they must not simply stop either — held at full height they read as a
+         static mark, with the label still saying what is happening. */
+      @media (prefers-reduced-motion: reduce) {
+        #boot-bars i {
+          animation: none;
+          transform: scaleY(1);
+        }
+      }
+    </style>
+
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <title>D-Pilot — Internal Query Tool</title>
 
@@ -62,7 +164,15 @@
     <meta name="apple-mobile-web-app-title" content="D-Pilot" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- No role="status"/aria-live: a live region announces what changes
+           after it registers, and this text is in the document at parse time
+           and never changes, so the attributes announced nothing. -->
+      <div id="boot">
+        <div id="boot-bars" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div id="boot-label">Loading</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
