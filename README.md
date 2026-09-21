@@ -134,6 +134,16 @@ go, and both halves read the same file. **Changing `BASE_PATH` requires a
 rebuild, not just a restart**; a restart alone leaves a client full of URLs
 pointing at the old prefix.
 
+Moving an existing deployment off the domain root leaves old bookmarks, old
+links and any service worker registered at the root scope still asking for `/`.
+Express would answer those with a bare `Cannot GET /`, which reads as an outage,
+so when `BASE_PATH` is set the server redirects such requests to the prefix
+instead, path and query intact. API paths are deliberately excluded — a stale
+client gets an honest 404 rather than a redirect that makes it look half-alive.
+A cached service worker still serves its own shell, though, so a browser that
+used the old root URL needs that registration cleared before the redirect can
+run at all.
+
 Because the server mounts _itself_ under the prefix, the proxy is a plain pass-
 through with no path rewriting:
 

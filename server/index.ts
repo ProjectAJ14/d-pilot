@@ -189,6 +189,34 @@ if (process.env.NODE_ENV === "production") {
 // Express wants "/" rather than "" for that.
 app.use(BASE_PATH || "/", router);
 
+// Anything still falling through asked for a path this deployment does not own.
+// Under a sub-path that is almost always someone arriving at the old root: a
+// bookmark, a link written before the move, or a service worker still
+// registered at the root scope by a build that owned it. Express answers those
+// with a bare "Cannot GET /", which looks like the app is down and offers no way
+// across — so send them to where it actually lives instead.
+//
+// GET only, and never /api. A browser re-issues a redirected POST as a GET, so
+// forwarding a stale client's write would quietly turn it into a no-op, and
+// answering its API calls at all would make a disconnected shell look half-alive
+// rather than plainly broken — the honest 404 is what tells it to give up.
+//
+// 302, not 301: a permanent redirect is cached by the browser indefinitely, so
+// moving the deployment back to the domain root would strand everyone who had
+// ever hit the old URL.
+//
+// `originalUrl` always starts with "/" and is prefixed here, so the Location
+// cannot become protocol-relative ("//evil.example") and walk off the origin.
+if (BASE_PATH) {
+  app.use((req, res, next) => {
+    if (req.method !== "GET" || /^\/api(\/|$)/.test(req.path)) {
+      next();
+      return;
+    }
+    res.redirect(`${BASE_PATH}${req.originalUrl}`);
+  });
+}
+
 // Initialize SQLite and auth tables, then start server
 initDatabase();
 initAuthTables();

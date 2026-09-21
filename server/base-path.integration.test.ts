@@ -122,6 +122,33 @@ describe.each([
     expect(res.status).toBe(404);
   });
 
+  it("sends a navigation outside the prefix to where the app lives", async () => {
+    const res = await fetch(`${booted.origin}${outside}/`, {
+      redirect: "manual",
+    });
+    if (basePath) {
+      // The old root, still in somebody's bookmarks. "Cannot GET /" reads as an
+      // outage, so it has to hand them across instead.
+      expect(res.status).toBe(302);
+      expect(res.headers.get("location")).toBe(`${basePath}${outside}/`);
+    } else {
+      // A root deployment owns "/" already; there is nowhere else to send this.
+      expect(res.status).toBe(404);
+    }
+  });
+
+  it("404s an API call outside the prefix rather than redirecting it", async () => {
+    // A 302 would be worse than the 404: a browser re-issues a redirected POST
+    // as a GET, so a stale client's write would silently become a no-op.
+    const res = await fetch(`${booted.origin}${outside}/api/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "nobody", password: "nobody" }),
+      redirect: "manual",
+    });
+    expect(res.status).toBe(404);
+  });
+
   it("scopes the web manifest to the prefix, never the domain root", async () => {
     const res = await fetch(url("/manifest.webmanifest"));
     expect(res.status).toBe(200);

@@ -16,6 +16,12 @@ The server mounting itself, rather than a proxy stripping the prefix, is deliber
 reverse proxy stays a plain `proxy_pass` with no rewriting, so exactly one place knows the
 prefix. Redirects and cookie paths emitted here are then already correct.
 
+When `BASE_PATH` is set, a GET that falls through the mount is redirected into the
+prefix (old bookmarks, stale root-scoped service workers). `/api` is excluded on
+purpose: a browser re-issues a redirected POST as a GET, so forwarding a stale
+client's write would silently make it a no-op. Keep it a 302 — a 301 is cached
+forever and would strand everyone if the app moved back to the root.
+
 **`BASE_PATH` must match what the client was built with** — Vite bakes it into the asset
 URLs (`vite.config.ts` reads the same variable). Changing it needs a rebuild, not a
 restart. When you add anything that emits a root-absolute URL — a redirect, a manifest
