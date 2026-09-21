@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [1.25.3](https://github.com/ProjectAJ14/d-pilot/compare/v1.25.2...v1.25.3) (2026-09-21)
+
+
+### Bug Fixes
+
+* **server:** point the old domain root at the sub-path ([006392b](https://github.com/ProjectAJ14/d-pilot/commit/006392ba99acfe18ccc8b0099d3aef01ec98091b))
+
 ## [1.25.2](https://github.com/ProjectAJ14/d-pilot/compare/v1.25.1...v1.25.2) (2026-09-20)
 
 
