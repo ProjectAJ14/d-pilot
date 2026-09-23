@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [1.25.4](https://github.com/ProjectAJ14/d-pilot/compare/v1.25.3...v1.25.4) (2026-09-23)
+
+
+### Bug Fixes
+
+* **write:** block deleting executed write requests ([a12eee7](https://github.com/ProjectAJ14/d-pilot/commit/a12eee72f3f650b49561582951b36524feb33997))
+
 ## [1.25.3](https://github.com/ProjectAJ14/d-pilot/compare/v1.25.2...v1.25.3) (2026-09-21)
 
 
