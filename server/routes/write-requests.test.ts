@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { planDraftSubmit, planRevise } from "./write-requests.js";
+import {
+  DELETABLE_STATUSES,
+  planDraftSubmit,
+  planRevise,
+} from "./write-requests.js";
 import type { AuthUser } from "../types/index.js";
 
 /**
@@ -126,5 +130,15 @@ describe("planRevise", () => {
     expect(
       planRevise(user({ writeEnvironments: ["DEV"] }), draft, []),
     ).toMatchObject({ ok: false, status: 403 });
+  });
+});
+
+describe("DELETABLE_STATUSES", () => {
+  it("never lets an executed or live request be deleted", () => {
+    // An EXECUTED request is the record of a change already applied; the route
+    // refuses it for everyone, admins included.
+    for (const status of ["EXECUTED", "PENDING", "APPROVED"]) {
+      expect(DELETABLE_STATUSES).not.toContain(status);
+    }
   });
 });

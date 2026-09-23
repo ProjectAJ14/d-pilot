@@ -145,9 +145,10 @@ rather than hardcoding `PENDING`.
 
 `DELETE /:id` removes a request and its events outright — requester or admin, and only once it
 is not live (`PENDING` and `APPROVED` must be cancelled first, since one is someone else's
-review queue and the other may be mid-execution). It is not an audit hole: `audit_log` is a
-separate table, so what was proposed and run survives, plus a `WRITE_DELETE` entry. There is no
-MCP tool for it.
+review queue and the other may be mid-execution). `EXECUTED` is never deletable, not even by
+an admin — it is the record of a change that already landed. It is not an audit hole:
+`audit_log` is a separate table, so what was proposed and run survives, plus a `WRITE_DELETE`
+entry. There is no MCP tool for it.
 
 Every request carries a paired verify **SELECT** and the **WRITE**.
 `WriteAiReview` holds the structured safety verdict (SAFE/CAUTION/DANGEROUS, blast

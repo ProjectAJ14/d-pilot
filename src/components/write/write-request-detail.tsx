@@ -298,13 +298,12 @@ export function WriteRequestDetail() {
   const isDraft = wr.status === "DRAFT";
   // Straight from the server — the write policy can change while a draft sits.
   const draftRunsNow = isDraft && !!wr.submitRunsImmediately;
-  // Deleting is for tidying a finished or abandoned request. A live one
-  // (PENDING/APPROVED) is someone else's queue — the server refuses those too.
+  // Deleting is for tidying an abandoned request. A live one (PENDING/APPROVED)
+  // is someone else's queue, and an EXECUTED one is the record of a change that
+  // already hit the database — the server refuses all of those too.
   const canDelete =
     (wr.viewerIsRequester || isAdmin) &&
-    ["DRAFT", "CANCELLED", "REJECTED", "FAILED", "EXECUTED"].includes(
-      wr.status,
-    );
+    ["DRAFT", "CANCELLED", "REJECTED", "FAILED"].includes(wr.status);
   // Drafts are editable too — an agent-authored draft is exactly what its owner
   // comes to the dashboard to fill in. The server keeps a draft edit a draft.
   const canRevise =
@@ -375,8 +374,8 @@ export function WriteRequestDetail() {
                 leftSection={<IconTrash size={14} />}
                 onClick={() => setDeleteOpen(true)}
                 style={{
-                  color: "var(--mantine-color-red-light-color)",
-                  borderColor: "var(--mantine-color-red-outline)",
+                  color: "var(--error)",
+                  borderColor: "var(--error)",
                 }}
               >
                 Delete
@@ -719,8 +718,8 @@ export function WriteRequestDetail() {
                           setDecisionModal("reject");
                         }}
                         style={{
-                          color: "var(--mantine-color-red-light-color)",
-                          borderColor: "var(--mantine-color-red-outline)",
+                          color: "var(--error)",
+                          borderColor: "var(--error)",
                         }}
                       >
                         Reject
@@ -933,8 +932,7 @@ export function WriteRequestDetail() {
         <Text size="sm" mb="lg">
           Delete <strong>{wr.title}</strong>? The request, its share link and
           its activity timeline go away for everyone. The audit log keeps the
-          record of what was proposed
-          {wr.status === "EXECUTED" ? " and run" : ""}.
+          record of what was proposed.
         </Text>
         <Group justify="flex-end" gap={8}>
           <Button variant="default" onClick={() => setDeleteOpen(false)}>
