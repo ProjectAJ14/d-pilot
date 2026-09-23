@@ -1150,14 +1150,9 @@ router.post("/:id/cancel", (req: Request, res: Response) => {
 // Remove a request from the queue entirely. Only the requester or an admin can,
 // and only once it is no longer live — a PENDING request is someone else's
 // review queue and an APPROVED one may be mid-execution, so those must be
-// cancelled first. The audit_log record of what was proposed or run survives.
-const DELETABLE_STATUSES = [
-  "DRAFT",
-  "CANCELLED",
-  "REJECTED",
-  "FAILED",
-  "EXECUTED",
-];
+// cancelled first. An EXECUTED request is never deletable, admin included: it
+// is the record of a change that already landed on the target database.
+export const DELETABLE_STATUSES = ["DRAFT", "CANCELLED", "REJECTED", "FAILED"];
 
 router.delete("/:id", (req: Request, res: Response) => {
   const user = req.user!;
@@ -1174,7 +1169,10 @@ router.delete("/:id", (req: Request, res: Response) => {
   }
   if (!DELETABLE_STATUSES.includes(wr.status)) {
     res.status(409).json({
-      error: `A ${wr.status} request cannot be deleted — cancel it first.`,
+      error:
+        wr.status === "EXECUTED"
+          ? "An executed request cannot be deleted — it is the record of a change already applied."
+          : `A ${wr.status} request cannot be deleted — cancel it first.`,
     });
     return;
   }
