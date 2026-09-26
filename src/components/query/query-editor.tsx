@@ -32,7 +32,7 @@ import { notifications } from "@mantine/notifications";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../../store";
 import { api, ApiError } from "../../utils/api-client";
-import { notifyError } from "../../utils/notify-error";
+import { isReportable, notifyError } from "../../utils/notify-error";
 import { copySavedQueryShareLink } from "../../utils/share-links";
 import { downloadTextFile } from "../../utils/download-file";
 import type {
@@ -626,7 +626,12 @@ export function QueryEditor({
       return;
     }
 
-    updateTab(tab.id, { loading: true, error: null, errorCode: undefined });
+    updateTab(tab.id, {
+      loading: true,
+      error: null,
+      errorCode: undefined,
+      errorReportable: undefined,
+    });
 
     try {
       const result = await api.executeQuery(
@@ -662,6 +667,7 @@ export function QueryEditor({
       updateTab(tab.id, {
         error: err.message,
         errorCode: err.code == null ? undefined : String(err.code),
+        errorReportable: isReportable(err),
         loading: false,
         result: null,
       });

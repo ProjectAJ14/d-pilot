@@ -18,6 +18,11 @@ export function reportUrl(
   });
 }
 
+/** A 4xx is the server saying no — permissions, validation, the production rails — not a bug. */
+export function isReportable(err: unknown): boolean {
+  return !(err instanceof ApiError && err.status < 500);
+}
+
 /**
  * A caught error as a red toast, with a Report link when it looks like a bug.
  * A 4xx is the server saying no — permissions, validation, the production
@@ -29,7 +34,7 @@ export function notifyError(
   opts: { title?: string; autoClose?: number } = {},
 ) {
   const message = err instanceof Error ? err.message : String(err);
-  const reportable = !(err instanceof ApiError && err.status < 500);
+  const reportable = isReportable(err);
   const code = (err as { code?: unknown } | null)?.code;
   notifications.show({
     color: "red",

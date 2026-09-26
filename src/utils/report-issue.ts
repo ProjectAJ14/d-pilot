@@ -31,8 +31,24 @@ export interface Failure {
 
 /** Everything that could be data, out. Punctuation-only quotes (`";"`) stay — they name the syntax fault. */
 export function scrub(text: string): string {
+  // Quoted or bracketed text is where drivers put values and identifiers.
+  // Innermost first, until stable, so `(Doe (Jr), Jane)` is caught whole; a
+  // scrubbed group is held as \0 + its PAIRS index so its outer group can still match.
+  const PAIRS = ['""', "''", "``", "[]", "()", "{}"];
+  let out = text;
+  for (let prev = ""; prev !== out; ) {
+    prev = out;
+    out = out.replace(
+      /"[^"]*"|'[^']*'|`[^`]*`|\[[^[\]]*\]|\([^()]*\)|\{[^{}]*\}/g,
+      (m) =>
+        /[\p{L}\p{N}\0]/u.test(m)
+          ? `\0${PAIRS.indexOf(m[0] + m[m.length - 1])}`
+          : m,
+    );
+  }
   return (
-    text
+    out
+      .replace(/\0(\d)/g, (_, i) => `${PAIRS[i][0]}<value>${PAIRS[i][1]}`)
       .replace(
         /\b(sk-[A-Za-z0-9_-]{8,}|gsk_[A-Za-z0-9]{8,}|xox[bapsr]-[A-Za-z0-9-]{8,})/g,
         "<key>",
@@ -41,9 +57,11 @@ export function scrub(text: string): string {
         /((?:api[-_]?key|authorization|bearer|token|password)["'\s:=]+)[^\s"',;]+/gi,
         "$1<key>",
       )
-      // Quoted or bracketed text is where drivers put values and identifiers.
-      .replace(/"[^"]*"|'[^']*'|`[^`]*`|\[[^\]]*\]|\([^)]*\)/g, (m) =>
-        /[\p{L}\p{N}]/u.test(m) ? `${m[0]}<value>${m[m.length - 1]}` : m,
+      // Unquoted identifiers after the word that names them:
+      // `permission denied for table customers`, `not authorized on appdb`.
+      .replace(
+        /\b(table|schema|database|relation|column|view|index|constraint|sequence|function|procedure|collection|namespace|role|user|login|authorized on)\s+(?![<"'`[({])[^\s,;:]+/gi,
+        "$1 <name>",
       )
       .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, "<email>")
       .replace(/\b\d{1,3}(\.\d{1,3}){3}(:\d+)?\b/g, "<ip>")

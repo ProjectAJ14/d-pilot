@@ -228,11 +228,13 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
   const conn = useStore((s) =>
     s.connections.find((c) => c.id === tab.connectionId),
   );
-  // Built once per error, so the reported time is when it failed, not when the
-  // panel last re-rendered. Only allowlisted, data-free fields go in — see report-issue.ts.
+  // Built once per failure, so the reported time is when it failed, not when the
+  // panel last re-rendered. Keyed on the tab too: one grid serves every tab, and
+  // two tabs can fail with the same message on different connections.
+  // Only allowlisted, data-free fields go in — see report-issue.ts.
   const reportHref = useMemo(
     () =>
-      error
+      error && tab.errorReportable !== false
         ? reportUrl({
             where: "Query",
             message: error,
@@ -241,8 +243,8 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
             production: conn ? isProductionEnv(conn.env) : undefined,
           })
         : null,
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- rebuild per error, not per store change
-    [error],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rebuild per failure, not per store change
+    [error, tab.id, tab.errorCode, tab.errorReportable, conn?.type, conn?.env],
   );
 
   // How many rows the user has ticked (row checkboxes). Copy falls back to these

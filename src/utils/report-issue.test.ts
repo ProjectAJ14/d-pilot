@@ -44,6 +44,25 @@ describe("scrub", () => {
     );
   });
 
+  it("drops unquoted identifiers drivers name bare", () => {
+    expect(scrub("permission denied for table customers")).toBe(
+      "permission denied for table <name>",
+    );
+    expect(scrub("permission denied for schema app_core")).toBe(
+      "permission denied for schema <name>",
+    );
+    expect(
+      scrub("not authorized on appdb to execute command { find: 1 }"),
+    ).toBe("not authorized on <name> to execute command {<value>}");
+  });
+
+  it("drops nested and braced values whole", () => {
+    const s = scrub("The duplicate key value is (Doe (Jr), Jane).");
+    expect(s).not.toMatch(/Doe|Jr|Jane/);
+    expect(s).toBe("The duplicate key value is (<value>).");
+    expect(scrub("E11000 dup key: { mrn: 123 }")).not.toMatch(/mrn|123/);
+  });
+
   it("drops bare emails, hosts, IPs and keys", () => {
     const s = scrub(
       "connect ECONNREFUSED 10.0.1.5:5432 at db.internal.acme.com for jane@acme.com, token=abcdef123456",

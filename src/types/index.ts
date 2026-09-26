@@ -180,6 +180,8 @@ export interface QueryTab {
   error: string | null;
   /** Driver error code (e.g. Postgres SQLSTATE) — data-free, so it can go in a bug report. */
   errorCode?: string;
+  /** False for a 4xx refusal — the error panel then offers no Report link. */
+  errorReportable?: boolean;
   viewMode?: ResultViewMode;
 }
 
