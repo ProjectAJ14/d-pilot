@@ -5,6 +5,18 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.26.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.25.5...v1.26.0) (2026-09-26)
+
+
+### Bug Fixes
+
+* **errors:** scrub bare identifiers and gate query-error reports ([e210869](https://github.com/ProjectAJ14/d-pilot/commit/e210869192cf302baaf2133f933d00d3cd357d8b))
+
+
+### Features
+
+* **errors:** report issue from query errors, toasts and crashes ([9543f96](https://github.com/ProjectAJ14/d-pilot/commit/9543f96dae79bdc1a3186287b6cee264df96d530))
+
 ## [1.25.5](https://github.com/ProjectAJ14/d-pilot/compare/v1.25.4...v1.25.5) (2026-09-26)
 
 
