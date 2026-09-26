@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { Text, Group, Alert } from "@mantine/core";
 import { IconInfoCircle, IconPencilBolt } from "@tabler/icons-react";
-import { notifications } from "@mantine/notifications";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../utils/api-client";
+import { notifyError } from "../../utils/notify-error";
 import type { ConnectionInfo } from "../../types";
 import { WriteComposer } from "./write-composer";
 
@@ -18,7 +18,7 @@ export function WriteWorkspace() {
     api
       .getWritableConnections()
       .then(setConnections)
-      .catch((e) => notifications.show({ message: e.message, color: "red" }));
+      .catch((e) => notifyError(e, "Write"));
     api
       .getWritePolicy()
       .then((p) => {

@@ -32,6 +32,7 @@ import { notifications } from "@mantine/notifications";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../../store";
 import { api, ApiError } from "../../utils/api-client";
+import { notifyError } from "../../utils/notify-error";
 import { copySavedQueryShareLink } from "../../utils/share-links";
 import { downloadTextFile } from "../../utils/download-file";
 import type {
@@ -625,7 +626,7 @@ export function QueryEditor({
       return;
     }
 
-    updateTab(tab.id, { loading: true, error: null });
+    updateTab(tab.id, { loading: true, error: null, errorCode: undefined });
 
     try {
       const result = await api.executeQuery(
@@ -660,6 +661,7 @@ export function QueryEditor({
     } catch (err: any) {
       updateTab(tab.id, {
         error: err.message,
+        errorCode: err.code == null ? undefined : String(err.code),
         loading: false,
         result: null,
       });
@@ -725,7 +727,7 @@ export function QueryEditor({
       setSaveName("");
       setEditingSavedId(null);
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Query editor");
     }
   };
 
@@ -758,7 +760,7 @@ export function QueryEditor({
       const csv = await api.exportCsv(tab.connectionId, tab.sql);
       downloadTextFile("query-export.csv", csv);
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Query editor");
     }
   };
 

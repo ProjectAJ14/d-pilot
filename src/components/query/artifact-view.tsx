@@ -25,6 +25,7 @@ import {
 } from "@tabler/icons-react";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
+import { notifyError } from "../../utils/notify-error";
 import {
   baseSqlEditorOptions,
   useEditorTheme,
@@ -222,7 +223,7 @@ export function ArtifactView({ tab }: Props) {
       setArtifacts(await api.getArtifacts());
       notifications.show({ message: "Artifact restored", color: "green" });
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Artifact");
     } finally {
       setRestoring(false);
     }

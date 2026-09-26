@@ -20,6 +20,7 @@ import {
 import { Notifications } from "@mantine/notifications";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { CrashScreen } from "./components/layout/crash-screen";
 import { installClipboardFallback } from "./utils/clipboard-polyfill";
 import "./styles/fonts.css";
 import "./styles/global.css";
@@ -373,6 +374,8 @@ createRoot(document.getElementById("root")!).render(
         characters of the value you copied. One number here rather than a
         per-call override, so "how long does a toast live" has one answer. */}
     <Notifications position="bottom-right" autoClose={5000} />
-    <App />
+    <CrashScreen>
+      <App />
+    </CrashScreen>
   </MantineProvider>,
 );

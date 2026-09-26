@@ -6,7 +6,14 @@ import {
   useState,
   Fragment,
 } from "react";
-import { Text, Badge, SegmentedControl, Menu, Button } from "@mantine/core";
+import {
+  Text,
+  Badge,
+  SegmentedControl,
+  Menu,
+  Button,
+  Tooltip,
+} from "@mantine/core";
 import {
   IconShieldLock,
   IconAlertTriangle,
@@ -17,6 +24,7 @@ import {
   IconCopyCheck,
   IconCopy,
   IconChevronDown,
+  IconBrandGithub,
 } from "@tabler/icons-react";
 import { AgGridReact } from "ag-grid-react";
 import type {
@@ -36,6 +44,8 @@ import {
 // Acceptable for internal/dev use; a license is required to ship this cleanly.
 import { CellSelectionModule, ClipboardModule } from "ag-grid-enterprise";
 import { useStore } from "../../store";
+import { isProductionEnv } from "../../utils/environments";
+import { reportUrl } from "../../utils/notify-error";
 import type { QueryTab, ResultViewMode } from "../../types";
 import { ResultsJsonView } from "./results-json-view";
 import { CellDetailDrawer, type CellDetail } from "./cell-detail-drawer";
@@ -215,6 +225,25 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
   const gridRef = useRef<AgGridReact>(null);
 
   const { result, error } = tab;
+  const conn = useStore((s) =>
+    s.connections.find((c) => c.id === tab.connectionId),
+  );
+  // Built once per error, so the reported time is when it failed, not when the
+  // panel last re-rendered. Only allowlisted, data-free fields go in — see report-issue.ts.
+  const reportHref = useMemo(
+    () =>
+      error
+        ? reportUrl({
+            where: "Query",
+            message: error,
+            code: tab.errorCode,
+            dbType: conn?.type,
+            production: conn ? isProductionEnv(conn.env) : undefined,
+          })
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rebuild per error, not per store change
+    [error],
+  );
 
   // How many rows the user has ticked (row checkboxes). Copy falls back to these
   // when no cell range is selected.
@@ -595,6 +624,22 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
         >
           {error}
         </Text>
+        {reportHref && (
+          <Tooltip label="Opens a public GitHub issue. Your SQL, data and names are left out.">
+            <Button
+              component="a"
+              href={reportHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              variant="default"
+              size="xs"
+              mt="xs"
+              leftSection={<IconBrandGithub size={14} />}
+            >
+              Report issue
+            </Button>
+          </Tooltip>
+        )}
       </div>
     );
   }

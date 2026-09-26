@@ -61,6 +61,7 @@ import {
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
+import { notifyError } from "../../utils/notify-error";
 import { copyToClipboard } from "../../utils/clipboard";
 import { generatePassword } from "../../utils/password";
 import { downloadTextFile } from "../../utils/download-file";
@@ -493,7 +494,7 @@ function AnalyticsTab() {
       const [d] = await Promise.all([api.getAnalytics(), loadConnStatus()]);
       setData(d);
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
     } finally {
       setLoading(false);
     }
@@ -508,7 +509,7 @@ function AnalyticsTab() {
       });
       await loadConnStatus();
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
     }
   };
 
@@ -914,7 +915,7 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
       const data = await api.getUsers();
       setUsers(data);
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
     } finally {
       setLoading(false);
     }
@@ -1246,7 +1247,7 @@ function AddUserModal({
       setWriteEnvs([]);
       setApproveEnvs([]);
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
     } finally {
       setSaving(false);
     }
@@ -1457,7 +1458,7 @@ function EditUserModal({
       onClose();
       onSuccess();
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
     } finally {
       setSaving(false);
     }
@@ -1522,7 +1523,7 @@ function DeleteUserModal({
       onClose();
       onSuccess();
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
     } finally {
       setDeleting(false);
     }
@@ -1584,7 +1585,7 @@ function ResetPasswordModal({
       });
       setNewPassword("");
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
     } finally {
       setSaving(false);
     }
@@ -1828,7 +1829,7 @@ function WriteModeTab() {
       setEnabled(p.writeModeEnabled);
       setDirectEnvs(p.directEnvs);
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
     } finally {
       setLoading(false);
     }
@@ -1849,7 +1850,7 @@ function WriteModeTab() {
       setDirectEnvs(p.directEnvs);
       notifications.show({ message: "Write policy updated", color: "green" });
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
       load();
     } finally {
       setSaving(false);
@@ -2015,7 +2016,7 @@ function PhiManagementTab() {
       const data = await api.getPhiRules();
       setRules(data);
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
     } finally {
       setLoading(false);
     }
@@ -2026,7 +2027,7 @@ function PhiManagementTab() {
       const data = await api.getMaskedEnvironments();
       setMaskedEnvs(data.environments);
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
     }
   };
 
@@ -2058,7 +2059,7 @@ function PhiManagementTab() {
         color: "green",
       });
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
       setMaskedEnvs(maskedEnvs); // revert
     } finally {
       setEnvSaving(false);
@@ -2073,7 +2074,7 @@ function PhiManagementTab() {
       setDeleteRule(null);
       loadRules();
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
     }
   };
 
@@ -2085,7 +2086,7 @@ function PhiManagementTab() {
         csv,
       );
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
     }
   };
 
@@ -2108,10 +2109,8 @@ function PhiManagementTab() {
       });
       loadRules();
     } catch (err: any) {
-      notifications.show({
-        color: "red",
+      notifyError(err, "Settings", {
         title: "Import failed",
-        message: err.message,
         autoClose: 10000,
       });
     } finally {
@@ -2140,7 +2139,7 @@ function PhiManagementTab() {
       closeDeleteAllModal();
       loadRules();
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
     } finally {
       setDeletingAll(false);
     }
@@ -2509,7 +2508,7 @@ function AddPhiRuleModal({
       setDatabase("");
       setTable("");
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
     } finally {
       setSaving(false);
     }
@@ -2671,7 +2670,7 @@ function AuditLogTab() {
           : await api.getAuditLog(params);
       setEntries(data);
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
     } finally {
       setLoading(false);
     }
@@ -2698,7 +2697,7 @@ function AuditLogTab() {
       notifications.show({ message: result.message, color: "green" });
       if (result.archived > 0) loadAudit();
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
     } finally {
       setArchiving(false);
     }
@@ -3271,7 +3270,7 @@ function AiChatLogTab() {
       const data = await api.getAiChatLog(params);
       setEntries(data);
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Settings");
     } finally {
       setLoading(false);
     }

@@ -178,6 +178,8 @@ export interface QueryTab {
   result: QueryResult | null;
   loading: boolean;
   error: string | null;
+  /** Driver error code (e.g. Postgres SQLSTATE) — data-free, so it can go in a bug report. */
+  errorCode?: string;
   viewMode?: ResultViewMode;
 }
 

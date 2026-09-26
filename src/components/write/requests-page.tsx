@@ -22,9 +22,9 @@ import {
   IconUser,
   IconListDetails,
 } from "@tabler/icons-react";
-import { notifications } from "@mantine/notifications";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../utils/api-client";
+import { notifyError } from "../../utils/notify-error";
 import { useStore } from "../../store";
 import type { WriteRequest } from "../../types";
 import { StatusBadge, EnvBadge, VerdictBadge, fmtDateTime } from "./shared";
@@ -164,7 +164,7 @@ export function RequestsPage() {
         setRequests(all);
         setActionRequiredCount(countActionRequired(all));
       })
-      .catch((e) => notifications.show({ message: e.message, color: "red" }))
+      .catch((e) => notifyError(e, "Requests"))
       .finally(() => setLoading(false));
   };
 

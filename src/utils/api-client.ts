@@ -66,7 +66,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       // Token expired — logout via store so React re-renders to login screen
       const { useStore } = await import("../store");
       useStore.getState().logout();
-      throw new Error("Session expired");
+      throw new ApiError("Session expired", 401);
     }
 
     throw new ApiError(

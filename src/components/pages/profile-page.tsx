@@ -29,6 +29,7 @@ import {
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
+import { notifyError } from "../../utils/notify-error";
 import { envColor } from "../../utils/environments";
 
 /**
@@ -304,7 +305,7 @@ function AccountTab({ initials }: { initials: string }) {
       }
       notifications.show({ message: "Profile updated", color: "green" });
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Profile");
     } finally {
       setSaving(false);
     }
@@ -480,7 +481,7 @@ function SecurityTab() {
       setNewPassword("");
       setConfirmPassword("");
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Profile");
     } finally {
       setChanging(false);
     }
