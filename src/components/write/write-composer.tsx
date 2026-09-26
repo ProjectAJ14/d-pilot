@@ -31,6 +31,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
+import { notifyError } from "../../utils/notify-error";
 import type {
   ConnectionInfo,
   QueryResult,
@@ -343,7 +344,7 @@ export function WriteComposer({
         });
       }
     } catch (e: any) {
-      notifications.show({ message: e.message, color: "red" });
+      notifyError(e, "Write request");
     } finally {
       setGenSelecting(false);
     }
@@ -367,7 +368,7 @@ export function WriteComposer({
         }),
       );
     } catch (e: any) {
-      notifications.show({ message: e.message, color: "red" });
+      notifyError(e, "Write request");
     } finally {
       setAiLoading(false);
     }
@@ -466,7 +467,7 @@ export function WriteComposer({
       }
       onSubmitted?.(wr);
     } catch (e: any) {
-      notifications.show({ message: e.message, color: "red" });
+      notifyError(e, "Write request");
     } finally {
       setBusy(false);
     }

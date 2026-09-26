@@ -110,6 +110,13 @@ writing to the tab in the store.
   `import`, an asset URL, `src`/`href` in `index.html` — it rewrites for you.
 - **`tab-persistence.ts`** — localStorage save (500 ms debounce) + restore of tabs, active
   connection, and sidebar state. Results are **not** persisted.
+- **`notify-error.tsx` / `report-issue.ts`** — show a caught error with
+  `notifyError(err, "<Screen>")`, not a bare red `notifications.show`: it adds a "Report
+  issue" link (5xx and network errors only) that opens a prefilled issue on the **public**
+  GitHub repo. So the report is an allowlist — error text scrubbed of anything quoted,
+  emails, hosts, IPs and long numbers, plus code/db type/version — and never SQL, rows, or
+  connection, table, user or env names. Don't widen it without that in mind. Render crashes
+  land on `components/layout/crash-screen.tsx`, which reports the same way.
 - **`datetime.ts`** — ISO → local-time formatting for grid cells/tooltips.
 - **`schema-metadata.ts`** — copy table metadata as JSON / DDL / text.
 - **`clipboard.tsx` / `clipboard-polyfill.ts`** — copy helpers with a fallback for insecure

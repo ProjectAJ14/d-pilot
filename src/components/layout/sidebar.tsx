@@ -38,6 +38,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import { useStore } from "../../store";
 import { api, ApiError } from "../../utils/api-client";
+import { notifyError } from "../../utils/notify-error";
 import { copyToClipboard } from "../../utils/clipboard";
 import {
   copyArtifactShareLink,
@@ -290,10 +291,7 @@ export function Sidebar() {
       const { text, label } = buildTableMetadata(format, conn, table, cols);
       copyToClipboard(text, label);
     } catch (err: any) {
-      notifications.show({
-        message: `Failed to copy metadata: ${err.message}`,
-        color: "red",
-      });
+      notifyError(err, "Explorer", { title: "Failed to copy metadata" });
     }
   };
 
@@ -381,7 +379,7 @@ export function Sidebar() {
         color: "green",
       });
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Explorer");
     }
   };
 
@@ -391,7 +389,7 @@ export function Sidebar() {
       removeSavedQuery(id);
       notifications.show({ message: "Query deleted", color: "green" });
     } catch (err: any) {
-      notifications.show({ message: err.message, color: "red" });
+      notifyError(err, "Explorer");
     }
   };
 

@@ -33,6 +33,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "../../utils/api-client";
+import { notifyError } from "../../utils/notify-error";
 import { useStore } from "../../store";
 import { countActionRequired } from "./requests-page";
 import type {
@@ -141,7 +142,7 @@ export function WriteRequestDetail() {
       setAiReview(r);
       load();
     } catch (e: any) {
-      notifications.show({ message: e.message, color: "red" });
+      notifyError(e, "Write request");
     } finally {
       setAiLoading(false);
     }
@@ -171,11 +172,7 @@ export function WriteRequestDetail() {
       load();
       refreshBadge();
     } catch (e: any) {
-      notifications.show({
-        title: "Action failed",
-        message: e.message,
-        color: "red",
-      });
+      notifyError(e, "Write request", { title: "Action failed" });
       load();
     } finally {
       setDeciding(false);
@@ -213,7 +210,7 @@ export function WriteRequestDetail() {
       load();
       refreshBadge();
     } catch (e: any) {
-      notifications.show({ message: e.message, color: "red" });
+      notifyError(e, "Write request");
       load();
     } finally {
       setSubmittingDraft(false);
@@ -228,7 +225,7 @@ export function WriteRequestDetail() {
       load();
       refreshBadge();
     } catch (e: any) {
-      notifications.show({ message: e.message, color: "red" });
+      notifyError(e, "Write request");
     }
   };
 
@@ -241,7 +238,7 @@ export function WriteRequestDetail() {
       refreshBadge();
       navigate("/requests");
     } catch (e: any) {
-      notifications.show({ message: e.message, color: "red" });
+      notifyError(e, "Write request");
       setDeleting(false);
       setDeleteOpen(false);
     }
