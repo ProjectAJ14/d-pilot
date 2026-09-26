@@ -437,3 +437,12 @@ h6 {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* A badge in a table cell is a status/env/verdict — its whole word is the
+   data, so it never truncates. Mantine's badge clips with an ellipsis, which
+   also drops its min-content to ~0 and lets an auto-layout column squeeze it
+   to "PR…". max-content makes the column at least as wide as its longest
+   badge. Fixed-layout tables must size that column for the longest value. */
+.mantine-Table-td .mantine-Badge-root {
+  min-width: max-content;
+}

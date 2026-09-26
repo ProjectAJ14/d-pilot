@@ -876,9 +876,13 @@ function AnalyticsTab() {
                       {c.live && (
                         <Button
                           size="compact-xs"
-                          variant="light"
+                          variant="default"
                           color="red"
                           onClick={() => disconnect(c)}
+                          style={{
+                            color: "var(--error)",
+                            borderColor: "var(--error)",
+                          }}
                         >
                           Disconnect
                         </Button>
@@ -3369,7 +3373,7 @@ function AiChatLogTab() {
                 <Table.Th style={{ width: 180 }}>Timestamp</Table.Th>
                 <Table.Th style={{ width: 230 }}>User</Table.Th>
                 <Table.Th>Prompt</Table.Th>
-                <Table.Th style={{ width: 100 }}>Status</Table.Th>
+                <Table.Th style={{ width: 130 }}>Status</Table.Th>
                 <Table.Th style={{ width: 90, textAlign: "right" }}>
                   Tokens
                 </Table.Th>
