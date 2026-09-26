@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [1.25.5](https://github.com/ProjectAJ14/d-pilot/compare/v1.25.4...v1.25.5) (2026-09-26)
+
+
+### Bug Fixes
+
+* **ui:** stop status badges truncating and make Disconnect a button ([135ebd9](https://github.com/ProjectAJ14/d-pilot/commit/135ebd9a606693a7ee3b7c2d2a7fac189cdb8acf))
+
 ## [1.25.4](https://github.com/ProjectAJ14/d-pilot/compare/v1.25.3...v1.25.4) (2026-09-23)
 
 
