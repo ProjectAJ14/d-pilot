@@ -763,7 +763,11 @@ export function QueryEditor({
   const handleExportCsv = async () => {
     if (!tab.connectionId || !tab.sql) return;
     try {
-      const csv = await api.exportCsv(tab.connectionId, tab.sql);
+      const csv = await api.exportCsv(
+        tab.connectionId,
+        tab.sql,
+        defaultLimitEnabled ? defaultLimitValue : null,
+      );
       downloadTextFile("query-export.csv", csv);
     } catch (err: any) {
       notifyError(err, "Query editor");

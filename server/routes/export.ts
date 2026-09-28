@@ -20,7 +20,7 @@ const router = Router();
 
 router.post("/csv", async (req: Request, res: Response) => {
   const user = req.user!;
-  const { connectionId, sql } = req.body;
+  const { connectionId, sql, defaultLimit } = req.body;
 
   if (!connectionId || !sql) {
     res.status(400).json({ error: "connectionId and sql are required" });
@@ -37,7 +37,7 @@ router.post("/csv", async (req: Request, res: Response) => {
   }
 
   try {
-    const rawResult = await executeQuery(conn, sql);
+    const rawResult = await executeQuery(conn, sql, defaultLimit);
     const phiEnabled = resolvePhiEnabled(req, conn.env);
     const { maskedRows, maskedColumns } = maskQueryResults(
       rawResult.columns,
@@ -90,7 +90,7 @@ router.post("/csv", async (req: Request, res: Response) => {
 
 router.post("/json", async (req: Request, res: Response) => {
   const user = req.user!;
-  const { connectionId, sql } = req.body;
+  const { connectionId, sql, defaultLimit } = req.body;
 
   if (!connectionId || !sql) {
     res.status(400).json({ error: "connectionId and sql are required" });
@@ -107,7 +107,7 @@ router.post("/json", async (req: Request, res: Response) => {
   }
 
   try {
-    const rawResult = await executeQuery(conn, sql);
+    const rawResult = await executeQuery(conn, sql, defaultLimit);
     const phiEnabled = resolvePhiEnabled(req, conn.env);
     const { maskedRows } = maskQueryResults(rawResult.columns, rawResult.rows, {
       phiEnabled,

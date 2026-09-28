@@ -436,15 +436,23 @@ export const api = {
   getAnalytics: () => request<any>("/analytics"),
 
   // Export
-  exportCsv: (connectionId: string, sql: string) =>
+  exportCsv: (
+    connectionId: string,
+    sql: string,
+    defaultLimit?: number | null,
+  ) =>
     request<string>("/export/csv", {
       method: "POST",
-      body: JSON.stringify({ connectionId, sql }),
+      body: JSON.stringify({ connectionId, sql, defaultLimit }),
     }),
-  exportJson: (connectionId: string, sql: string) =>
+  exportJson: (
+    connectionId: string,
+    sql: string,
+    defaultLimit?: number | null,
+  ) =>
     request<any[]>("/export/json", {
       method: "POST",
-      body: JSON.stringify({ connectionId, sql }),
+      body: JSON.stringify({ connectionId, sql, defaultLimit }),
     }),
 
   // Profile
