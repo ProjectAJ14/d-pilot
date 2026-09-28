@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Editor from "@monaco-editor/react";
 import { notifications } from "@mantine/notifications";
@@ -13,6 +13,7 @@ import {
   Text,
   Tooltip,
   TypographyStylesProvider,
+  useComputedColorScheme,
 } from "@mantine/core";
 import {
   IconAlertTriangle,
@@ -38,6 +39,11 @@ import type {
   QueryResult,
   ResultViewMode,
 } from "../../types";
+import {
+  buildArtifactSrcdoc,
+  HEIGHT_MESSAGE,
+  readThemeTokens,
+} from "../../utils/artifact-html";
 import { ResultsGrid } from "./results-grid";
 import { monacoLanguageForDb } from "./query-editor";
 
@@ -80,6 +86,78 @@ function MarkdownBlock({ body }: { body: string }) {
         {body}
       </ReactMarkdown>
     </TypographyStylesProvider>
+  );
+}
+
+/**
+ * An `html` block: a rich page an author (usually an agent over MCP) wrote,
+ * rendered in a sandboxed iframe. `sandbox` without `allow-same-origin` gives
+ * it an opaque origin, so it cannot read the JWT, call `/api` or touch this
+ * page; the CSP in the srcdoc blocks all network and every script but our
+ * nonced height reporter. See `utils/artifact-html.ts` before loosening any
+ * of it — never add `allow-same-origin` here, which with `allow-scripts`
+ * hands the frame the reader's session.
+ */
+function ArtifactHtmlFrame({ body }: { body: string }) {
+  const scheme = useComputedColorScheme("light");
+  const ref = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState(120);
+
+  const srcDoc = useMemo(
+    () =>
+      buildArtifactSrcdoc(
+        body,
+        readThemeTokens(document.documentElement),
+        crypto.randomUUID().replace(/-/g, ""),
+      ),
+    // Re-read the tokens when the reader flips the theme.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [body, scheme],
+  );
+
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== ref.current?.contentWindow) return;
+      if (e.data?.type !== HEIGHT_MESSAGE) return;
+      const h = Number(e.data.height);
+      if (Number.isFinite(h) && h > 0) setHeight(Math.ceil(h));
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
+  // CSP cannot stop a document navigating itself — a `<meta http-equiv=
+  // "refresh">` or a `target="_self"` link would load any page into this frame,
+  // inside D-Pilot's chrome (a fake "session expired" form, say). The srcdoc
+  // loads exactly once per value, so a second `load` means the frame left the
+  // document: replace it rather than show whatever it went to.
+  const loads = useRef(0);
+  const [navigatedAway, setNavigatedAway] = useState(false);
+  useEffect(() => {
+    loads.current = 0;
+  }, [srcDoc]);
+
+  if (navigatedAway) {
+    return (
+      <Text size="sm" c="dimmed">
+        This section tried to navigate to another page and was stopped.
+      </Text>
+    );
+  }
+
+  return (
+    <iframe
+      ref={ref}
+      title="Artifact content"
+      sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+      referrerPolicy="no-referrer"
+      onLoad={() => {
+        loads.current += 1;
+        if (loads.current > 1) setNavigatedAway(true);
+      }}
+      srcDoc={srcDoc}
+      style={{ width: "100%", height, border: 0, display: "block" }}
+    />
   );
 }
 
@@ -339,6 +417,13 @@ export function ArtifactView({ tab }: Props) {
             return (
               <div key={index} style={{ marginTop: 18 }}>
                 <MarkdownBlock body={block.body} />
+              </div>
+            );
+          }
+          if (block.type === "html") {
+            return (
+              <div key={index} style={{ marginTop: 18 }}>
+                <ArtifactHtmlFrame body={block.body} />
               </div>
             );
           }

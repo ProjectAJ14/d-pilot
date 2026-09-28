@@ -11,7 +11,10 @@
  * Blocks are structured: prose and queries are separate, so a query is always a
  * query the reader can run rather than a fenced string in a wall of text. Text
  * blocks are markdown, rendered by a parser that never emits raw HTML (see
- * `artifact-view.tsx`), so a document still cannot script the app.
+ * `artifact-view.tsx`). `html` blocks are full rich pages (layout, inline SVG
+ * diagrams) and are rendered only inside a sandboxed, opaque-origin iframe
+ * with a no-network CSP (`src/utils/artifact-html.ts`), so neither kind can
+ * script the app or reach a reader's session.
  *
  * There is no DELETE. An artifact's link is other people's bookmark, so removal
  * is archiving (`PUT { archived: true }`) and is always reversible.
@@ -35,6 +38,7 @@ const router = Router();
  */
 const blockSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("text"), body: z.string() }),
+  z.object({ type: z.literal("html"), body: z.string().trim().min(1) }),
   z.object({
     type: z.literal("sql"),
     sql: z.string().trim().min(1),
