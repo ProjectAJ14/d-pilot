@@ -554,7 +554,11 @@ export function WriteComposer({
             radius="md"
             data={connectionOptions}
             value={connectionId}
-            onChange={setConnectionId}
+            onChange={(id) => {
+              setConnectionId(id);
+              // A preview belongs to the database it ran on.
+              setPreview(null);
+            }}
             searchable
             nothingFoundMessage="No writable connections"
           />
@@ -848,7 +852,7 @@ export function WriteComposer({
       )}
       {preview && (
         <div style={{ marginTop: 16 }}>
-          <PreviewTable result={preview} />
+          <PreviewTable result={preview} dbType={dbType} />
         </div>
       )}
 

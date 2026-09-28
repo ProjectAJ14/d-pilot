@@ -58,6 +58,7 @@ import type {
 import { envColor, envLabel, useEnvironments } from "../../utils/environments";
 import { FkBadge } from "../query/fk-badge";
 import { queryLimit } from "../../utils/query-limit";
+import { defaultViewMode } from "../../utils/result-view";
 
 const DB_ICONS: Record<DatabaseType, string> = {
   postgres: "🐘",
@@ -321,10 +322,7 @@ export function Sidebar() {
         schema: schema || undefined,
         loading: true,
       });
-      const viewMode =
-        conn?.type === "mongodb" || conn?.type === "elasticsearch"
-          ? ("json" as const)
-          : ("table" as const);
+      const viewMode = defaultViewMode(conn?.type);
       api
         .executeQuery(
           connId,

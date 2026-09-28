@@ -47,6 +47,7 @@ import {
 import { ResultsGrid } from "./results-grid";
 import { monacoLanguageForDb } from "./query-editor";
 import { queryLimit } from "../../utils/query-limit";
+import { defaultViewMode } from "../../utils/result-view";
 
 /**
  * Runnability hint only. The server is the authority — `validateQuery` in
@@ -257,10 +258,7 @@ export function ArtifactView({ tab }: Props) {
       patchBlock(index, {
         loading: false,
         result,
-        viewMode:
-          conn.type === "mongodb" || conn.type === "elasticsearch"
-            ? "json"
-            : "table",
+        viewMode: defaultViewMode(conn.type),
       });
     } catch (err: any) {
       patchBlock(index, { loading: false, result: null, error: err.message });
