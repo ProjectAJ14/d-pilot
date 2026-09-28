@@ -53,6 +53,19 @@ function isIsoDate(v: unknown): boolean {
   return d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
 }
 
+const NUMBER_STRING = /^(-?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?|-?Infinity|NaN)$/;
+
+/** A decimal string as sign + significant digits + exponent, for exact comparison. */
+function normDecimal(s: string): string {
+  const m = s.match(/^(-?)(\d*)\.?(\d*)(?:[eE]([+-]?\d+))?$/);
+  if (!m) return s; // Infinity / NaN
+  const all = (m[2] + m[3]).replace(/^0+/, "");
+  const digits = all.replace(/0+$/, "");
+  if (!digits) return "0";
+  const exp = Number(m[4] ?? 0) - m[3].length + all.length - digits.length;
+  return `${m[1]}${digits}e${exp}`;
+}
+
 /**
  * Every Extended JSON type wrapper we accept, each with a strict check of its
  * value. bson's own parser coerces bad input instead of rejecting it —
@@ -64,10 +77,9 @@ const EJSON_TYPES: Record<string, (v: any) => boolean> = {
   $oid: (v) => typeof v === "string" && /^[0-9a-fA-F]{24}$/.test(v),
   $numberInt: (v) => isIntString(v, 32n),
   $numberLong: (v) => isIntString(v, 64n),
-  $numberDouble: (v) =>
-    typeof v === "string" &&
-    /^(-?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?|-?Infinity|NaN)$/.test(v),
-  $numberDecimal: (v) => typeof v === "string", // Decimal128 throws on garbage
+  $numberDouble: (v) => typeof v === "string" && NUMBER_STRING.test(v),
+  // Format only: out-of-precision/range values are caught after conversion.
+  $numberDecimal: (v) => typeof v === "string" && NUMBER_STRING.test(v),
   $date: (v) =>
     isIsoDate(v) || (has(v, "$numberLong") && isIntString(v.$numberLong, 64n)),
   $binary: (v) =>
@@ -97,13 +109,6 @@ const EJSON_REFUSED = [
 ];
 
 function reviveMongoJson(v: any): any {
-  if (typeof v === "number") {
-    if (Number.isInteger(v) && !Number.isSafeInteger(v))
-      throw new Error(
-        `${v} is past 2^53 and has already been rounded — write it as {"$numberLong": "..."}`,
-      );
-    return v;
-  }
   if (Array.isArray(v)) return v.map(reviveMongoJson);
   if (!v || typeof v !== "object") return v;
   const keys = Object.keys(v);
@@ -124,6 +129,14 @@ function reviveMongoJson(v: any): any {
   const out = EJSON.deserialize(v, { relaxed: false });
   if (out instanceof Date && Number.isNaN(out.getTime()))
     throw new Error(`$date out of range: ${JSON.stringify(v.$date)}`);
+  // Decimal128 silently rounds past 34 digits and clamps the exponent.
+  if (
+    typeKey === "$numberDecimal" &&
+    normDecimal(String(out)) !== normDecimal(v.$numberDecimal)
+  )
+    throw new Error(
+      `$numberDecimal ${v.$numberDecimal} does not fit Decimal128 exactly`,
+    );
   return out;
 }
 
@@ -137,6 +150,13 @@ function reviveMongoJson(v: any): any {
  * types, each validated strictly, so what a reviewer approves is what runs.
  */
 export function parseMongoJson(text: string): any {
+  // JSON.parse has already rounded a long integer by the time we see it, so
+  // check the source text. Exponent/decimal literals are intended doubles.
+  for (const [tok] of text.matchAll(/"(?:[^"\\]|\\.)*"|-?\d+(?![\d.eE])/g))
+    if (tok[0] !== '"' && !Number.isSafeInteger(Number(tok)))
+      throw new Error(
+        `${tok} is past 2^53 and would be rounded — write it as {"$numberLong": "..."}`,
+      );
   return reviveMongoJson(JSON.parse(text));
 }
 

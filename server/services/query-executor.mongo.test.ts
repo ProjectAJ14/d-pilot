@@ -106,6 +106,34 @@ describe("parseMongoJson", () => {
     expect(() => parseMongoJson('{"id": 9007199254740993}')).toThrow(
       /\$numberLong/,
     );
+    // Exponent literals are exact doubles, not rounded integers.
+    expect(parseMongoJson('{"a": {"$gt": 1e20}, "b": 1.5e16}')).toEqual({
+      a: { $gt: 1e20 },
+      b: 1.5e16,
+    });
+    // A long digit run inside a string is just text.
+    expect(parseMongoJson('{"s": "9007199254740993"}').s).toBe(
+      "9007199254740993",
+    );
+  });
+
+  it("rejects a $numberDecimal that Decimal128 would round or clamp", () => {
+    for (const bad of [
+      "12345678901234567890123456789012345678",
+      "1.0000000000000000000000000000000001",
+      "1E+6145",
+      "1E-6200",
+      "0x10",
+    ])
+      expect(
+        () => parseMongoJson(`{"a": {"$numberDecimal": "${bad}"}}`),
+        bad,
+      ).toThrow(/\$numberDecimal/);
+    for (const ok of ["1.50", "-0.001", "1E+10", "NaN", "-Infinity"])
+      expect(
+        parseMongoJson(`{"a": {"$numberDecimal": "${ok}"}}`).a.toString(),
+        ok,
+      ).toBeTruthy();
   });
 
   // bson coerces all of these into a *different* value instead of failing.
