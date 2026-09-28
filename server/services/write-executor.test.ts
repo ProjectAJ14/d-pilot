@@ -6,6 +6,8 @@ import type { ConnectionConfig } from "../types/index.js";
 // recording fake so the test sees exactly what would reach the driver.
 const calls: { verb: string; args: any[] }[] = [];
 let replicaSet = true;
+let txError =
+  "Transaction numbers are only allowed on a replica set member or mongos";
 
 const fakeCollection = new Proxy(
   {},
@@ -16,6 +18,7 @@ const fakeCollection = new Proxy(
         calls.push({ verb, args });
         return {
           modifiedCount: 2,
+          upsertedCount: args[2]?.upsert ? 1 : 0,
           deletedCount: 3,
           insertedCount: Array.isArray(args[0]) ? args[0].length : 1,
         };
@@ -29,10 +32,7 @@ vi.mock("./query-executor.js", async (orig) => ({
     db: () => ({ collection: () => fakeCollection }),
     startSession: () => ({
       withTransaction: async (fn: () => Promise<void>) => {
-        if (!replicaSet)
-          throw new Error(
-            "Transaction numbers are only allowed on a replica set member or mongos",
-          );
+        if (!replicaSet) throw new Error(txError);
         await fn();
       },
       endSession: async () => {},
@@ -65,6 +65,14 @@ describe("validateWriteQuery (mongodb)", () => {
       const v = validateWriteQuery(sql, "mongodb");
       expect(v.valid, `${sql}: ${v.error}`).toBe(true);
     }
+  });
+
+  it("only calls a write scoped when its filter is non-empty", () => {
+    const scoped = (sql: string) => validateWriteQuery(sql, "mongodb").scoped;
+    expect(scoped("db.orders.deleteMany({})")).toBe(false);
+    expect(scoped('db.orders.updateMany({}, {"$set": {"a": 1}})')).toBe(false);
+    expect(scoped('db.orders.deleteMany({"status": "void"})')).toBe(true);
+    expect(scoped('db.orders.insertOne({"a": 1})')).toBe(true);
   });
 
   it("rejects reads, admin ops and non-calls", () => {
@@ -171,6 +179,8 @@ describe("executeWrite (mongodb)", () => {
   beforeEach(() => {
     calls.length = 0;
     replicaSet = true;
+    txError =
+      "Transaction numbers are only allowed on a replica set member or mongos";
   });
 
   it("hands the driver typed filters inside a transaction", async () => {
@@ -204,6 +214,24 @@ describe("executeWrite (mongodb)", () => {
     const r = await executeWrite(conn, 'db.orders.deleteOne({"sku": "A"})');
     expect(r).toMatchObject({ rowsAffected: 3, transactional: false });
     expect(calls).toHaveLength(1);
+  });
+
+  // Retrying an error that came after a commit would run the write twice.
+  it("does not retry other errors outside a transaction", async () => {
+    replicaSet = false;
+    txError = "not primary; replica set is electing";
+    await expect(
+      executeWrite(conn, 'db.orders.updateMany({"a": 1}, {"$inc": {"n": 1}})'),
+    ).rejects.toThrow(/electing/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("counts an upserted document as affected", async () => {
+    const r = await executeWrite(
+      conn,
+      'db.orders.updateOne({"sku": "Z"}, {"$set": {"qty": 1}}, {"upsert": true})',
+    );
+    expect(r.rowsAffected).toBe(3);
   });
 
   it("refuses to run an invalid write", async () => {

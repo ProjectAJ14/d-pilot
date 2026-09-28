@@ -75,6 +75,12 @@ describe("executeQuery (mongodb)", () => {
     expect(sent[0].args._id).toBeInstanceOf(ObjectId);
   });
 
+  // A write's verify preview runs here; a ")" in a value must not cut it short.
+  it("reads brackets inside string values as data", async () => {
+    await executeQuery(conn, 'db.orders.find({"note": "smile :) ]}"})');
+    expect(sent[0].args).toEqual({ note: "smile :) ]}" });
+  });
+
   it("does not mistake a value for a write operation", async () => {
     await executeQuery(conn, 'db.orders.find({"action": "remove"})');
     expect(sent[0].args).toEqual({ action: "remove" });
@@ -93,6 +99,44 @@ describe("parseMongoJson", () => {
     expect(v.d._bsontype).toBe("Double");
     expect(v.n).toBe(5);
     expect(v.f).toBe(1.5);
+  });
+
+  it("leaves plain numbers as JSON.parse would, so stored types don't change", () => {
+    expect(parseMongoJson('{"a": 3000000000}').a).toBe(3000000000);
+    expect(() => parseMongoJson('{"id": 9007199254740993}')).toThrow(
+      /\$numberLong/,
+    );
+  });
+
+  // bson coerces all of these into a *different* value instead of failing.
+  it("rejects malformed type wrappers instead of coercing them", () => {
+    for (const bad of [
+      '{"a": {"$date": 0}}', // was: now
+      '{"a": {"$date": {"x": 1}}}', // was: now
+      '{"a": {"$date": {"$numberLong": "abc"}}}', // was: epoch
+      '{"a": {"$date": "2024-02-30T00:00:00Z"}}', // was: March 1st
+      '{"a": {"$date": "2024-01-02T10:00:00"}}', // server-local zone
+      '{"a": {"$numberLong": "12a"}}', // was: 12
+      '{"a": {"$numberLong": "99999999999999999999"}}', // was: wrapped
+      '{"a": {"$numberInt": "9999999999"}}', // was: wrapped
+      '{"a": {"$binary": {"base64": "!!!", "subType": "03"}}}', // was: empty
+      '{"a": {"$timestamp": {"t": "x", "i": 1}}}', // was: 0
+      '{"a": {"$code": "function () {}"}}',
+    ]) {
+      expect(() => parseMongoJson(bad), bad).toThrow();
+    }
+  });
+
+  it("never drops operators that sit beside a type key", () => {
+    // bson turned this into a bare regex, silently widening a deleteMany.
+    expect(
+      parseMongoJson(
+        '{"name": {"$regex": "^a", "$options": "i", "$nin": ["alice"]}}',
+      ),
+    ).toEqual({ name: { $regex: "^a", $options: "i", $nin: ["alice"] } });
+    expect(() =>
+      parseMongoJson('{"a": {"$oid": "65a000000000000000000001", "$ne": 1}}'),
+    ).toThrow(/combined/);
   });
 
   it("rejects an invalid $date instead of writing the epoch", () => {

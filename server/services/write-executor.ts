@@ -88,8 +88,9 @@ export function validateWriteQuery(
     // verb checked here are the ones executed — and a malformed filter is caught
     // now, since the route's syntax check cannot reach Mongo, not after approval.
     let verb: string;
+    let args: any[];
     try {
-      verb = parseMongoArgs(trimmed).verb;
+      ({ verb, args } = parseMongoArgs(trimmed));
     } catch (err: any) {
       return { valid: false, error: err.message };
     }
@@ -102,9 +103,12 @@ export function validateWriteQuery(
     return {
       valid: true,
       verb,
+      // Scoped means a non-empty filter — `{}` matches every document.
       scoped:
-        /updateOne|deleteOne|replaceOne/.test(verb) ||
-        /\{[\s\S]*\}/.test(trimmed),
+        verb.startsWith("insert") ||
+        (!!args[0] &&
+          typeof args[0] === "object" &&
+          Object.keys(args[0]).length > 0),
     };
   }
 
@@ -506,9 +510,9 @@ export function parseMongoArgs(sql: string): {
   const args = rawParts.map((p, idx) => {
     try {
       return parseMongoJson(p);
-    } catch {
+    } catch (err: any) {
       throw new Error(
-        `Invalid JSON in argument ${idx + 1}: ${p} — MongoDB arguments are Extended JSON, so quote every key and write ObjectIds as {"$oid": "..."}.`,
+        `Invalid argument ${idx + 1} (${err.message}): ${p} — MongoDB arguments are Extended JSON, so quote every key and write ObjectIds as {"$oid": "..."}.`,
       );
     }
   });
@@ -529,7 +533,7 @@ async function runMongoOp(
         args[1] ?? {},
         opts(args[2]),
       );
-      return r.modifiedCount ?? 0;
+      return (r.modifiedCount ?? 0) + (r.upsertedCount ?? 0);
     }
     case "updateMany": {
       const r = await collection.updateMany(
@@ -537,7 +541,7 @@ async function runMongoOp(
         args[1] ?? {},
         opts(args[2]),
       );
-      return r.modifiedCount ?? 0;
+      return (r.modifiedCount ?? 0) + (r.upsertedCount ?? 0);
     }
     case "replaceOne": {
       const r = await collection.replaceOne(
@@ -545,7 +549,7 @@ async function runMongoOp(
         args[1] ?? {},
         opts(args[2]),
       );
-      return r.modifiedCount ?? 0;
+      return (r.modifiedCount ?? 0) + (r.upsertedCount ?? 0);
     }
     case "deleteOne": {
       const r = await collection.deleteOne(args[0] ?? {}, opts());
@@ -592,7 +596,10 @@ async function executeMongoWrite(
   } catch (err: any) {
     const msg = String(err?.message || err);
     if (
-      /replica set|Transaction numbers|Transactions are not supported|not supported.*transaction/i.test(
+      // Only the "no transactions here" refusals, which the server sends before
+      // anything runs. Anything broader (e.g. "replica set") could match an
+      // error after a commit landed, and the retry would write twice.
+      /Transaction numbers are only allowed|Transactions are not supported/i.test(
         msg,
       )
     ) {
