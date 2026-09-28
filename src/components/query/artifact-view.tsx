@@ -40,6 +40,7 @@ import type {
 } from "../../types";
 import { ResultsGrid } from "./results-grid";
 import { monacoLanguageForDb } from "./query-editor";
+import { queryLimit } from "../../utils/query-limit";
 
 /**
  * Runnability hint only. The server is the authority — `validateQuery` in
@@ -173,7 +174,7 @@ export function ArtifactView({ tab }: Props) {
       const result = await api.executeQuery(
         conn.id,
         sql,
-        defaultLimitEnabled ? defaultLimitValue : null,
+        queryLimit({ defaultLimitEnabled, defaultLimitValue }),
       );
       patchBlock(index, {
         loading: false,

@@ -262,10 +262,12 @@ export const api = {
     }),
 
   // Query
+  // `defaultLimit` is required on purpose: pass `queryLimit(...)` to honor the
+  // Limit checkbox, or an explicit `undefined` for the server's default.
   executeQuery: (
     connectionId: string,
     sql: string,
-    defaultLimit?: number | null,
+    defaultLimit: number | null | undefined,
     schema?: string,
   ) =>
     request<any>("/query/execute", {
@@ -436,11 +438,7 @@ export const api = {
   getAnalytics: () => request<any>("/analytics"),
 
   // Export
-  exportCsv: (
-    connectionId: string,
-    sql: string,
-    defaultLimit?: number | null,
-  ) =>
+  exportCsv: (connectionId: string, sql: string, defaultLimit: number | null) =>
     request<string>("/export/csv", {
       method: "POST",
       body: JSON.stringify({ connectionId, sql, defaultLimit }),
@@ -448,7 +446,7 @@ export const api = {
   exportJson: (
     connectionId: string,
     sql: string,
-    defaultLimit?: number | null,
+    defaultLimit: number | null,
   ) =>
     request<any[]>("/export/json", {
       method: "POST",

@@ -57,6 +57,7 @@ import type {
 } from "../../types";
 import { envColor, envLabel, useEnvironments } from "../../utils/environments";
 import { FkBadge } from "../query/fk-badge";
+import { queryLimit } from "../../utils/query-limit";
 
 const DB_ICONS: Record<DatabaseType, string> = {
   postgres: "🐘",
@@ -324,12 +325,11 @@ export function Sidebar() {
         conn?.type === "mongodb" || conn?.type === "elasticsearch"
           ? ("json" as const)
           : ("table" as const);
-      const { defaultLimitEnabled, defaultLimitValue } = useStore.getState();
       api
         .executeQuery(
           connId,
           sql,
-          defaultLimitEnabled ? defaultLimitValue : null,
+          queryLimit(useStore.getState()),
           schema || undefined,
         )
         .then((result) =>

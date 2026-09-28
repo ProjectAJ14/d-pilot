@@ -303,7 +303,11 @@ export function WriteComposer({
     setPreviewLoading(true);
     setPreviewError(null);
     try {
-      setPreview(await api.executeQuery(connectionId, selectSql.trim()));
+      // Server default on purpose: a preview of the rows a write touches, not a
+      // browse, so the toolbar's Limit checkbox does not apply.
+      setPreview(
+        await api.executeQuery(connectionId, selectSql.trim(), undefined),
+      );
     } catch (e: any) {
       setPreview(null);
       setPreviewError(e.message);

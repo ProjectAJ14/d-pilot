@@ -450,7 +450,7 @@ function convertLimitToTop(sql: string): string {
  * MSSQL variant: injects TOP N instead of LIMIT.
  * @param defaultLimit null = skip injection, undefined = use DEFAULT_SELECT_STAR_LIMIT, number = use that value
  */
-function applyDefaultLimitMssql(
+export function applyDefaultLimitMssql(
   sql: string,
   defaultLimit?: number | null,
 ): string {

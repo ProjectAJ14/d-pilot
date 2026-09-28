@@ -20,12 +20,15 @@ headers {
 body:json {
   {
     "connectionId": "{{connectionId}}",
-    "sql": "SELECT 1"
+    "sql": "SELECT 1",
+    "defaultLimit": 500
   }
 }
 
 docs {
   Run a read-only query and download the masked results as CSV.
+
+  `defaultLimit`: a number caps the rows (at most MAX_ROWS); `null` turns the auto-limit off (up to MAX_ROWS); omitted uses the built-in 500. Ignored when the query sets its own limit.
 
   Requires a valid Bearer JWT ({{token}}) plus **read** capability for the connection's environment — 403 otherwise (admins hold every environment).
   Supports PHI unmask headers (disabled by default; enable to reveal PHI where permitted).

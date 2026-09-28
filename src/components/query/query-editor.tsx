@@ -52,6 +52,7 @@ import {
   useEditorTheme,
 } from "../../utils/monaco-editor-options";
 import { useVimMode } from "../../utils/vim-mode";
+import { queryLimit } from "../../utils/query-limit";
 
 interface Props {
   tab: QueryTab;
@@ -637,7 +638,7 @@ export function QueryEditor({
       const result = await api.executeQuery(
         tab.connectionId,
         sqlToRun,
-        defaultLimitEnabled ? defaultLimitValue : null,
+        queryLimit({ defaultLimitEnabled, defaultLimitValue }),
         tab.schema,
       );
       const conn = useStore
@@ -766,7 +767,7 @@ export function QueryEditor({
       const csv = await api.exportCsv(
         tab.connectionId,
         tab.sql,
-        defaultLimitEnabled ? defaultLimitValue : null,
+        queryLimit({ defaultLimitEnabled, defaultLimitValue }),
       );
       downloadTextFile("query-export.csv", csv);
     } catch (err: any) {
