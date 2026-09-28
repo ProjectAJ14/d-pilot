@@ -11,6 +11,7 @@ import {
   Loader,
   Code,
   Kbd,
+  ScrollArea,
   SegmentedControl,
   TextInput,
   defaultVariantColorsResolver,
@@ -360,6 +361,14 @@ const theme = createTheme({
     }),
     Kbd: Kbd.extend({
       styles: () => ({ root: { fontFamily: "var(--font-mono)" } }),
+    }),
+    ScrollArea: ScrollArea.extend({
+      // Mantine draws its scrollbar as an overlay ON TOP of the content, so a
+      // one-row result table had its only row hidden under the horizontal bar.
+      // "present" pads the viewport by the bar's size only while a bar is
+      // showing; global.css adds a small gap on top of that. Autosize reads
+      // its own theme key, but forwards to ScrollArea, which picks this up.
+      defaultProps: { offsetScrollbars: "present" },
     }),
     TextInput: TextInput.extend({
       styles: () => ({ input: { borderColor: "var(--border2)" } }),
