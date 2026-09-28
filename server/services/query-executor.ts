@@ -1,5 +1,6 @@
 import pg from "pg";
 import mssql from "mssql";
+import { EJSON } from "bson";
 import { MongoClient } from "mongodb";
 import { Client as EsClient } from "@elastic/elasticsearch";
 import type { ConnectionConfig } from "../types/index.js";
@@ -28,6 +29,17 @@ const BLOCKED_PATTERNS = [
 ];
 
 const DEFAULT_SELECT_STAR_LIMIT = 500;
+
+/**
+ * Parses a MongoDB query/write argument as Extended JSON, so a filter can name
+ * the BSON types plain JSON cannot — `{"$oid": ...}`, `{"$binary": ...}`,
+ * `{"$date": ...}`. Without it no document is reachable by a non-string `_id`.
+ * Relaxed mode keeps plain JSON numbers as numbers, so ordinary JSON parses
+ * exactly as `JSON.parse` would.
+ */
+export function parseMongoJson(text: string): any {
+  return EJSON.parse(text, { relaxed: true });
+}
 
 // Schema identifiers are interpolated into `SET search_path` (Postgres has no
 // bind parameter for it), so they must be validated before use. Accept only
@@ -281,18 +293,6 @@ export async function executeQuery(
       ? applyDefaultLimitMssql(safeSql, defaultLimit)
       : applyDefaultLimit(safeSql, defaultLimit);
 
-  // Block MongoDB write operations before connecting
-  if (conn.type === "mongodb") {
-    const MONGO_WRITE_OPS =
-      /\b(updateOne|updateMany|insertOne|insertMany|deleteOne|deleteMany|replaceOne|drop|rename|createIndex|dropIndex|forEach|bulkWrite|findOneAndUpdate|findOneAndDelete|findOneAndReplace|save|remove)\b/;
-    const writeMatch = sql.match(MONGO_WRITE_OPS);
-    if (writeMatch) {
-      throw new Error(
-        `'${writeMatch[1]}' is a write operation and is not allowed. This tool is read-only.`,
-      );
-    }
-  }
-
   switch (conn.type) {
     case "postgres":
       return executePostgres(conn, safeSql, start, schema);
@@ -413,15 +413,14 @@ async function executeMongo(
   start: number,
   defaultLimit?: number | null,
 ): Promise<RawQueryResult> {
-  const client = await getMongoClient(conn);
-  const dbName =
-    conn.database || conn.uri?.split("/").pop()?.split("?")[0] || "test";
-  const db = client.db(dbName);
-
-  // Block write operations
+  // Block write operations before connecting
   const MONGO_WRITE_OPS =
     /\b(updateOne|updateMany|insertOne|insertMany|deleteOne|deleteMany|replaceOne|drop|rename|createIndex|dropIndex|forEach|bulkWrite|findOneAndUpdate|findOneAndDelete|findOneAndReplace|save|remove)\b/;
-  const writeMatch = sql.match(MONGO_WRITE_OPS);
+  // String literals are blanked first so a value like "save" or "remove" in a
+  // filter is not mistaken for the operation.
+  const writeMatch = sql
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+    .match(MONGO_WRITE_OPS);
   if (writeMatch) {
     throw new Error(
       `'${writeMatch[1]}' is a write operation and is not allowed. This tool is read-only.\n\n` +
@@ -433,6 +432,11 @@ async function executeMongo(
         '  db.collection.distinct("field", {...})',
     );
   }
+
+  const client = await getMongoClient(conn);
+  const dbName =
+    conn.database || conn.uri?.split("/").pop()?.split("?")[0] || "test";
+  const db = client.db(dbName);
 
   // Parse MongoDB commands with optional chained .limit(), .sort(), .skip()
   // Uses a balanced-paren approach to extract the arguments
@@ -480,7 +484,7 @@ async function executeMongo(
 
   let args: any;
   try {
-    args = argsStr?.trim() ? JSON.parse(argsStr) : {};
+    args = argsStr?.trim() ? parseMongoJson(argsStr) : {};
   } catch {
     throw new Error(`Invalid JSON in query arguments: ${argsStr}`);
   }
@@ -496,7 +500,7 @@ async function executeMongo(
       ? MAX_ROWS
       : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
   const limit = Math.min(userLimit ?? effectiveDefault, MAX_ROWS);
-  const sort = sortMatch ? JSON.parse(sortMatch[1]) : undefined;
+  const sort = sortMatch ? parseMongoJson(sortMatch[1]) : undefined;
   const skip = skipMatch ? parseInt(skipMatch[1], 10) : undefined;
 
   let rows: Record<string, unknown>[];
@@ -509,11 +513,21 @@ async function executeMongo(
       rows = (await cursor.limit(limit).toArray()) as Record<string, unknown>[];
       break;
     }
-    case "aggregate":
-      rows = (await collection
-        .aggregate(Array.isArray(args) ? args : [args])
-        .toArray()) as Record<string, unknown>[];
+    case "aggregate": {
+      const pipeline = Array.isArray(args) ? args : [args];
+      // $out and $merge write the pipeline's output into a collection — the one
+      // way a "read" can mutate. Checked on the parsed stages, i.e. exactly what
+      // is sent, so a write request's verify preview can never change data.
+      if (pipeline.some((s) => s && ("$out" in s || "$merge" in s)))
+        throw new Error(
+          "$out and $merge write to a collection and are not allowed. This tool is read-only.",
+        );
+      rows = (await collection.aggregate(pipeline).toArray()) as Record<
+        string,
+        unknown
+      >[];
       break;
+    }
     case "countDocuments":
       rows = [{ count: await collection.countDocuments(args) }];
       break;
@@ -531,7 +545,7 @@ async function executeMongo(
         );
       const field = distinctMatch[1];
       const filter = distinctMatch[2]?.trim()
-        ? JSON.parse(distinctMatch[2])
+        ? parseMongoJson(distinctMatch[2])
         : {};
       const values = await collection.distinct(field, filter);
       rows = values.map((v: any) => ({ [field]: v }));

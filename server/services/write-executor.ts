@@ -11,6 +11,7 @@ import {
   getMssqlPool,
   getMongoClient,
   getEsClient,
+  parseMongoJson,
 } from "./query-executor.js";
 import { scanSql } from "./sql-scan.js";
 import type { ConnectionConfig, DatabaseType } from "../types/index.js";
@@ -29,8 +30,6 @@ const MONGO_WRITE_VERBS = [
   "deleteMany",
   "replaceOne",
 ];
-const MONGO_BLOCKED =
-  /\b(drop|dropIndex|dropIndexes|dropDatabase|renameCollection|createIndex|bulkWrite|remove|save|findAndModify|mapReduce)\b/;
 
 export interface WriteValidation {
   valid: boolean;
@@ -85,21 +84,15 @@ export function validateWriteQuery(
   }
 
   if (dbType === "mongodb") {
-    if (MONGO_BLOCKED.test(trimmed)) {
-      return {
-        valid: false,
-        error: "That MongoDB operation is not permitted for writes.",
-      };
+    // Validate with the very parse executeMongoWrite runs, so the collection and
+    // verb checked here are the ones executed — and a malformed filter is caught
+    // now, since the route's syntax check cannot reach Mongo, not after approval.
+    let verb: string;
+    try {
+      verb = parseMongoArgs(trimmed).verb;
+    } catch (err: any) {
+      return { valid: false, error: err.message };
     }
-    const m = trimmed.match(/^(?:db\.)?(\w+)\.(\w+)\s*\(/s);
-    if (!m) {
-      return {
-        valid: false,
-        error:
-          "MongoDB writes must be db.collection.updateOne/updateMany/insertOne/insertMany/deleteOne/deleteMany/replaceOne(...)",
-      };
-    }
-    const verb = m[2];
     if (!MONGO_WRITE_VERBS.includes(verb)) {
       return {
         valid: false,
@@ -463,12 +456,15 @@ function splitTopLevelArgs(argsStr: string): string[] {
   const parts: string[] = [];
   let depth = 0;
   let inString: string | null = null;
+  let escaped = false;
   let current = "";
   for (let i = 0; i < argsStr.length; i++) {
     const ch = argsStr[i];
     if (inString) {
       current += ch;
-      if (ch === inString && argsStr[i - 1] !== "\\") inString = null;
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === inString) inString = null;
       continue;
     }
     if (ch === '"' || ch === "'") {
@@ -478,6 +474,9 @@ function splitTopLevelArgs(argsStr: string): string[] {
     }
     if (ch === "{" || ch === "[" || ch === "(") depth++;
     else if (ch === "}" || ch === "]" || ch === ")") depth--;
+    // A bracket closing past the argument list means a second call is chained
+    // or stacked after the first (`...).drop(`) — never a single write.
+    if (depth < 0) throw new Error("Unbalanced brackets in MongoDB arguments");
     if (ch === "," && depth === 0) {
       parts.push(current.trim());
       current = "";
@@ -489,32 +488,31 @@ function splitTopLevelArgs(argsStr: string): string[] {
   return parts;
 }
 
-function parseMongoArgs(sql: string): {
+export function parseMongoArgs(sql: string): {
   collection: string;
   verb: string;
   args: any[];
 } {
-  const opMatch = sql.match(/(?:db\.)?(\w+)\.(\w+)\(/s);
-  if (!opMatch) throw new Error("Could not parse MongoDB write expression");
-  const argsStart = (opMatch.index ?? 0) + opMatch[0].length;
-  let depth = 1;
-  let i = argsStart;
-  while (i < sql.length && depth > 0) {
-    const ch = sql[i];
-    if (ch === "(" || ch === "{" || ch === "[") depth++;
-    else if (ch === ")" || ch === "}" || ch === "]") depth--;
-    i++;
-  }
-  const argsStr = sql.slice(argsStart, i - 1);
+  // Anchored at both ends: exactly one call and nothing around it. An unanchored
+  // search would pick up the first `x.y(` anywhere — including inside a string
+  // value — and run that instead of the statement that was validated.
+  const m = sql.trim().match(/^(?:db\.)?(\w+)\.(\w+)\s*\(([\s\S]*)\)\s*;?$/);
+  if (!m)
+    throw new Error(
+      "MongoDB writes must be a single db.collection.updateOne/updateMany/insertOne/insertMany/deleteOne/deleteMany/replaceOne(...) call",
+    );
+  const [, collection, verb, argsStr] = m;
   const rawParts = splitTopLevelArgs(argsStr);
   const args = rawParts.map((p, idx) => {
     try {
-      return JSON.parse(p);
+      return parseMongoJson(p);
     } catch {
-      throw new Error(`Invalid JSON in argument ${idx + 1}: ${p}`);
+      throw new Error(
+        `Invalid JSON in argument ${idx + 1}: ${p} — MongoDB arguments are Extended JSON, so quote every key and write ObjectIds as {"$oid": "..."}.`,
+      );
     }
   });
-  return { collection: opMatch[1], verb: opMatch[2], args };
+  return { collection, verb, args };
 }
 
 async function runMongoOp(
