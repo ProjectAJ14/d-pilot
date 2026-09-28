@@ -100,9 +100,14 @@ place. See the README's MCP section.
   `/api/query/execute`, so masking, capabilities and audit stay per-viewer. Never store
   result rows in an artifact — that would freeze one author's unmask rights into a document
   the whole org can read. Text blocks are markdown rendered by `react-markdown` with
-  **no `rehype-raw`** — raw HTML is escaped, never injected, which is what keeps a
-  document from scripting the app or reaching the JWT in `localStorage`. Never add
-  `rehype-raw` or `dangerouslySetInnerHTML` here. Artifacts also have **no delete** —
+  **no `rehype-raw`** — raw HTML is escaped, never injected. Rich pages (CSS, inline SVG
+  diagrams) go in `html` blocks, which render **only** in a sandboxed iframe
+  (`ArtifactHtmlFrame`, `src/utils/artifact-html.ts`): `sandbox` without
+  `allow-same-origin` gives it an opaque origin, and a CSP (`default-src 'none'`,
+  nonce-only scripts) blocks network and author script. That is what keeps an
+  agent-written document from reaching the JWT in `localStorage` and calling `/api` as
+  whoever opens it. Never add `allow-same-origin`, `rehype-raw` or
+  `dangerouslySetInnerHTML` here. Artifacts also have **no delete** —
   only a reversible archive — because a shared link is other people's bookmark.
 - **Root-absolute URLs must carry the base path.** D-Pilot usually owns a domain root,
   but `BASE_PATH=/d-pilot` mounts it under a prefix of a shared domain. Vite bakes the

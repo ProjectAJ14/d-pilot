@@ -124,10 +124,12 @@ export interface SavedQuery {
  * One block of an artifact document. `text` is GitHub-flavoured markdown
  * (headings, bold, lists, tables); `sql` is a read query the viewer can run from
  * the artifact tab, against their own capabilities. Raw HTML inside a text block
- * is escaped, never rendered — see `artifact-view.tsx`.
+ * is escaped, never rendered — see `artifact-view.tsx`. `html` is a rich page
+ * (CSS, inline SVG) shown only in a sandboxed iframe — see `utils/artifact-html.ts`.
  */
 export type ArtifactBlock =
   | { type: "text"; body: string }
+  | { type: "html"; body: string }
   | { type: "sql"; sql: string; label?: string; connectionId?: string };
 
 /**

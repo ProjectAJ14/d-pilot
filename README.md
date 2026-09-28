@@ -54,6 +54,7 @@ ever leaving the building in the clear.
 ### Artifacts
 
 - **Shareable documents that live next to the data** — prose plus runnable read queries, opened as a tab from `/artifacts/:id` by anyone who can log in. Each query block has its own Run button and its own results.
+- **Rich explainer pages** — besides markdown, a document can hold `html` blocks: layout, cards and inline SVG diagrams, themed to match the app. They render in a sandboxed iframe with its own opaque origin and a no-network, no-script CSP, so a page written by a colleague or an agent cannot read the reader's session or call the API as them. Agents writing over MCP get a writing brief (short answer, how it works with a diagram, the evidence queries, the rule to remember).
 - **Stores queries, never rows** — running a block goes through the normal read path, so every reader gets their own capability checks, their own PHI tokenization and their own audit entry. An artifact cannot carry a snapshot past masking policy.
 - **Markdown prose, safely rendered** — text blocks are GitHub-flavoured markdown (headings, bold, lists, tables). The renderer never emits raw HTML, so a document written by one colleague cannot script the app for everyone who opens the link.
 - **Archive, never delete** — a shared link is somebody else's bookmark, so artifacts can only be archived, and archiving is reversible. Archived artifacts drop out of listings but their links still open.
@@ -321,22 +322,22 @@ Its tools call D-Pilot's own REST API over loopback, so environment capabilities
 tokenization, row limits and audit logging are enforced exactly as they are for the UI and
 cannot be bypassed. Every agent query lands in the audit log under its service account.
 
-| Tool                   | Does                                                                             |
-| ---------------------- | -------------------------------------------------------------------------------- |
-| `whoami`               | Which account is connected and which environments it may read                    |
-| `list_connections`     | Databases available, per environment (optional `env` filter)                     |
-| `list_schemas`         | Schemas on a connection (Postgres/SQL Server)                                    |
-| `list_tables`          | Tables, collections or indices                                                   |
-| `describe_table`       | Columns, types, nullability                                                      |
-| `run_query`            | Runs a read-only query, returns rows                                             |
-| `create_artifact`      | Publishes a shareable document (prose + runnable read queries), returns its link |
-| `update_artifact`      | Edits an artifact the service account created                                    |
-| `get_artifact`         | Reads one artifact's full body                                                   |
-| `list_artifacts`       | Artifacts visible to the account (optional `search`)                             |
-| `archive_artifact`     | Archives (or restores) an artifact the service account created                   |
-| `create_write_request` | Saves a **draft** change request for a human to review — it never runs           |
-| `get_write_request`    | Reads one request back, including the AI safety review a human ran on it         |
-| `update_write_request` | Edits a draft the service account saved — drafts only, and it stays a draft      |
+| Tool                   | Does                                                                                 |
+| ---------------------- | ------------------------------------------------------------------------------------ |
+| `whoami`               | Which account is connected and which environments it may read                        |
+| `list_connections`     | Databases available, per environment (optional `env` filter)                         |
+| `list_schemas`         | Schemas on a connection (Postgres/SQL Server)                                        |
+| `list_tables`          | Tables, collections or indices                                                       |
+| `describe_table`       | Columns, types, nullability                                                          |
+| `run_query`            | Runs a read-only query, returns rows                                                 |
+| `create_artifact`      | Publishes a shareable document (rich page + runnable read queries), returns its link |
+| `update_artifact`      | Edits an artifact the service account created                                        |
+| `get_artifact`         | Reads one artifact's full body                                                       |
+| `list_artifacts`       | Artifacts visible to the account (optional `search`)                                 |
+| `archive_artifact`     | Archives (or restores) an artifact the service account created                       |
+| `create_write_request` | Saves a **draft** change request for a human to review — it never runs               |
+| `get_write_request`    | Reads one request back, including the AI safety review a human ran on it             |
+| `update_write_request` | Edits a draft the service account saved — drafts only, and it stays a draft          |
 
 Database writes are deliberately **not** exposed — those stay in the write-approval workflow,
 where a human reads the paired verify SELECT and a second person approves.

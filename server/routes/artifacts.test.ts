@@ -16,8 +16,19 @@ describe("parseBlocks", () => {
     if (result.ok) expect(result.blocks).toHaveLength(2);
   });
 
+  it("accepts an html block and keeps its body verbatim", () => {
+    const body = '<h2>Why</h2><figure><svg viewBox="0 0 10 10"></svg></figure>';
+    const result = parseBlocks([{ type: "html", body }]);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.blocks[0]).toEqual({ type: "html", body });
+  });
+
+  it("rejects an empty html block", () => {
+    expect(parseBlocks([{ type: "html", body: "   " }]).ok).toBe(false);
+  });
+
   it("rejects an unknown block type instead of dropping it", () => {
-    const result = parseBlocks([{ type: "html", body: "<script>x</script>" }]);
+    const result = parseBlocks([{ type: "image", body: "<script>x</script>" }]);
     expect(result.ok).toBe(false);
   });
 

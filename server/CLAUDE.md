@@ -166,9 +166,13 @@ masking and their own audit entry apply. Embedding rows would freeze one author'
 privileges into a document everyone can open — do not add a "snapshot the results" feature
 without solving that first.
 
-Blocks are a structured discriminated union (`text` | `sql`). Text blocks hold markdown, which
-the client renders without ever emitting raw HTML, so the server stores them verbatim and does
-no escaping of its own. `parseBlocks`
+Blocks are a structured discriminated union (`text` | `html` | `sql`). Text blocks hold markdown,
+which the client renders without ever emitting raw HTML; `html` blocks hold a rich page that the
+client renders only inside a sandboxed, opaque-origin iframe with a no-network CSP
+(`src/utils/artifact-html.ts`). Either way the server stores bodies verbatim and does no
+escaping of its own — isolation is the client's job, by construction. The MCP
+`create_artifact` description carries the writing brief agents follow (short answer → how it
+works with an SVG diagram → evidence queries → the rule). `parseBlocks`
 in `routes/artifacts.ts` rejects unknown block types rather than storing them (a block nothing
 can render reads as data loss later) and strips unknown keys.
 

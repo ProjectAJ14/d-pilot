@@ -478,15 +478,37 @@ function createMcpServer(client: DPilotApiClient): McpServer {
   // a chat only its author can see. `blocks` carry queries, never result rows.
 
   const blocksInput = blocksSchema.describe(
-    'The document body, in order. `{"type":"text","body":"..."}` for prose — GitHub-flavoured **markdown**: use `##` headings to structure a long document, `**bold**`, bullet lists, and `|` tables for anything columnar (never hand-aligned ASCII columns, which reflow into mush). Raw HTML is escaped, not rendered. Use a fenced code block when you need monospace alignment preserved. Then `{"type":"sql","sql":"...","label":"short name","connectionId":"..."}` for a query the reader can run from the artifact. Put each query in its own block so it gets its own Run button; omit connectionId to inherit the artifact\'s. Write queries may be stored for discussion but are never runnable from an artifact — the reader is offered the write-approval workflow instead.',
+    [
+      "The document body, in order. Three block types:",
+      '- `{"type":"html","body":"..."}` — a rich page section: headings, prose, tables, cards and inline `<svg>` diagrams. This is the main way to explain something. Write an HTML fragment (no `<html>`/`<head>`); it renders in a sandbox with no network and no scripts, so use inline SVG and CSS only — no `<script>`, no remote images, fonts or links to stylesheets. Theme colours come as CSS variables, readable in light and dark: `--ink` (text), `--dim`, `--faint`, `--bg`, `--panel`, `--mass`, `--line`, `--line-2`, `--spot` (the one accent), `--spot-soft`, `--warning`, `--error`, `--success`; fonts `--font-body`, `--font-disp`, `--font-mono`. Never hard-code a hex colour. Ready-made classes: `.lede` (one-line intro), `.callout` (+ `.warn`/`.bad`), `.grid` of `.card`s, `.stat` with `.k`/`.v`/`.d`, `.chip` (+ `.warn`/`.bad`), `.muted`, `td.num`. Diagrams: `<figure><svg viewBox="0 0 W H">…</svg><figcaption>the takeaway</figcaption></figure>` using `.svg-box`, `.svg-box-spot`, `.svg-box-warn`, `.svg-box-bad`, `.svg-line`, `.svg-line-spot`, `.svg-label`, `.svg-small`, `.svg-ink`, `.svg-muted`; add an arrowhead `<marker>` in `<defs>` for flows.",',
+      '- `{"type":"sql","sql":"...","label":"short name","connectionId":"..."}` — a query the reader runs from the artifact, under their own permissions and PHI masking. One query per block so each gets its own Run button; put an html or text block just before it saying what it answers. Omit connectionId to inherit the artifact\'s. Write queries may be stored for discussion but never run from an artifact — the reader is offered the write-approval workflow instead.',
+      '- `{"type":"text","body":"..."}` — plain GitHub-flavoured markdown (raw HTML escaped). Fine for a short note; prefer html for anything that benefits from a diagram or layout.',
+      "Never paste query results, row values, IDs or PHI into any block — store the query and let each reader run it.",
+    ].join("\n"),
   );
+
+  /**
+   * The writing brief agents follow. Artifacts exist so a developer who was not
+   * in the investigation can understand it in minutes, so this reads like the
+   * brief for an explainer page, not a schema.
+   */
+  const ARTIFACT_WRITING_GUIDE = [
+    "Write it for a developer who was not in the investigation and has five minutes. Plain English, short sentences, no jargon without a one-line gloss; name real tables and columns in `code`.",
+    "Structure (each an `<h2>` in an html block, skipping any that do not apply):",
+    "1. The short answer — two or three sentences a newcomer could repeat: what is happening and why, before any detail. Open with a `.lede`, and a `.grid` of `.stat`s if there are headline numbers the reader will confirm by running the queries.",
+    "2. How it works — at least one inline-SVG diagram: the flow of data between tables/services, a before/after, a state machine, or a decision tree. Label every box; put the takeaway in the figcaption. A diagram should explain a mechanism, not decorate.",
+    "3. The evidence — sql blocks, each preceded by one sentence saying what it shows and what result to expect.",
+    "4. What to do / the rule to remember — the fix, the gotcha, or the check to run next time, in a `.callout`.",
+    "Prefer a table to a paragraph for anything with columns, and a diagram to a paragraph for anything with arrows.",
+  ].join("\n");
 
   server.registerTool(
     "create_artifact",
     {
       title: "Create an artifact",
       description:
-        "Publishes a shareable D-Pilot document — prose plus runnable read queries — and returns its link. Use this instead of pasting a long analysis into chat: anyone who can log in to D-Pilot can open the link, re-run the queries under their own permissions, and see their own PHI masking. Store the queries, not the rows you read.",
+        "Publishes a shareable D-Pilot document — a rich explainer page plus runnable read queries — and returns its link. Use this instead of pasting a long analysis into chat: anyone who can log in to D-Pilot can open the link, re-run the queries under their own permissions, and see their own PHI masking. Store the queries, not the rows you read.\n\n" +
+        ARTIFACT_WRITING_GUIDE,
       inputSchema: {
         title: z.string().describe("Short document title, shown on the tab."),
         blocks: blocksInput,
