@@ -47,6 +47,9 @@ const router = Router();
  */
 const MCP_MAX_ROWS = parseInt(process.env.MCP_MAX_ROWS || "", 10) || 1000;
 
+const MONGO_WRITE_HINT =
+  'For MongoDB: one `db.<collection>.updateOne|updateMany|insertOne|insertMany|deleteOne|deleteMany|replaceOne(...)` call whose arguments are Extended JSON with quoted keys — a non-string `_id` is `{"$oid": "..."}` or `{"$binary": {"base64": "...", "subType": "..."}}`, a date `{"$date": "..."}`.';
+
 /**
  * Tools call this same process back over loopback — nothing to configure. The
  * base path is included because the server mounts itself under it, so at
@@ -281,7 +284,7 @@ function createMcpServer(client: DPilotApiClient): McpServer {
     "run_query",
     {
       title: "Run a read-only query",
-      description: `Executes a read-only query and returns the rows. At most ${MCP_MAX_ROWS} rows come back by default — pass a larger \`limit\` when you need more, and check the first line of the result, which says when the limit truncated the answer. Writes (INSERT/UPDATE/DELETE) and DDL are rejected — those go through D-Pilot's write-approval workflow in the UI. PHI columns come back tokenized; the result names which ones. SQL for Postgres/SQL Server; for MongoDB and Elasticsearch use the same query syntax the D-Pilot UI accepts.`,
+      description: `Executes a read-only query and returns the rows. At most ${MCP_MAX_ROWS} rows come back by default — pass a larger \`limit\` when you need more, and check the first line of the result, which says when the limit truncated the answer. Writes (INSERT/UPDATE/DELETE) and DDL are rejected — those go through D-Pilot's write-approval workflow in the UI. PHI columns come back tokenized; the result names which ones. SQL for Postgres/SQL Server; for MongoDB and Elasticsearch use the same query syntax the D-Pilot UI accepts. MongoDB arguments are Extended JSON: match a non-string \`_id\` with \`{"$oid": ...}\` or \`{"$binary": {"base64": ..., "subType": ...}}\`.`,
       inputSchema: {
         connectionId: z.string(),
         sql: z.string().describe("The read-only query to run."),
@@ -366,13 +369,13 @@ function createMcpServer(client: DPilotApiClient): McpServer {
         writeSql: z
           .string()
           .describe(
-            "The statement to run: a single UPDATE/INSERT/DELETE, or a multi-statement migration script. Always give UPDATE and DELETE a WHERE clause.",
+            `The statement to run: a single UPDATE/INSERT/DELETE, or a multi-statement migration script. Always give UPDATE and DELETE a WHERE clause. ${MONGO_WRITE_HINT}`,
           ),
         selectSql: z
           .string()
           .optional()
           .describe(
-            "Required for a single-statement write: a read-only SELECT previewing exactly the rows `writeSql` affects (same table, same WHERE), so the reviewer can see the blast radius. Omit only for a migration script.",
+            "Required for a single-statement write: a read-only SELECT previewing exactly the rows `writeSql` affects (same table, same WHERE), so the reviewer can see the blast radius. Omit only for a migration script. For MongoDB, `db.<collection>.find(<same filter>)`.",
           ),
         description: z
           .string()
@@ -433,7 +436,9 @@ function createMcpServer(client: DPilotApiClient): McpServer {
         writeSql: z
           .string()
           .optional()
-          .describe("Replacement write statement or migration script."),
+          .describe(
+            `Replacement write statement or migration script. ${MONGO_WRITE_HINT}`,
+          ),
         selectSql: z
           .string()
           .optional()

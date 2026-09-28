@@ -1475,7 +1475,7 @@ async function computeMigrationAiReview(
 function writeDialectHint(type: string): string {
   switch (type) {
     case "mongodb":
-      return "Target MongoDB: produce db.<collection>.updateMany(filter, update) or db.<collection>.deleteMany(filter) using the same filter as the find(). Use valid JSON.";
+      return 'Target MongoDB: produce db.<collection>.updateMany(filter, update) or db.<collection>.deleteMany(filter) using the same filter as the find(). Arguments are Extended JSON with quoted keys: keep non-string _id values as {"$oid": ...} / {"$binary": ...} exactly as the find() has them.';
     case "elasticsearch":
       return "Target Elasticsearch: produce POST /<index>/_update_by_query or POST /<index>/_delete_by_query with the same query as the SELECT.";
     default:

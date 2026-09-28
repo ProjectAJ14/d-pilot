@@ -1,5 +1,6 @@
 import pg from "pg";
 import mssql from "mssql";
+import { EJSON } from "bson";
 import { MongoClient } from "mongodb";
 import { Client as EsClient } from "@elastic/elasticsearch";
 import type { ConnectionConfig } from "../types/index.js";
@@ -28,6 +29,136 @@ const BLOCKED_PATTERNS = [
 ];
 
 const DEFAULT_SELECT_STAR_LIMIT = 500;
+
+const isIntString = (v: unknown, bits: bigint) =>
+  typeof v === "string" &&
+  /^-?\d{1,20}$/.test(v) &&
+  BigInt(v) >= -(2n ** (bits - 1n)) &&
+  BigInt(v) < 2n ** (bits - 1n);
+const has = (v: any, ...keys: string[]) =>
+  !!v &&
+  typeof v === "object" &&
+  Object.keys(v).sort().join() === [...keys].sort().join();
+const uint32 = (n: unknown) =>
+  Number.isInteger(n) && (n as number) >= 0 && (n as number) < 2 ** 32;
+// Zone required whenever a time is given: a bare time would be read in the
+// server's local zone.
+const ISO_DATE =
+  /^(\d{4})-(\d{2})-(\d{2})(?:T([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2}))?$/;
+function isIsoDate(v: unknown): boolean {
+  const m = typeof v === "string" && v.match(ISO_DATE);
+  if (!m) return false;
+  // Date.parse rolls 2024-02-30 over to March 1st; the calendar must match.
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  return d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
+}
+
+const NUMBER_STRING = /^(-?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?|-?Infinity|NaN)$/;
+
+/** A decimal string as sign + significant digits + exponent, for exact comparison. */
+function normDecimal(s: string): string {
+  const m = s.match(/^(-?)(\d*)\.?(\d*)(?:[eE]([+-]?\d+))?$/);
+  if (!m) return s; // Infinity / NaN
+  const all = (m[2] + m[3]).replace(/^0+/, "");
+  const digits = all.replace(/0+$/, "");
+  if (!digits) return "0";
+  const exp = Number(m[4] ?? 0) - m[3].length + all.length - digits.length;
+  return `${m[1]}${digits}e${exp}`;
+}
+
+/**
+ * Every Extended JSON type wrapper we accept, each with a strict check of its
+ * value. bson's own parser coerces bad input instead of rejecting it —
+ * `{"$numberLong": "12a"}` becomes 12, an out-of-range one wraps to another
+ * number, `{"$date": 0}` or `{"$date": {...}}` becomes *now* — and any of those
+ * in an approved write would silently hit, or write, something else.
+ */
+const EJSON_TYPES: Record<string, (v: any) => boolean> = {
+  $oid: (v) => typeof v === "string" && /^[0-9a-fA-F]{24}$/.test(v),
+  $numberInt: (v) => isIntString(v, 32n),
+  $numberLong: (v) => isIntString(v, 64n),
+  $numberDouble: (v) => typeof v === "string" && NUMBER_STRING.test(v),
+  // Format only: out-of-precision/range values are caught after conversion.
+  $numberDecimal: (v) => typeof v === "string" && NUMBER_STRING.test(v),
+  $date: (v) =>
+    isIsoDate(v) || (has(v, "$numberLong") && isIntString(v.$numberLong, 64n)),
+  $binary: (v) =>
+    has(v, "base64", "subType") &&
+    typeof v.base64 === "string" &&
+    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      v.base64,
+    ) &&
+    typeof v.subType === "string" &&
+    /^[0-9a-fA-F]{1,2}$/.test(v.subType),
+  $uuid: (v) => typeof v === "string", // bson throws on a malformed UUID
+  $timestamp: (v) => has(v, "t", "i") && uint32(v.t) && uint32(v.i),
+  $regularExpression: (v) =>
+    has(v, "pattern", "options") &&
+    typeof v.pattern === "string" &&
+    /^[imxslu]*$/.test(v.options),
+  $minKey: (v) => v === 1,
+  $maxKey: (v) => v === 1,
+};
+// Legacy/JS-code wrappers: nothing a filter or write needs.
+const EJSON_REFUSED = [
+  "$code",
+  "$scope",
+  "$symbol",
+  "$dbPointer",
+  "$undefined",
+];
+
+function reviveMongoJson(v: any): any {
+  if (Array.isArray(v)) return v.map(reviveMongoJson);
+  if (!v || typeof v !== "object") return v;
+  const keys = Object.keys(v);
+  const typeKey = keys.find(
+    (k) => Object.hasOwn(EJSON_TYPES, k) || EJSON_REFUSED.includes(k),
+  );
+  if (!typeKey) {
+    for (const k of keys) v[k] = reviveMongoJson(v[k]);
+    return v;
+  }
+  // bson converts the whole object on its first type key and drops the rest,
+  // so {"$regex": ..., "$nin": [...]} lost its $nin and widened the filter.
+  // ($regex/$options are left alone: the server reads them as the operator.)
+  if (keys.length !== 1)
+    throw new Error(`${typeKey} cannot be combined with other keys`);
+  if (!EJSON_TYPES[typeKey]?.(v[typeKey]))
+    throw new Error(`Invalid ${typeKey} value: ${JSON.stringify(v[typeKey])}`);
+  const out = EJSON.deserialize(v, { relaxed: false });
+  if (out instanceof Date && Number.isNaN(out.getTime()))
+    throw new Error(`$date out of range: ${JSON.stringify(v.$date)}`);
+  // Decimal128 silently rounds past 34 digits and clamps the exponent.
+  if (
+    typeKey === "$numberDecimal" &&
+    normDecimal(String(out)) !== normDecimal(v.$numberDecimal)
+  )
+    throw new Error(
+      `$numberDecimal ${v.$numberDecimal} does not fit Decimal128 exactly`,
+    );
+  return out;
+}
+
+/**
+ * Parses a MongoDB query/write argument as Extended JSON, so a filter can name
+ * the BSON types plain JSON cannot — `{"$oid": ...}`, `{"$binary": ...}`,
+ * `{"$date": ...}`. Without it no document is reachable by a non-string `_id`.
+ *
+ * Plain JSON parses exactly as `JSON.parse` does (numbers stay JS numbers, so
+ * a field keeps the type the app writes); only the wrappers above become BSON
+ * types, each validated strictly, so what a reviewer approves is what runs.
+ */
+export function parseMongoJson(text: string): any {
+  // JSON.parse has already rounded a long integer by the time we see it, so
+  // check the source text. Exponent/decimal literals are intended doubles.
+  for (const [tok] of text.matchAll(/"(?:[^"\\]|\\.)*"|-?\d+(?![\d.eE])/g))
+    if (tok[0] !== '"' && !Number.isSafeInteger(Number(tok)))
+      throw new Error(
+        `${tok} is past 2^53 and would be rounded — write it as {"$numberLong": "..."}`,
+      );
+  return reviveMongoJson(JSON.parse(text));
+}
 
 // Schema identifiers are interpolated into `SET search_path` (Postgres has no
 // bind parameter for it), so they must be validated before use. Accept only
@@ -281,18 +412,6 @@ export async function executeQuery(
       ? applyDefaultLimitMssql(safeSql, defaultLimit)
       : applyDefaultLimit(safeSql, defaultLimit);
 
-  // Block MongoDB write operations before connecting
-  if (conn.type === "mongodb") {
-    const MONGO_WRITE_OPS =
-      /\b(updateOne|updateMany|insertOne|insertMany|deleteOne|deleteMany|replaceOne|drop|rename|createIndex|dropIndex|forEach|bulkWrite|findOneAndUpdate|findOneAndDelete|findOneAndReplace|save|remove)\b/;
-    const writeMatch = sql.match(MONGO_WRITE_OPS);
-    if (writeMatch) {
-      throw new Error(
-        `'${writeMatch[1]}' is a write operation and is not allowed. This tool is read-only.`,
-      );
-    }
-  }
-
   switch (conn.type) {
     case "postgres":
       return executePostgres(conn, safeSql, start, schema);
@@ -413,15 +532,14 @@ async function executeMongo(
   start: number,
   defaultLimit?: number | null,
 ): Promise<RawQueryResult> {
-  const client = await getMongoClient(conn);
-  const dbName =
-    conn.database || conn.uri?.split("/").pop()?.split("?")[0] || "test";
-  const db = client.db(dbName);
-
-  // Block write operations
+  // Block write operations before connecting
   const MONGO_WRITE_OPS =
     /\b(updateOne|updateMany|insertOne|insertMany|deleteOne|deleteMany|replaceOne|drop|rename|createIndex|dropIndex|forEach|bulkWrite|findOneAndUpdate|findOneAndDelete|findOneAndReplace|save|remove)\b/;
-  const writeMatch = sql.match(MONGO_WRITE_OPS);
+  // String literals are blanked first so a value like "save" or "remove" in a
+  // filter is not mistaken for the operation.
+  const writeMatch = sql
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+    .match(MONGO_WRITE_OPS);
   if (writeMatch) {
     throw new Error(
       `'${writeMatch[1]}' is a write operation and is not allowed. This tool is read-only.\n\n` +
@@ -434,6 +552,11 @@ async function executeMongo(
     );
   }
 
+  const client = await getMongoClient(conn);
+  const dbName =
+    conn.database || conn.uri?.split("/").pop()?.split("?")[0] || "test";
+  const db = client.db(dbName);
+
   // Parse MongoDB commands with optional chained .limit(), .sort(), .skip()
   // Uses a balanced-paren approach to extract the arguments
   const opMatch = sql.match(
@@ -443,12 +566,19 @@ async function executeMongo(
 
   if (opMatch) {
     const argsStart = (opMatch.index ?? 0) + opMatch[0].length;
-    // Find the matching closing paren by counting depth
+    // Find the matching closing paren by counting depth. Brackets inside a
+    // string are data — `{"note": "smile :)"}` must not end the arguments.
     let depth = 1;
     let i = argsStart;
+    let inString = false;
     while (i < sql.length && depth > 0) {
-      if (sql[i] === "(" || sql[i] === "{" || sql[i] === "[") depth++;
-      else if (sql[i] === ")" || sql[i] === "}" || sql[i] === "]") depth--;
+      const ch = sql[i];
+      if (inString) {
+        if (ch === "\\") i++;
+        else if (ch === '"') inString = false;
+      } else if (ch === '"') inString = true;
+      else if (ch === "(" || ch === "{" || ch === "[") depth++;
+      else if (ch === ")" || ch === "}" || ch === "]") depth--;
       i++;
     }
     const argsStr = sql.slice(argsStart, i - 1);
@@ -480,9 +610,9 @@ async function executeMongo(
 
   let args: any;
   try {
-    args = argsStr?.trim() ? JSON.parse(argsStr) : {};
-  } catch {
-    throw new Error(`Invalid JSON in query arguments: ${argsStr}`);
+    args = argsStr?.trim() ? parseMongoJson(argsStr) : {};
+  } catch (err: any) {
+    throw new Error(`Invalid query arguments (${err.message}): ${argsStr}`);
   }
 
   // Parse chained methods: .limit(N), .sort({...}), .skip(N)
@@ -496,7 +626,7 @@ async function executeMongo(
       ? MAX_ROWS
       : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
   const limit = Math.min(userLimit ?? effectiveDefault, MAX_ROWS);
-  const sort = sortMatch ? JSON.parse(sortMatch[1]) : undefined;
+  const sort = sortMatch ? parseMongoJson(sortMatch[1]) : undefined;
   const skip = skipMatch ? parseInt(skipMatch[1], 10) : undefined;
 
   let rows: Record<string, unknown>[];
@@ -509,11 +639,21 @@ async function executeMongo(
       rows = (await cursor.limit(limit).toArray()) as Record<string, unknown>[];
       break;
     }
-    case "aggregate":
-      rows = (await collection
-        .aggregate(Array.isArray(args) ? args : [args])
-        .toArray()) as Record<string, unknown>[];
+    case "aggregate": {
+      const pipeline = Array.isArray(args) ? args : [args];
+      // $out and $merge write the pipeline's output into a collection — the one
+      // way a "read" can mutate. Checked on the parsed stages, i.e. exactly what
+      // is sent, so a write request's verify preview can never change data.
+      if (pipeline.some((s) => s && ("$out" in s || "$merge" in s)))
+        throw new Error(
+          "$out and $merge write to a collection and are not allowed. This tool is read-only.",
+        );
+      rows = (await collection.aggregate(pipeline).toArray()) as Record<
+        string,
+        unknown
+      >[];
       break;
+    }
     case "countDocuments":
       rows = [{ count: await collection.countDocuments(args) }];
       break;
@@ -531,7 +671,7 @@ async function executeMongo(
         );
       const field = distinctMatch[1];
       const filter = distinctMatch[2]?.trim()
-        ? JSON.parse(distinctMatch[2])
+        ? parseMongoJson(distinctMatch[2])
         : {};
       const values = await collection.distinct(field, filter);
       rows = values.map((v: any) => ({ [field]: v }));

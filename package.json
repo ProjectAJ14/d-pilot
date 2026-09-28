@@ -40,6 +40,7 @@
     "ag-grid-react": "^35.3.1",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.8.1",
+    "bson": "^4.7.2",
     "cors": "^2.8.5",
     "dayjs": "^1.11.15",
     "dotenv": "^16.5.0",
