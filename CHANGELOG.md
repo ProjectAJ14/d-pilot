@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [1.27.2](https://github.com/ProjectAJ14/d-pilot/compare/v1.27.1...v1.27.2) (2026-09-28)
+
+
+### Bug Fixes
+
+* **ui:** keep scrollbars off the last row of result tables ([a03814e](https://github.com/ProjectAJ14/d-pilot/commit/a03814e97f79a656c9e2020bf8c424902585d4c6))
+
 ## [1.27.1](https://github.com/ProjectAJ14/d-pilot/compare/v1.27.0...v1.27.1) (2026-09-28)
 
 
