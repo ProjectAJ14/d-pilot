@@ -1,5 +1,8 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { parseBasicAuth } from "./mcp.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { createMcpServer, parseBasicAuth } from "./mcp.js";
+import type { DPilotApiClient } from "../services/mcp-client.js";
 
 const basic = (raw: string) =>
   `Basic ${Buffer.from(raw, "utf8").toString("base64")}`;
@@ -124,5 +127,35 @@ describe("appUrl", () => {
       "https://intranet.example",
     );
     expect(artifactUrl("42")).toBe(appUrl("/artifacts/42"));
+  });
+});
+
+/**
+ * Agents only learn to write rich artifacts from what `tools/list` hands them,
+ * so both the tool that creates a page and the one that edits it must carry
+ * the brief and the html/diagram vocabulary — an editor that never saw them
+ * flattens a rich page back into markdown.
+ */
+describe("artifact tool descriptions", () => {
+  it("teach html blocks, diagrams and the brief on create and update", async () => {
+    // tools/list never touches the API, so the client is never called.
+    const server = createMcpServer({} as DPilotApiClient);
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test", version: "0" });
+    await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
+    const { tools } = await client.listTools();
+
+    for (const name of ["create_artifact", "update_artifact"]) {
+      const tool = tools.find((t) => t.name === name)!;
+      const everything = JSON.stringify(tool);
+      expect(tool.description).toContain("The short answer");
+      expect(tool.description).toContain("inline-SVG diagram");
+      expect(everything).toContain('{\\"type\\":\\"html\\"');
+      expect(everything).toContain(".svg-box-spot");
+      expect(everything).toContain("--spot");
+    }
+    const get = tools.find((t) => t.name === "get_artifact")!;
+    expect(get.description).toContain("`html`");
+    await client.close();
   });
 });
