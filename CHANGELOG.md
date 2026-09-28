@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [1.27.1](https://github.com/ProjectAJ14/d-pilot/compare/v1.27.0...v1.27.1) (2026-09-28)
+
+
+### Bug Fixes
+
+* **mcp:** teach update_artifact and get_artifact the rich page format ([1bdede2](https://github.com/ProjectAJ14/d-pilot/commit/1bdede27cc4f9d7de0ae11c48ef91a87e3da466a))
+
 # [1.27.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.26.2...v1.27.0) (2026-09-28)
 
 
