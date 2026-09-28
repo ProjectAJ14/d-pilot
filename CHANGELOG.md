@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.27.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.26.2...v1.27.0) (2026-09-28)
+
+
+### Features
+
+* **artifacts:** rich html blocks in a sandboxed frame ([3e42665](https://github.com/ProjectAJ14/d-pilot/commit/3e4266594e733ef86ced98b619ff8f449c3b2e18))
+
 ## [1.26.2](https://github.com/ProjectAJ14/d-pilot/compare/v1.26.1...v1.26.2) (2026-09-28)
 
 
