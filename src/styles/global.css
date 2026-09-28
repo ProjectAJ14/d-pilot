@@ -408,6 +408,15 @@ h6 {
   background: transparent;
 }
 
+/* Mantine's ScrollArea (offsetScrollbars="present", set in main.tsx) pads its
+   viewport by exactly the bar's size, which leaves the bar touching the last
+   row. The extra gap keeps it clear of the text it scrolls. */
+.mantine-ScrollArea-viewport[data-offset-scrollbars="present"]:not(
+    [data-horizontal-hidden]
+  ) {
+  padding-bottom: calc(var(--scrollarea-scrollbar-size) + 6px);
+}
+
 @keyframes pulsered {
   0%,
   100% {
