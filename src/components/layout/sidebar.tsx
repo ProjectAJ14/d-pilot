@@ -57,6 +57,7 @@ import type {
 } from "../../types";
 import { envColor, envLabel, useEnvironments } from "../../utils/environments";
 import { FkBadge } from "../query/fk-badge";
+import { queryLimit } from "../../utils/query-limit";
 
 const DB_ICONS: Record<DatabaseType, string> = {
   postgres: "🐘",
@@ -325,7 +326,12 @@ export function Sidebar() {
           ? ("json" as const)
           : ("table" as const);
       api
-        .executeQuery(connId, sql, undefined, schema || undefined)
+        .executeQuery(
+          connId,
+          sql,
+          queryLimit(useStore.getState()),
+          schema || undefined,
+        )
         .then((result) =>
           updateTab(tabId, { result, loading: false, viewMode }),
         )
