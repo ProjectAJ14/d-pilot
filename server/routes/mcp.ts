@@ -24,7 +24,8 @@
  * approve, execute or delete one, on any environment, direct-write included.
  *
  * Artifacts are the other exception to "read-only", and only because they are not
- * database state: an artifact stores prose and *unexecuted* read queries in
+ * database state: an artifact stores prose, rich html sections (rendered only in
+ * a sandboxed frame — see `src/utils/artifact-html.ts`) and *unexecuted* read queries in
  * D-Pilot's own SQLite, and an agent may only touch the ones its account owns.
  * The DB boundary is unchanged — nothing an agent writes here can reach a target
  * database without a human opening the artifact and running a block as themselves.
@@ -146,7 +147,7 @@ const qs = (params: Record<string, string | undefined>): string => {
 
 const readOnly = { readOnlyHint: true, openWorldHint: true };
 
-function createMcpServer(client: DPilotApiClient): McpServer {
+export function createMcpServer(client: DPilotApiClient): McpServer {
   const server = new McpServer({ name: "d-pilot", version: "1.0.0" });
 
   server.registerTool(
@@ -477,15 +478,16 @@ function createMcpServer(client: DPilotApiClient): McpServer {
   // an agent can leave findings somewhere the whole org can open, instead of in
   // a chat only its author can see. `blocks` carry queries, never result rows.
 
-  const blocksInput = blocksSchema.describe(
-    [
-      "The document body, in order. Three block types:",
-      '- `{"type":"html","body":"..."}` — a rich page section: headings, prose, tables, cards and inline `<svg>` diagrams. This is the main way to explain something. Write an HTML fragment (no `<html>`/`<head>`); it renders in a sandbox with no network and no scripts, so use inline SVG and CSS only — no `<script>`, no remote images, fonts or links to stylesheets. Theme colours come as CSS variables, readable in light and dark: `--ink` (text), `--dim`, `--faint`, `--bg`, `--panel`, `--mass`, `--line`, `--line-2`, `--spot` (the one accent), `--spot-soft`, `--warning`, `--error`, `--success`; fonts `--font-body`, `--font-disp`, `--font-mono`. Never hard-code a hex colour. Ready-made classes: `.lede` (one-line intro), `.callout` (+ `.warn`/`.bad`), `.grid` of `.card`s, `.stat` with `.k`/`.v`/`.d`, `.chip` (+ `.warn`/`.bad`), `.muted`, `td.num`. Diagrams: `<figure><svg viewBox="0 0 W H">…</svg><figcaption>the takeaway</figcaption></figure>` using `.svg-box`, `.svg-box-spot`, `.svg-box-warn`, `.svg-box-bad`, `.svg-line`, `.svg-line-spot`, `.svg-label`, `.svg-small`, `.svg-ink`, `.svg-muted`; add an arrowhead `<marker>` in `<defs>` for flows.",',
-      '- `{"type":"sql","sql":"...","label":"short name","connectionId":"..."}` — a query the reader runs from the artifact, under their own permissions and PHI masking. One query per block so each gets its own Run button; put an html or text block just before it saying what it answers. Omit connectionId to inherit the artifact\'s. Write queries may be stored for discussion but never run from an artifact — the reader is offered the write-approval workflow instead.',
-      '- `{"type":"text","body":"..."}` — plain GitHub-flavoured markdown (raw HTML escaped). Fine for a short note; prefer html for anything that benefits from a diagram or layout.',
-      "Never paste query results, row values, IDs or PHI into any block — store the query and let each reader run it.",
-    ].join("\n"),
-  );
+  // Shared by create_artifact and update_artifact, so an agent editing a page
+  // sees the same html/diagram vocabulary as one creating it and does not
+  // flatten a rich document back into markdown.
+  const BLOCKS_DOC = [
+    "The document body, in order. Three block types:",
+    '- `{"type":"html","body":"..."}` — a rich page section: headings, prose, tables, cards and inline `<svg>` diagrams. This is the main way to explain something. Write an HTML fragment (no `<html>`/`<head>`); it renders in a sandbox with no network and no scripts, so use inline SVG and CSS only — no `<script>`, no remote images, fonts or links to stylesheets. Theme colours come as CSS variables, readable in light and dark: `--ink` (text), `--dim`, `--faint`, `--bg`, `--panel`, `--mass`, `--line`, `--line-2`, `--spot` (the one accent), `--spot-soft`, `--warning`, `--error`, `--success`; fonts `--font-body`, `--font-disp`, `--font-mono`. Never hard-code a hex colour. Ready-made classes: `.lede` (one-line intro), `.callout` (+ `.warn`/`.bad`), `.grid` of `.card`s, `.stat` with `.k`/`.v`/`.d`, `.chip` (+ `.warn`/`.bad`), `.muted`, `td.num`. Diagrams: `<figure><svg viewBox="0 0 W H">…</svg><figcaption>the takeaway</figcaption></figure>` using `.svg-box`, `.svg-box-spot`, `.svg-box-warn`, `.svg-box-bad`, `.svg-line`, `.svg-line-spot`, `.svg-label`, `.svg-small`, `.svg-ink`, `.svg-muted`; add an arrowhead `<marker>` in `<defs>` for flows.",',
+    '- `{"type":"sql","sql":"...","label":"short name","connectionId":"..."}` — a query the reader runs from the artifact, under their own permissions and PHI masking. One query per block so each gets its own Run button; put an html or text block just before it saying what it answers. Omit connectionId to inherit the artifact\'s. Write queries may be stored for discussion but never run from an artifact — the reader is offered the write-approval workflow instead.',
+    '- `{"type":"text","body":"..."}` — plain GitHub-flavoured markdown (raw HTML escaped). Fine for a short note; prefer html for anything that benefits from a diagram or layout.',
+    "Never paste query results, row values, IDs or PHI into any block — store the query and let each reader run it.",
+  ].join("\n");
 
   /**
    * The writing brief agents follow. Artifacts exist so a developer who was not
@@ -511,7 +513,7 @@ function createMcpServer(client: DPilotApiClient): McpServer {
         ARTIFACT_WRITING_GUIDE,
       inputSchema: {
         title: z.string().describe("Short document title, shown on the tab."),
-        blocks: blocksInput,
+        blocks: blocksSchema.describe(BLOCKS_DOC),
         description: z
           .string()
           .optional()
@@ -543,14 +545,17 @@ function createMcpServer(client: DPilotApiClient): McpServer {
     {
       title: "Update an artifact",
       description:
-        "Edits an artifact this account created. Only the fields you pass change; `blocks` replaces the whole body, so call get_artifact first and send the full list back rather than just the part you changed.",
+        "Edits an artifact this account created. Only the fields you pass change; `blocks` replaces the whole body, so call get_artifact first and send the full list back rather than just the part you changed. Keep existing html blocks as html, and follow the same brief as create_artifact when adding or rewriting sections:\n\n" +
+        ARTIFACT_WRITING_GUIDE,
       inputSchema: {
         id: z.string(),
         title: z.string().optional(),
         description: z.string().optional(),
         blocks: blocksSchema
           .optional()
-          .describe("Replaces the entire document body when given."),
+          .describe(
+            `Replaces the entire document body when given.\n\n${BLOCKS_DOC}`,
+          ),
         connectionId: z.string().optional(),
         tags: z.array(z.string()).optional(),
         archived: z
@@ -583,7 +588,7 @@ function createMcpServer(client: DPilotApiClient): McpServer {
     {
       title: "Read an artifact",
       description:
-        "The full document — every block in order. Read this before update_artifact, which replaces the whole body.",
+        "The full document — every block in order: `html` (rich page sections with inline SVG diagrams), `text` (markdown) and `sql` (runnable queries). Read this before update_artifact, which replaces the whole body — send html blocks back as html, edited in place, so the page keeps its diagrams and layout.",
       inputSchema: { id: z.string() },
       annotations: readOnly,
     },
