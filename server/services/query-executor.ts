@@ -1,6 +1,6 @@
 import pg from "pg";
 import mssql from "mssql";
-import { EJSON } from "bson";
+import { Double, EJSON, Int32 } from "bson";
 import { MongoClient } from "mongodb";
 import { Client as EsClient } from "@elastic/elasticsearch";
 import type { ConnectionConfig } from "../types/index.js";
@@ -34,11 +34,30 @@ const DEFAULT_SELECT_STAR_LIMIT = 500;
  * Parses a MongoDB query/write argument as Extended JSON, so a filter can name
  * the BSON types plain JSON cannot — `{"$oid": ...}`, `{"$binary": ...}`,
  * `{"$date": ...}`. Without it no document is reachable by a non-string `_id`.
- * Relaxed mode keeps plain JSON numbers as numbers, so ordinary JSON parses
- * exactly as `JSON.parse` would.
+ *
+ * Parsed canonically, not relaxed: relaxed mode turns `{"$numberLong": ...}`
+ * into a JS number (rounding past 2^53, so an approved write could hit another
+ * `_id`) and `{"$numberDouble": "1.0"}` into an int. Int32 and non-integral
+ * Doubles are unwrapped back to plain numbers, which is what `JSON.parse`
+ * would give; Long and integral Doubles keep their wrapper. An invalid
+ * `{"$date": ...}` would otherwise serialize as 1970-01-01, so it throws.
  */
 export function parseMongoJson(text: string): any {
-  return EJSON.parse(text, { relaxed: true });
+  return unwrapNumbers(EJSON.parse(text, { relaxed: false }));
+}
+
+function unwrapNumbers(v: any): any {
+  if (Array.isArray(v)) return v.map(unwrapNumbers);
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) throw new Error("Invalid $date value");
+    return v;
+  }
+  if (v instanceof Int32) return v.valueOf();
+  if (v instanceof Double && !Number.isInteger(v.valueOf())) return v.valueOf();
+  if (v && Object.getPrototypeOf(v) === Object.prototype) {
+    for (const k of Object.keys(v)) v[k] = unwrapNumbers(v[k]);
+  }
+  return v;
 }
 
 // Schema identifiers are interpolated into `SET search_path` (Postgres has no

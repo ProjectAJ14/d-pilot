@@ -31,7 +31,7 @@ vi.mock("mongodb", async (orig) => ({
   },
 }));
 
-const { executeQuery } = await import("./query-executor.js");
+const { executeQuery, parseMongoJson } = await import("./query-executor.js");
 const conn = {
   id: "mongo-read-test",
   type: "mongodb",
@@ -81,5 +81,26 @@ describe("executeQuery (mongodb)", () => {
     await expect(
       executeQuery(conn, "db.orders.find({}).forEach(printjson)"),
     ).rejects.toThrow(/write operation/);
+  });
+});
+
+describe("parseMongoJson", () => {
+  it("keeps $numberLong exact past 2^53 and $numberDouble a double", () => {
+    const v = parseMongoJson(
+      '{"id": {"$numberLong": "9007199254740993"}, "d": {"$numberDouble": "1.0"}, "n": 5, "f": 1.5}',
+    );
+    expect(v.id.toString()).toBe("9007199254740993");
+    expect(v.d._bsontype).toBe("Double");
+    expect(v.n).toBe(5);
+    expect(v.f).toBe(1.5);
+  });
+
+  it("rejects an invalid $date instead of writing the epoch", () => {
+    expect(() => parseMongoJson('{"at": {"$date": "2024-13-45"}}')).toThrow(
+      /\$date/,
+    );
+    expect(
+      parseMongoJson('{"at": {"$date": "2024-01-02T00:00:00Z"}}').at,
+    ).toEqual(new Date("2024-01-02T00:00:00Z"));
   });
 });
