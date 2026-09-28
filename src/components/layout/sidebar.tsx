@@ -324,8 +324,14 @@ export function Sidebar() {
         conn?.type === "mongodb" || conn?.type === "elasticsearch"
           ? ("json" as const)
           : ("table" as const);
+      const { defaultLimitEnabled, defaultLimitValue } = useStore.getState();
       api
-        .executeQuery(connId, sql, undefined, schema || undefined)
+        .executeQuery(
+          connId,
+          sql,
+          defaultLimitEnabled ? defaultLimitValue : null,
+          schema || undefined,
+        )
         .then((result) =>
           updateTab(tabId, { result, loading: false, viewMode }),
         )
