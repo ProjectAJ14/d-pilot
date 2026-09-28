@@ -5,6 +5,16 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [1.26.1](https://github.com/ProjectAJ14/d-pilot/compare/v1.26.0...v1.26.1) (2026-09-28)
+
+
+### Bug Fixes
+
+* **mongo:** keep int64 precision and reject invalid $date ([d750d42](https://github.com/ProjectAJ14/d-pilot/commit/d750d42f92a59c211d5c226a4358f8a1cbe5f393))
+* **mongo:** make write requests reach real documents and run what was approved ([3a1ad75](https://github.com/ProjectAJ14/d-pilot/commit/3a1ad75168c2ce47a6a2006c8f28e7efed02625d))
+* **mongo:** reject coerced EJSON and keep sibling operators ([1b7c324](https://github.com/ProjectAJ14/d-pilot/commit/1b7c3241edcc5d51c5f083439f9c30c586fac7e8))
+* **mongo:** reject lossy $numberDecimal and allow exponent doubles ([33196e5](https://github.com/ProjectAJ14/d-pilot/commit/33196e5d508ccbb4065a9ff1db02bdd727bafecc))
+
 # [1.26.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.25.5...v1.26.0) (2026-09-26)
 
 
