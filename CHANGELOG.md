@@ -5,6 +5,14 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [1.26.2](https://github.com/ProjectAJ14/d-pilot/compare/v1.26.1...v1.26.2) (2026-09-28)
+
+
+### Bug Fixes
+
+* **export:** honor the limit checkbox on CSV/JSON export ([88102ca](https://github.com/ProjectAJ14/d-pilot/commit/88102ca3e3bd01798f75901b526161f6cd105c79))
+* **sidebar:** honor the limit checkbox on table auto-run ([5ffe351](https://github.com/ProjectAJ14/d-pilot/commit/5ffe351e2ec294d1d203574f116f569131f94f0e))
+
 ## [1.26.1](https://github.com/ProjectAJ14/d-pilot/compare/v1.26.0...v1.26.1) (2026-09-28)
 
 
