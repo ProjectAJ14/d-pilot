@@ -25,6 +25,8 @@ import type {
 } from "../../types";
 import { envColor } from "../../utils/environments";
 import { useEditorTheme } from "../../utils/monaco-editor-options";
+import { defaultViewMode } from "../../utils/result-view";
+import { ResultsJsonView } from "../query/results-json-view";
 
 function monacoLang(dbType?: DatabaseType): string {
   if (dbType === "mongodb") return "javascript";
@@ -471,8 +473,15 @@ function renderCell(value: unknown): string {
   return String(value);
 }
 
-export function PreviewTable({ result }: { result: QueryResult }) {
-  if (!result.columns.length) {
+export function PreviewTable({
+  result,
+  dbType,
+}: {
+  result: QueryResult;
+  dbType?: DatabaseType;
+}) {
+  const json = defaultViewMode(dbType) === "json";
+  if (!json && !result.columns.length) {
     return (
       <Text size="sm" c="dimmed">
         Query returned no columns.
@@ -498,56 +507,73 @@ export function PreviewTable({ result }: { result: QueryResult }) {
           </Badge>
         )}
       </Group>
-      <ScrollArea.Autosize mah={320} type="auto">
-        <Table
-          striped
-          highlightOnHover
-          withTableBorder
-          stickyHeader
-          verticalSpacing={4}
-          horizontalSpacing="sm"
+      {json ? (
+        // Same view a query tab opens document stores in. Virtualized, so it
+        // needs a fixed height to fill.
+        <div
+          style={{
+            height: 320,
+            display: "flex",
+            flexDirection: "column",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-md)",
+            overflow: "hidden",
+          }}
         >
-          <Table.Thead>
-            <Table.Tr>
-              {result.columns.map((c) => (
-                <Table.Th key={c.name} style={{ whiteSpace: "nowrap" }}>
-                  <Group gap={4} wrap="nowrap">
-                    <Text size="xs" fw={700} ff="monospace">
-                      {c.name}
-                    </Text>
-                    {c.isMasked && (
-                      <Tooltip label={`Masked (${c.maskingType})`}>
-                        <IconShieldLock size={11} color="var(--token)" />
-                      </Tooltip>
-                    )}
-                  </Group>
-                </Table.Th>
-              ))}
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {result.rows.map((row, i) => (
-              <Table.Tr key={i}>
+          <ResultsJsonView rows={result.rows} />
+        </div>
+      ) : (
+        <ScrollArea.Autosize mah={320} type="auto">
+          <Table
+            striped
+            highlightOnHover
+            withTableBorder
+            stickyHeader
+            verticalSpacing={4}
+            horizontalSpacing="sm"
+          >
+            <Table.Thead>
+              <Table.Tr>
                 {result.columns.map((c) => (
-                  <Table.Td
-                    key={c.name}
-                    style={{
-                      whiteSpace: "nowrap",
-                      maxWidth: 320,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    <Text size="xs" ff="monospace">
-                      {renderCell(row[c.name])}
-                    </Text>
-                  </Table.Td>
+                  <Table.Th key={c.name} style={{ whiteSpace: "nowrap" }}>
+                    <Group gap={4} wrap="nowrap">
+                      <Text size="xs" fw={700} ff="monospace">
+                        {c.name}
+                      </Text>
+                      {c.isMasked && (
+                        <Tooltip label={`Masked (${c.maskingType})`}>
+                          <IconShieldLock size={11} color="var(--token)" />
+                        </Tooltip>
+                      )}
+                    </Group>
+                  </Table.Th>
                 ))}
               </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
-      </ScrollArea.Autosize>
+            </Table.Thead>
+            <Table.Tbody>
+              {result.rows.map((row, i) => (
+                <Table.Tr key={i}>
+                  {result.columns.map((c) => (
+                    <Table.Td
+                      key={c.name}
+                      style={{
+                        whiteSpace: "nowrap",
+                        maxWidth: 320,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      <Text size="xs" ff="monospace">
+                        {renderCell(row[c.name])}
+                      </Text>
+                    </Table.Td>
+                  ))}
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </ScrollArea.Autosize>
+      )}
     </div>
   );
 }

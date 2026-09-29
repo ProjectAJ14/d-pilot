@@ -640,7 +640,7 @@ export function WriteRequestDetail() {
           )}
           {preview && (
             <div style={{ marginTop: 16 }}>
-              <PreviewTable result={preview} />
+              <PreviewTable result={preview} dbType={wr.dbType} />
             </div>
           )}
 

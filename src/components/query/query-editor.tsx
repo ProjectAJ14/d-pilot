@@ -53,6 +53,7 @@ import {
 } from "../../utils/monaco-editor-options";
 import { useVimMode } from "../../utils/vim-mode";
 import { queryLimit } from "../../utils/query-limit";
+import { defaultViewMode } from "../../utils/result-view";
 
 interface Props {
   tab: QueryTab;
@@ -644,14 +645,10 @@ export function QueryEditor({
       const conn = useStore
         .getState()
         .connections.find((c) => c.id === tab.connectionId);
-      const dbDefault =
-        conn?.type === "mongodb" || conn?.type === "elasticsearch"
-          ? ("json" as const)
-          : ("table" as const);
       updateTab(tab.id, {
         result,
         loading: false,
-        viewMode: tab.viewMode ?? dbDefault,
+        viewMode: tab.viewMode ?? defaultViewMode(conn?.type),
       });
       const connLabel = conn
         ? `${conn.name} · ${conn.env} · ${conn.type}`
