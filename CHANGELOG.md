@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.28.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.27.2...v1.28.0) (2026-09-29)
+
+
+### Features
+
+* **write:** show Mongo verify previews as JSON ([1b16c1d](https://github.com/ProjectAJ14/d-pilot/commit/1b16c1d9180e6555b9b6760bd47af52a3e94182d))
+
 ## [1.27.2](https://github.com/ProjectAJ14/d-pilot/compare/v1.27.1...v1.27.2) (2026-09-28)
 
 
