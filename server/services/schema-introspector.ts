@@ -619,6 +619,9 @@ export async function getCachedFullSchema(
   if (!pending) {
     pending = getFullSchema(conn, schemaName)
       .then((schema) => {
+        // A PHI rule saved while this introspection ran has already cleared
+        // the cache, so re-check here or its values would be cached anyway.
+        dropPhiValues(schema);
         if (ttlMs > 0) {
           const ts = Date.now();
           schemaCache.set(key, { schema, cachedAt: ts, expiresAt: ts + ttlMs });
@@ -639,6 +642,18 @@ export async function getCachedFullSchema(
     cachedAt: new Date(rec?.cachedAt ?? now).toISOString(),
     ttlHours,
   };
+}
+
+/**
+ * Removes sampled values from any column a PHI rule now matches, in place.
+ * Sampling already skips PHI columns; this catches a rule saved mid-sample.
+ */
+export function dropPhiValues(full: FullSchema): FullSchema {
+  for (const cols of Object.values(full.columns))
+    for (const c of cols)
+      if (c.values && (c.isPhiField || findMatchingRule(c.name)))
+        delete c.values;
+  return full;
 }
 
 /**

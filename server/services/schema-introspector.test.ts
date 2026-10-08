@@ -6,6 +6,7 @@ import {
   type PgStatsRow,
   keepColumnValues,
   summarizeTables,
+  dropPhiValues,
   type FullSchema,
 } from "./schema-introspector.js";
 import { findMatchingRule } from "./phi-masking.js";
@@ -323,6 +324,21 @@ describe("summarizeTables values", () => {
 
   it("renders a cache entry without values exactly as before", () => {
     expect(summarizeTables(full).text).not.toContain("values:");
+  });
+
+  it("drops values before caching when a PHI rule was saved mid-sample", () => {
+    ruleMock.mockImplementation((name) => (name === "status" ? RULE : null));
+    const schema = dropPhiValues(withValues());
+    expect(schema.columns.orders[0].values).toBeUndefined();
+  });
+
+  it("keeps values of columns no PHI rule matches", () => {
+    const schema = dropPhiValues(withValues());
+    expect(schema.columns.orders[0].values).toEqual([
+      "cancelled",
+      "draft",
+      "placed",
+    ]);
   });
 
   it("hides cached values once a PHI rule matches the column", () => {
