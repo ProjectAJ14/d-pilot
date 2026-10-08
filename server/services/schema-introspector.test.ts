@@ -7,13 +7,68 @@ import {
   keepColumnValues,
   summarizeTables,
   dropPhiValues,
+  getCachedFullSchema,
   type FullSchema,
 } from "./schema-introspector.js";
 import { findMatchingRule } from "./phi-masking.js";
-import type { PhiFieldRule } from "../types/index.js";
+import type { ConnectionConfig, PhiFieldRule } from "../types/index.js";
 
 vi.mock("./phi-masking.js", () => ({ findMatchingRule: vi.fn(() => null) }));
 const ruleMock = vi.mocked(findMatchingRule);
+
+// The admin toggle (Settings → Azure OpenAI) and a fake pg/mssql that records
+// every statement, so "no sampling when off" is checked at the driver.
+const h = vi.hoisted(() => ({ valuesOn: true, sql: [] as string[] }));
+vi.mock("./sqlite-store.js", () => ({
+  getAiColumnValuesEnabled: () => h.valuesOn,
+}));
+vi.mock("pg", () => ({
+  default: {
+    Pool: class {
+      async query(sql: string) {
+        h.sql.push(sql);
+        return { rows: [] };
+      }
+      async end() {}
+    },
+  },
+}));
+vi.mock("mssql", () => {
+  const recordset = (sql: string) =>
+    sql.includes("INFORMATION_SCHEMA.TABLES")
+      ? [{ TABLE_NAME: "orders", TABLE_TYPE: "BASE TABLE" }]
+      : sql.includes("INFORMATION_SCHEMA.COLUMNS")
+        ? [
+            {
+              TABLE_NAME: "orders",
+              COLUMN_NAME: "status",
+              DATA_TYPE: "varchar",
+              IS_NULLABLE: "NO",
+            },
+          ]
+        : sql.includes("sys.partitions")
+          ? [{ table_name: "orders", row_count: 5 }]
+          : [];
+  const request = () => ({
+    input() {
+      return this;
+    },
+    async query(sql: string) {
+      h.sql.push(sql);
+      return { recordset: recordset(sql) };
+    },
+  });
+  return {
+    default: {
+      VarChar: "varchar",
+      ConnectionPool: class {
+        async connect() {}
+        request = request;
+        async close() {}
+      },
+    },
+  };
+});
 import type { ColumnInfo } from "../types/index.js";
 const RULE = { pattern: "x" } as PhiFieldRule;
 
@@ -344,5 +399,75 @@ describe("summarizeTables values", () => {
   it("hides cached values once a PHI rule matches the column", () => {
     ruleMock.mockImplementation((name) => (name === "status" ? RULE : null));
     expect(summarizeTables(withValues()).text).not.toContain("placed");
+  });
+});
+
+describe("column values admin toggle", () => {
+  beforeEach(() => {
+    ruleMock.mockReset().mockReturnValue(null);
+    h.valuesOn = true;
+    h.sql = [];
+  });
+
+  const cached = (): FullSchema => ({
+    tables: [{ name: "orders", type: "TABLE" }],
+    columns: {
+      orders: [
+        {
+          name: "status",
+          dataType: "text",
+          nullable: false,
+          isPrimaryKey: false,
+          isForeignKey: false,
+          isPhiField: false,
+          values: ["draft", "placed"],
+        },
+      ],
+    },
+  });
+  const conn = (type: "postgres" | "mssql"): ConnectionConfig =>
+    ({
+      id: `toggle-${type}`,
+      name: type,
+      env: "DEV",
+      type,
+      host: "localhost",
+      database: "app_db",
+      schema: type === "postgres" ? "app_core" : "dbo",
+    }) as ConnectionConfig;
+  const introspect = (type: "postgres" | "mssql") =>
+    getCachedFullSchema(conn(type), { forceRefresh: true });
+
+  it("renders no values when off, even from a warm cache", () => {
+    h.valuesOn = false;
+    const text = summarizeTables(cached()).text;
+    expect(text).not.toContain("values:");
+    expect(text).toContain("  - status: text [NOT NULL]");
+  });
+
+  it("does not read pg_stats when off", async () => {
+    h.valuesOn = false;
+    await introspect("postgres");
+    expect(h.sql.length).toBeGreaterThan(0);
+    expect(h.sql.some((q) => q.includes("pg_stats"))).toBe(false);
+  });
+
+  it("reads pg_stats when on", async () => {
+    await introspect("postgres");
+    expect(h.sql.some((q) => q.includes("pg_stats"))).toBe(true);
+  });
+
+  it("runs no SQL Server row counts or DISTINCT samples when off", async () => {
+    h.valuesOn = false;
+    await introspect("mssql");
+    expect(h.sql.length).toBeGreaterThan(0);
+    expect(h.sql.some((q) => /sys\.partitions|SELECT DISTINCT/.test(q))).toBe(
+      false,
+    );
+  });
+
+  it("samples SQL Server values when on", async () => {
+    await introspect("mssql");
+    expect(h.sql.some((q) => q.includes("SELECT DISTINCT TOP 21"))).toBe(true);
   });
 });

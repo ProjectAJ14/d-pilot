@@ -8,8 +8,8 @@ import type {
   ColumnInfo,
 } from "../types/index.js";
 import { findMatchingRule } from "./phi-masking.js";
+import { getAiColumnValuesEnabled } from "./sqlite-store.js";
 import { scanSql } from "./sql-scan.js";
-import { QUERY_TIMEOUT } from "./query-executor.js";
 
 /** The default schema for a connection when none is explicitly selected. */
 export function defaultSchema(conn: ConnectionConfig): string {
@@ -525,8 +525,9 @@ export function summarizeTables(
     names = all.slice(0, maxTables);
   }
 
+  const showValues = getAiColumnValuesEnabled();
   const blocks = names.map((n) =>
-    formatTable(n, typeOf.get(n) || "TABLE", full.columns[n] || []),
+    formatTable(n, typeOf.get(n) || "TABLE", full.columns[n] || [], showValues),
   );
 
   return {
@@ -760,7 +761,12 @@ export function clearSchemaCache(connectionId?: string): { cleared: number } {
   return { cleared };
 }
 
-function formatTable(name: string, type: string, cols: ColumnInfo[]): string {
+function formatTable(
+  name: string,
+  type: string,
+  cols: ColumnInfo[],
+  showValues: boolean,
+): string {
   const shown = cols.slice(0, MAX_COLS_PER_TABLE);
   const lines = shown.map((c) => {
     const flags: string[] = [];
@@ -770,10 +776,14 @@ function formatTable(name: string, type: string, cols: ColumnInfo[]): string {
     if (!c.nullable) flags.push("NOT NULL");
     if (c.isPhiField) flags.push("PHI");
     const suffix = flags.length ? ` [${flags.join(", ")}]` : "";
-    // Re-check PHI at render time: a rule added after the schema was cached
-    // must keep its column's values out of the prompt immediately.
+    // Re-check PHI and the admin toggle at render time: a rule added, or the
+    // toggle turned off, after the schema was cached must keep values out of
+    // the prompt immediately.
     const values =
-      c.values?.length && !c.isPhiField && !findMatchingRule(c.name)
+      c.values?.length &&
+      !c.isPhiField &&
+      !findMatchingRule(c.name) &&
+      showValues
         ? `  values: ${c.values.join(" | ")}`
         : "";
     return `  - ${c.name}: ${c.dataType}${suffix}${values}`;
@@ -891,7 +901,8 @@ const MSSQL_SAMPLE_BUDGET_MS = 5_000;
  * — whatever was sampled by then is kept. A failing column is skipped.
  *
  * ponytail: the budget is checked between queries, so one in-flight DISTINCT
- * (on <= 100k rows) can overrun it by its own duration.
+ * (on <= 100k rows) can overrun it by up to mssql's default 15s requestTimeout;
+ * mssql 11 has no per-request timeout (cancel() on a timer would bound it).
  */
 export async function sampleColumnValues(
   full: FullSchema,
@@ -963,7 +974,10 @@ async function getPostgresFullSchema(
         [schema],
       ),
       pool.query(PG_FK_SQL, [schema]),
-      pool.query<PgStatsRow>(PG_STATS_SQL, [schema]),
+      // Admins can turn column values off (Settings → Azure OpenAI).
+      getAiColumnValuesEnabled()
+        ? pool.query<PgStatsRow>(PG_STATS_SQL, [schema])
+        : { rows: [] as PgStatsRow[] },
     ]);
 
     const pkSet = new Set(
@@ -1012,7 +1026,6 @@ async function getMssqlFullSchema(
     password: conn.password,
     options: { encrypt: false, trustServerCertificate: true },
     connectionTimeout: 10000,
-    requestTimeout: QUERY_TIMEOUT,
   });
 
   try {
@@ -1062,6 +1075,7 @@ async function getMssqlFullSchema(
       type: t.TABLE_TYPE === "VIEW" ? "VIEW" : "TABLE",
     }));
     const full = { tables, columns };
+    if (!getAiColumnValuesEnabled()) return full;
     // Row counts from partition metadata (heap or clustered index), one query.
     const countRes = await req().query(
       `SELECT t.name AS table_name, SUM(p.rows) AS row_count

@@ -24,7 +24,7 @@ body:json {
 }
 
 docs {
-  Suggest a WRITE statement derived from the verify SELECT + intent.
+  Suggest a WRITE statement derived from the verify SELECT + intent. Returns 422 with a "try rephrasing" message when Azure's content filter blocks the request.
 
   Requires a valid Bearer JWT ({{token}}).
 }

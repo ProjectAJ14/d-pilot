@@ -415,6 +415,7 @@ router.delete("/", requireAdmin, (req: Request, res: Response) => {
     phiAccessed: false,
   });
 
+  clearSchemaCache(); // cached [PHI] flags and values are stale now
   res.json({ deleted, kept });
 });
 
@@ -424,6 +425,7 @@ router.delete("/:id", requireAdmin, (req: Request, res: Response) => {
     res.status(404).json({ error: "Rule not found" });
     return;
   }
+  clearSchemaCache(); // cached [PHI] flags and values are stale now
   res.json({ deleted: true });
 });
 

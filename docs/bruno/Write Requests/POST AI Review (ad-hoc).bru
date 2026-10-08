@@ -23,7 +23,7 @@ body:json {
 }
 
 docs {
-  AI safety review of an un-persisted SELECT + WRITE pair.
+  AI safety review of an un-persisted SELECT + WRITE pair. Returns 422 with a "try rephrasing" message when Azure's content filter blocks the request.
 
   Requires a valid Bearer JWT ({{token}}).
 }

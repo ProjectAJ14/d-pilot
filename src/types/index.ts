@@ -314,3 +314,9 @@ export interface AiChatLogEntry {
   totalTables?: number;
   timestamp: string;
 }
+
+/** Admin AI settings (`/api/azure-ai/settings`). */
+export interface AiSettings {
+  /** Include distinct values of short, non-PHI text columns in AI schema context. */
+  columnValues: boolean;
+}

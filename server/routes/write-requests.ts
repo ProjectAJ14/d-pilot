@@ -26,7 +26,7 @@ import { extractReferencedTables } from "../services/query-examples.js";
 import {
   getAzureConfig,
   azureChat,
-  AzureOpenAIError,
+  aiErrorResponse,
   parseGeneration,
   tag,
 } from "../services/azure-openai.js";
@@ -49,6 +49,7 @@ import {
 } from "../services/sqlite-store.js";
 import type {
   AuthUser,
+  ConnectionConfig,
   QueryResult,
   WriteAiReview,
   WriteRequest,
@@ -576,8 +577,8 @@ router.post("/ai-review", async (req: Request, res: Response) => {
     );
     res.json(review);
   } catch (err: any) {
-    const status = err instanceof AzureOpenAIError && err.status ? 502 : 500;
-    res.status(status).json({ error: err?.message || "AI review failed" });
+    const { status, error } = aiErrorResponse(err, "AI review failed");
+    res.status(status).json({ error });
   }
 });
 
@@ -622,8 +623,8 @@ router.post("/suggest-write", async (req: Request, res: Response) => {
     );
     res.json(out);
   } catch (err: any) {
-    const status = err instanceof AzureOpenAIError && err.status ? 502 : 500;
-    res.status(status).json({ error: err?.message || "Suggestion failed" });
+    const { status, error } = aiErrorResponse(err, "Suggestion failed");
+    res.status(status).json({ error });
   }
 });
 
@@ -668,8 +669,8 @@ router.post("/suggest-select", async (req: Request, res: Response) => {
     );
     res.json(out);
   } catch (err: any) {
-    const status = err instanceof AzureOpenAIError && err.status ? 502 : 500;
-    res.status(status).json({ error: err?.message || "Suggestion failed" });
+    const { status, error } = aiErrorResponse(err, "Suggestion failed");
+    res.status(status).json({ error });
   }
 });
 
@@ -858,8 +859,8 @@ router.post("/:id/ai-review", async (req: Request, res: Response) => {
     });
     res.json(review);
   } catch (err: any) {
-    const status = err instanceof AzureOpenAIError && err.status ? 502 : 500;
-    res.status(status).json({ error: err?.message || "AI review failed" });
+    const { status, error } = aiErrorResponse(err, "AI review failed");
+    res.status(status).json({ error });
   }
 });
 
@@ -1334,11 +1335,11 @@ async function buildWriteSchemaText(
   }
 }
 
+/** What a prompt builder needs to know about the target connection. */
+type PromptConn = Pick<ConnectionConfig, "type" | "database">;
+
 /** `<database>` + `<schema>` context that opens every write-AI user message. */
-function dbContext(
-  conn: NonNullable<ReturnType<typeof getConnection>>,
-  schemaText: string,
-): string {
+function dbContext(conn: PromptConn, schemaText: string): string {
   const db = [
     `type: ${conn.type}`,
     conn.database ? `name: ${conn.database}` : "",
@@ -1348,21 +1349,13 @@ function dbContext(
   return `${tag("database", db)}\n${tag("schema", schemaText || "(no schema)")}`;
 }
 
-/** Runs the AI safety review over a SELECT + WRITE pair. Throws on Azure error. */
-async function computeWriteAiReview(
-  config: Parameters<typeof azureChat>[0],
-  conn: NonNullable<ReturnType<typeof getConnection>>,
+/** Prompt for the AI safety review of a SELECT + WRITE pair. */
+export function buildWriteReviewPrompt(
+  conn: PromptConn,
+  schemaText: string,
   selectSql: string,
   writeSql: string,
-): Promise<WriteAiReview> {
-  // A migration (multi-statement or DDL) is reviewed as a whole script — there
-  // is no verify SELECT to compare against.
-  const cls = classifyWrite(writeSql, conn.type);
-  if (cls.isMigration) {
-    return computeMigrationAiReview(config, conn, writeSql, cls.hasDdl);
-  }
-
-  const schemaText = await buildWriteSchemaText(conn, [selectSql, writeSql]);
+): { systemPrompt: string; userMessage: string } {
   const systemPrompt = [
     tag(
       "role",
@@ -1425,7 +1418,30 @@ async function computeWriteAiReview(
     tag("write_statement", writeSql),
     tag("verify_select", selectSql || "(none provided)"),
   ].join("\n");
+  return { systemPrompt, userMessage };
+}
 
+/** Runs the AI safety review over a SELECT + WRITE pair. Throws on Azure error. */
+async function computeWriteAiReview(
+  config: Parameters<typeof azureChat>[0],
+  conn: NonNullable<ReturnType<typeof getConnection>>,
+  selectSql: string,
+  writeSql: string,
+): Promise<WriteAiReview> {
+  // A migration (multi-statement or DDL) is reviewed as a whole script — there
+  // is no verify SELECT to compare against.
+  const cls = classifyWrite(writeSql, conn.type);
+  if (cls.isMigration) {
+    return computeMigrationAiReview(config, conn, writeSql, cls.hasDdl);
+  }
+
+  const schemaText = await buildWriteSchemaText(conn, [selectSql, writeSql]);
+  const { systemPrompt, userMessage } = buildWriteReviewPrompt(
+    conn,
+    schemaText,
+    selectSql,
+    writeSql,
+  );
   const result = await azureChat(
     config,
     [
@@ -1445,14 +1461,13 @@ async function computeWriteAiReview(
   };
 }
 
-/** Runs the AI review over a whole migration script (multi-statement / DDL). */
-async function computeMigrationAiReview(
-  config: Parameters<typeof azureChat>[0],
-  conn: NonNullable<ReturnType<typeof getConnection>>,
+/** Prompt for the AI review of a whole migration script. */
+export function buildMigrationReviewPrompt(
+  conn: PromptConn,
+  schemaText: string,
   script: string,
   hasDdl: boolean,
-): Promise<WriteAiReview> {
-  const schemaText = await buildWriteSchemaText(conn, [script]);
+): { systemPrompt: string; userMessage: string } {
   const systemPrompt = [
     tag(
       "role",
@@ -1504,7 +1519,23 @@ async function computeMigrationAiReview(
     dbContext(conn, schemaText),
     tag("migration_script", script),
   ].join("\n");
+  return { systemPrompt, userMessage };
+}
 
+/** Runs the AI review over a whole migration script (multi-statement / DDL). */
+async function computeMigrationAiReview(
+  config: Parameters<typeof azureChat>[0],
+  conn: NonNullable<ReturnType<typeof getConnection>>,
+  script: string,
+  hasDdl: boolean,
+): Promise<WriteAiReview> {
+  const schemaText = await buildWriteSchemaText(conn, [script]);
+  const { systemPrompt, userMessage } = buildMigrationReviewPrompt(
+    conn,
+    schemaText,
+    script,
+    hasDdl,
+  );
   const result = await azureChat(
     config,
     [
@@ -1536,18 +1567,14 @@ function writeDialectHint(type: string): string {
   }
 }
 
-/** Suggests a candidate WRITE statement derived from the verification SELECT. */
-async function computeWriteSuggestion(
-  config: Parameters<typeof azureChat>[0],
-  conn: NonNullable<ReturnType<typeof getConnection>>,
+/** Prompt that turns a verify SELECT into one write statement. */
+export function buildWriteSuggestionPrompt(
+  conn: PromptConn,
+  schemaText: string,
   selectSql: string,
   intent?: string,
   currentWrite?: string,
-): Promise<{ query: string; explanation: string }> {
-  const schemaText = await buildWriteSchemaText(conn, [
-    selectSql,
-    currentWrite,
-  ]);
+): { systemPrompt: string; userMessage: string } {
   const systemPrompt = [
     tag(
       "role",
@@ -1581,7 +1608,28 @@ async function computeWriteSuggestion(
   ]
     .filter(Boolean)
     .join("\n");
+  return { systemPrompt, userMessage };
+}
 
+/** Suggests a candidate WRITE statement derived from the verification SELECT. */
+async function computeWriteSuggestion(
+  config: Parameters<typeof azureChat>[0],
+  conn: NonNullable<ReturnType<typeof getConnection>>,
+  selectSql: string,
+  intent?: string,
+  currentWrite?: string,
+): Promise<{ query: string; explanation: string }> {
+  const schemaText = await buildWriteSchemaText(conn, [
+    selectSql,
+    currentWrite,
+  ]);
+  const { systemPrompt, userMessage } = buildWriteSuggestionPrompt(
+    conn,
+    schemaText,
+    selectSql,
+    intent,
+    currentWrite,
+  );
   const result = await azureChat(
     config,
     [
@@ -1605,18 +1653,14 @@ function selectDialectHint(type: string): string {
   }
 }
 
-/** Suggests a verify SELECT derived from the WRITE statement (write-first flow). */
-async function computeSelectSuggestion(
-  config: Parameters<typeof azureChat>[0],
-  conn: NonNullable<ReturnType<typeof getConnection>>,
+/** Prompt that turns a write statement into its verify SELECT. */
+export function buildSelectSuggestionPrompt(
+  conn: PromptConn,
+  schemaText: string,
   writeSql: string,
   intent?: string,
   currentSelect?: string,
-): Promise<{ query: string; explanation: string }> {
-  const schemaText = await buildWriteSchemaText(conn, [
-    writeSql,
-    currentSelect,
-  ]);
+): { systemPrompt: string; userMessage: string } {
   const systemPrompt = [
     tag(
       "role",
@@ -1654,7 +1698,28 @@ async function computeSelectSuggestion(
   ]
     .filter(Boolean)
     .join("\n");
+  return { systemPrompt, userMessage };
+}
 
+/** Suggests a verify SELECT derived from the WRITE statement (write-first flow). */
+async function computeSelectSuggestion(
+  config: Parameters<typeof azureChat>[0],
+  conn: NonNullable<ReturnType<typeof getConnection>>,
+  writeSql: string,
+  intent?: string,
+  currentSelect?: string,
+): Promise<{ query: string; explanation: string }> {
+  const schemaText = await buildWriteSchemaText(conn, [
+    writeSql,
+    currentSelect,
+  ]);
+  const { systemPrompt, userMessage } = buildSelectSuggestionPrompt(
+    conn,
+    schemaText,
+    writeSql,
+    intent,
+    currentSelect,
+  );
   const result = await azureChat(
     config,
     [

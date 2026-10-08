@@ -680,6 +680,14 @@ export function getWriteModeEnabled(): boolean {
   return getSetting("write_mode_enabled") !== "false";
 }
 
+/**
+ * Whether the AI schema context may include distinct values of short,
+ * low-cardinality non-PHI text columns. On unless an admin turned it off.
+ */
+export function getAiColumnValuesEnabled(): boolean {
+  return getSetting("ai_column_values_enabled") !== "false";
+}
+
 export function getWriteDirectEnvs(): Environment[] {
   const val = getSetting("write_direct_envs");
   let envs: Environment[];

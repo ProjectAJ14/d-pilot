@@ -11,7 +11,7 @@ post {
 }
 
 docs {
-  Run and persist an AI safety review on a saved write request.
+  Run and persist an AI safety review on a saved write request. Returns 422 with a "try rephrasing" message when Azure's content filter blocks the request.
 
   Requires a valid Bearer JWT ({{token}}).
 }

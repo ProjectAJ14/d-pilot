@@ -72,7 +72,7 @@ name rather than one baked in at build time. In production `express.static` also
 | `/audit`          | `audit.ts`          | log + archive read, manual archive (admin)                                                                                             |
 | `/export`         | `export.ts`         | `POST /csv`, `POST /json` (masking enforced + audited)                                                                                 |
 | `/users`          | `users.ts`          | user CRUD + reset-password (admin)                                                                                                     |
-| `/azure-ai`       | `azure-ai.ts`       | `test`, `generate-query`, chat, `chat-log` (admin)                                                                                     |
+| `/azure-ai`       | `azure-ai.ts`       | `test`, `generate-query`, `settings` (admin), `schema-cache/clear` (admin), `chat-log` (admin)                                         |
 | `/analytics`      | `analytics.ts`      | admin usage dashboard                                                                                                                  |
 | `/write-requests` | `write-requests.ts` | write lifecycle + policy + AI review/suggest                                                                                           |
 | `/mcp`            | `mcp.ts`            | **read-only MCP endpoint for AI agents — mounted _before_ `authMiddleware`** (HTTP Basic, not Bearer)                                  |
@@ -95,8 +95,13 @@ name rather than one baked in at build time. In production `express.static` also
   `FullSchema`, plus `summarizeTables`/`tableCatalog` for AI context and a TTL schema
   cache (`getCachedFullSchema`, `SCHEMA_CACHE_TTL_HOURS`).
 - **`azure-openai.ts`** — thin Azure OpenAI chat client (`getAzureConfig`, `azureChat`).
-  Returns 503-equivalent when unconfigured. **Only schema metadata is ever sent — never
-  row data.**
+  Returns 503-equivalent when unconfigured. A content-filter refusal throws
+  `AzureOpenAIError` with `contentFiltered`; routes map it through `aiErrorResponse` to a
+  422 "try rephrasing". **Only schema metadata is sent, plus — while the admin setting
+  `ai_column_values_enabled` is on (default; `getAiColumnValuesEnabled`, Settings → Azure
+  OpenAI) — the distinct values of short ≤20-value text columns no PHI rule matches.**
+  When off, sampling is skipped and `summarizeTables` renders no values even from a
+  warm cache. Never PHI, never query results.
 - **`query-examples.ts`** — picks few-shot examples from saved queries for AI prompts
   (`extractReferencedTables`, `selectExampleQueries`).
 - **`sqlite-store.ts`** — the app DB (see below) and all its accessors.
@@ -115,7 +120,7 @@ name rather than one baked in at build time. In production `express.static` also
 
 - **Settings** (`app_settings`) — PHI masked envs (`getPhiMaskedEnvs`, PROD always
   included), write-mode toggle (`getWriteModeEnabled`), direct-write envs
-  (`getWriteDirectEnvs`).
+  (`getWriteDirectEnvs`), AI column values (`getAiColumnValuesEnabled`).
 - **Audit** — `logAudit`/`getAuditLog` capture every query, error, export, PHI unmask (and
   denial), and write-lifecycle event. `getAnalytics`/`getWriteAnalytics` power the admin
   dashboard.

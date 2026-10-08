@@ -8,10 +8,7 @@ import { CONNECTION_ERROR_PATTERN } from "./connection-errors.js";
 import { scanSql } from "./sql-scan.js";
 
 const MAX_ROWS = parseInt(process.env.MAX_ROWS || "10000", 10);
-export const QUERY_TIMEOUT = parseInt(
-  process.env.QUERY_TIMEOUT_MS || "90000",
-  10,
-);
+const QUERY_TIMEOUT = parseInt(process.env.QUERY_TIMEOUT_MS || "90000", 10);
 
 // Connection pools
 const pgPools = new Map<string, pg.Pool>();

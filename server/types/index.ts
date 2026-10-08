@@ -325,3 +325,9 @@ export interface WriteRequest {
   updatedAt: string;
   events?: WriteRequestEvent[];
 }
+
+/** Admin AI settings (`/api/azure-ai/settings`). */
+export interface AiSettings {
+  /** Include distinct values of short, non-PHI text columns in AI schema context. */
+  columnValues: boolean;
+}

@@ -44,7 +44,7 @@ ever leaving the building in the clear.
 ### AI assistant (Azure OpenAI)
 
 - **Natural-language → query** for read and write modes, dialect-aware, with a table-selection pass for large schemas and few-shot examples pulled from saved queries.
-- **Schema-only** — only schema metadata is sent to Azure OpenAI; **never row data**. Every generation is logged (prompt, response, model, tokens, latency) for admin review.
+- **Schema, not results** — Azure OpenAI receives schema metadata (tables, columns, types, keys, PHI flags) and, while **Settings → Azure OpenAI → Include column values in AI context** is on (the default), the distinct values of short text columns with at most 20 values that no PHI rule matches — e.g. `status: draft | placed | shipped`, so queries use the stored spelling. Postgres reads those from planner statistics (`pg_stats`, no table scan); SQL Server samples them with a bounded `SELECT DISTINCT`. **Never PHI, never query results or any other row data.** Turn the setting off to send metadata only. Every generation is logged (prompt, response, model, tokens, latency) for admin review.
 
 ### AI agents (MCP)
 

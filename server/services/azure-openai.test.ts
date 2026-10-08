@@ -1,5 +1,20 @@
-import { describe, it, expect } from "vitest";
-import { tag, parseGeneration } from "./azure-openai.js";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { fetch as undiciFetch } from "undici";
+import {
+  tag,
+  parseGeneration,
+  azureChat,
+  isContentFilterError,
+  aiErrorResponse,
+  AzureOpenAIError,
+  CONTENT_FILTER_MESSAGE,
+} from "./azure-openai.js";
+
+vi.mock("undici", async (orig) => ({
+  ...(await orig<object>()),
+  fetch: vi.fn(),
+}));
+const fetchMock = vi.mocked(undiciFetch);
 
 /**
  * `tag()` is the boundary between trusted prompt instructions and untrusted
@@ -55,6 +70,104 @@ describe("parseGeneration", () => {
     expect(parseGeneration("  SELECT * FROM customers  ")).toEqual({
       query: "SELECT * FROM customers",
       explanation: "",
+    });
+  });
+});
+
+// The body Azure sends when its content filter rejects the prompt (trimmed).
+const FILTERED_BODY = {
+  error: {
+    message:
+      "The response was filtered due to the prompt triggering Azure OpenAI's content management policy.",
+    code: "content_filter",
+    status: 400,
+    innererror: { code: "ResponsibleAIPolicyViolation" },
+  },
+};
+const CONFIG = {
+  endpoint: "https://example.invalid",
+  apiKey: "k",
+  deployment: "d",
+  apiVersion: "v",
+};
+const respond = (status: number, body: unknown) =>
+  ({
+    ok: status < 400,
+    status,
+    statusText: "x",
+    json: async () => body,
+  }) as never;
+
+describe("content filter", () => {
+  beforeEach(() => fetchMock.mockReset());
+
+  it("recognises the code, the inner code or the policy message", () => {
+    expect(isContentFilterError(FILTERED_BODY)).toBe(true);
+    expect(
+      isContentFilterError({
+        error: { innererror: { code: "ResponsibleAIPolicyViolation" } },
+      }),
+    ).toBe(true);
+    expect(
+      isContentFilterError({
+        error: { message: "blocked by the content management policy" },
+      }),
+    ).toBe(true);
+    expect(
+      isContentFilterError({
+        error: { message: "Unsupported parameter: 'temperature'" },
+      }),
+    ).toBe(false);
+    expect(isContentFilterError(undefined)).toBe(false);
+  });
+
+  it("flags a filtered prompt and does not retry it", async () => {
+    fetchMock.mockResolvedValue(respond(400, FILTERED_BODY));
+    const err = await azureChat(CONFIG, [{ role: "user", content: "x" }], {
+      temperature: 0,
+      jsonMode: true,
+    }).catch((e) => e);
+    expect(err).toBeInstanceOf(AzureOpenAIError);
+    expect(err.contentFiltered).toBe(true);
+    expect(err.status).toBe(400);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("flags a completion the filter cut off", async () => {
+    fetchMock.mockResolvedValue(
+      respond(200, {
+        choices: [
+          { finish_reason: "content_filter", message: { content: "" } },
+        ],
+      }),
+    );
+    const err = await azureChat(CONFIG, [{ role: "user", content: "x" }]).catch(
+      (e) => e,
+    );
+    expect(err.contentFiltered).toBe(true);
+  });
+
+  it("does not flag an ordinary 400", async () => {
+    fetchMock.mockResolvedValue(
+      respond(400, { error: { message: "Invalid deployment" } }),
+    );
+    const err = await azureChat(CONFIG, [{ role: "user", content: "x" }]).catch(
+      (e) => e,
+    );
+    expect(err.contentFiltered).toBe(false);
+  });
+
+  it("maps a filtered error to a 422 with the friendly message", () => {
+    expect(
+      aiErrorResponse(new AzureOpenAIError("raw", 400, true), "fallback"),
+    ).toEqual({ status: 422, error: CONTENT_FILTER_MESSAGE });
+    expect(aiErrorResponse(new AzureOpenAIError("raw", 400), "f")).toEqual({
+      status: 502,
+      error: "raw",
+    });
+    expect(aiErrorResponse(new Error(""), "fallback")).toEqual({
+      status: 500,
+      error: "fallback",
     });
   });
 });
