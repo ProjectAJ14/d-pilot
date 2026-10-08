@@ -29,6 +29,11 @@ createdb dpilot_local   # any local Postgres; app_core is created by the seed
 psql -h localhost -U <role> -d dpilot_local -f scripts/seed-local.sql
 ```
 
+The seed ends with `ANALYZE`. Keep it that way: the AI schema context takes column
+values (`status ... values: draft | placed | ...`) from `pg_stats`, which is empty
+until a table is analyzed. If you change seed data by hand, re-run `ANALYZE` as the
+tables' owner (a non-owner role is silently skipped with a warning).
+
 Then:
 
 ```bash

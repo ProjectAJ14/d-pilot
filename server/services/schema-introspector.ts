@@ -9,6 +9,7 @@ import type {
 } from "../types/index.js";
 import { findMatchingRule } from "./phi-masking.js";
 import { scanSql } from "./sql-scan.js";
+import { QUERY_TIMEOUT } from "./query-executor.js";
 
 /** The default schema for a connection when none is explicitly selected. */
 export function defaultSchema(conn: ConnectionConfig): string {
@@ -464,7 +465,10 @@ async function getEsIndices(conn: ConnectionConfig): Promise<TableInfo[]> {
 // connection with a configurable TTL, then format any subset of tables on
 // demand. This lets us send only the tables relevant to a request (chosen by a
 // cheap LLM pass) in full detail, instead of an arbitrary shallow cap.
-// Only metadata (table/column names + types) is ever read — never row data.
+// Metadata (table/column names + types) plus, for short low-cardinality
+// non-PHI text columns, their distinct values (Postgres: applyPgStatsValues;
+// SQL Server: sampleColumnValues) — so the
+// model writes `status = 'placed'` rather than guessing at the stored spelling.
 
 /** Full structured schema for a connection: all tables and their columns. */
 export interface FullSchema {
@@ -751,7 +755,13 @@ function formatTable(name: string, type: string, cols: ColumnInfo[]): string {
     if (!c.nullable) flags.push("NOT NULL");
     if (c.isPhiField) flags.push("PHI");
     const suffix = flags.length ? ` [${flags.join(", ")}]` : "";
-    return `  - ${c.name}: ${c.dataType}${suffix}`;
+    // Re-check PHI at render time: a rule added after the schema was cached
+    // must keep its column's values out of the prompt immediately.
+    const values =
+      c.values?.length && !c.isPhiField && !findMatchingRule(c.name)
+        ? `  values: ${c.values.join(" | ")}`
+        : "";
+    return `  - ${c.name}: ${c.dataType}${suffix}${values}`;
   });
   if (cols.length > shown.length) {
     lines.push(`  - ...(${cols.length - shown.length} more columns)`);
@@ -759,6 +769,149 @@ function formatTable(name: string, type: string, cols: ColumnInfo[]): string {
   const label = type === "VIEW" ? " (view)" : "";
   return `${name}${label}\n${lines.join("\n")}`;
 }
+
+// --- Distinct values of low-cardinality text columns (AI context) ---
+
+const VALUE_MAX_DISTINCT = 20;
+const VALUE_MAX_LENGTH = 40;
+const MAX_VALUE_COLUMNS = 200;
+// information_schema DATA_TYPE spellings (Postgres + SQL Server). MSSQL
+// text/ntext can't be DISTINCTed and are left out; Postgres enums report
+// USER-DEFINED and are cast to text by the sampling query.
+const VALUE_TEXT_TYPES = new Set([
+  "character varying",
+  "character",
+  "text",
+  "user-defined",
+  "varchar",
+  "nvarchar",
+  "char",
+  "nchar",
+]);
+
+/**
+ * Whether a column's values may be sampled. Never a PHI column: a column is
+ * skipped if ANY rule matches it — scoped to this database/table or not (the
+ * unscoped call matches every rule regardless of its scope, the broadest net,
+ * and rules are not per-environment, so this covers every environment). The
+ * schema cache is shared by every user, so per-user unmask rights don't apply.
+ */
+export function isValueSampleCandidate(
+  c: ColumnInfo,
+  database: string | undefined,
+  table: string,
+): boolean {
+  return (
+    VALUE_TEXT_TYPES.has(c.dataType.toLowerCase()) &&
+    !c.isPhiField &&
+    !findMatchingRule(c.name, database, table) &&
+    !findMatchingRule(c.name)
+  );
+}
+
+/**
+ * The value list to keep for a sampled column, or undefined when it is too
+ * varied (> VALUE_MAX_DISTINCT), too long, or carries characters that could
+ * break the prompt framing (newlines, tags, the ` | ` separator).
+ */
+export function keepColumnValues(rows: unknown[]): string[] | undefined {
+  if (rows.length > VALUE_MAX_DISTINCT) return undefined;
+  const values = rows.filter((v) => v != null).map(String);
+  if (!values.length) return undefined;
+  if (values.some((v) => v.length > VALUE_MAX_LENGTH || /[\r\n<>|]/.test(v)))
+    return undefined;
+  return values.sort();
+}
+
+/** One pg_stats row: planner statistics for a column, from its last ANALYZE. */
+export interface PgStatsRow {
+  tablename: string;
+  attname: string;
+  n_distinct: number;
+  vals: string[] | null;
+}
+
+/**
+ * Postgres values come from planner statistics, not the table: zero scans.
+ * `n_distinct > 0` is an absolute count (negative means a fraction of the row
+ * count, i.e. high cardinality); most_common_vals holds every value only when
+ * ANALYZE saw them all, so its length must equal n_distinct. A column never
+ * ANALYZEd has no row and gets no values. Values reflect the last ANALYZE and
+ * may miss a value rare enough to have escaped its sample.
+ */
+export const PG_STATS_SQL = `SELECT tablename, attname, n_distinct,
+         most_common_vals::text::text[] AS vals
+  FROM pg_stats
+  WHERE schemaname = $1 AND n_distinct > 0 AND n_distinct <= ${VALUE_MAX_DISTINCT}
+    AND most_common_vals IS NOT NULL`;
+
+/** Attaches `values` from pg_stats rows to eligible base-table columns, in place. */
+export function applyPgStatsValues(
+  full: FullSchema,
+  database: string | undefined,
+  rows: PgStatsRow[],
+): void {
+  const views = new Set(
+    full.tables.filter((t) => t.type === "VIEW").map((t) => t.name),
+  );
+  for (const r of rows) {
+    if (views.has(r.tablename) || !r.vals) continue;
+    const n = Number(r.n_distinct);
+    if (!(n > 0 && n <= VALUE_MAX_DISTINCT) || r.vals.length !== n) continue;
+    const c = full.columns[r.tablename]?.find((x) => x.name === r.attname);
+    if (!c || !isValueSampleCandidate(c, database, r.tablename)) continue;
+    const values = keepColumnValues(r.vals);
+    if (values) c.values = values;
+  }
+}
+
+const MSSQL_SAMPLE_MAX_ROWS = 100_000;
+const MSSQL_SAMPLE_BUDGET_MS = 5_000;
+
+/**
+ * SQL Server has no cheap catalog equivalent of pg_stats, so it samples with a
+ * bounded `SELECT DISTINCT TOP 21`, but only on base tables of at most
+ * MSSQL_SAMPLE_MAX_ROWS rows (by `rowCounts`; unknown = skipped), at most
+ * MAX_VALUE_COLUMNS columns, and only until `budgetMs` of wall clock is spent
+ * — whatever was sampled by then is kept. A failing column is skipped.
+ *
+ * ponytail: the budget is checked between queries, so one in-flight DISTINCT
+ * (on <= 100k rows) can overrun it by its own duration.
+ */
+export async function sampleColumnValues(
+  full: FullSchema,
+  database: string | undefined,
+  rowCounts: Map<string, number>,
+  distinct: (
+    table: string,
+    column: string,
+    limit: number,
+  ) => Promise<unknown[]>,
+  budgetMs = MSSQL_SAMPLE_BUDGET_MS,
+): Promise<void> {
+  const deadline = Date.now() + budgetMs;
+  let budget = MAX_VALUE_COLUMNS;
+  for (const t of full.tables) {
+    const rows = rowCounts.get(t.name);
+    if (t.type === "VIEW" || rows === undefined || rows > MSSQL_SAMPLE_MAX_ROWS)
+      continue;
+    for (const c of full.columns[t.name] ?? []) {
+      if (budget <= 0 || Date.now() >= deadline) return;
+      if (!isValueSampleCandidate(c, database, t.name)) continue;
+      budget--;
+      try {
+        const values = keepColumnValues(
+          await distinct(t.name, c.name, VALUE_MAX_DISTINCT + 1),
+        );
+        if (values) c.values = values;
+      } catch {
+        // Permission denied, timeout, un-DISTINCT-able type: no values.
+      }
+    }
+  }
+}
+
+const mssqlIdent = (s: string) => `[${s.replace(/]/g, "]]")}]`;
 
 async function getPostgresFullSchema(
   conn: ConnectionConfig,
@@ -775,7 +928,7 @@ async function getPostgresFullSchema(
   });
 
   try {
-    const [tablesRes, colsRes, pkRes, fkRes] = await Promise.all([
+    const [tablesRes, colsRes, pkRes, fkRes, statsRes] = await Promise.all([
       pool.query(
         `SELECT table_name, table_type FROM information_schema.tables
          WHERE table_schema = $1 ORDER BY table_name`,
@@ -795,6 +948,7 @@ async function getPostgresFullSchema(
         [schema],
       ),
       pool.query(PG_FK_SQL, [schema]),
+      pool.query<PgStatsRow>(PG_STATS_SQL, [schema]),
     ]);
 
     const pkSet = new Set(
@@ -823,7 +977,9 @@ async function getPostgresFullSchema(
       name: t.table_name as string,
       type: t.table_type === "VIEW" ? "VIEW" : "TABLE",
     }));
-    return { tables, columns };
+    const full = { tables, columns };
+    applyPgStatsValues(full, conn.database, statsRes.rows);
+    return full;
   } finally {
     await pool.end();
   }
@@ -841,6 +997,7 @@ async function getMssqlFullSchema(
     password: conn.password,
     options: { encrypt: false, trustServerCertificate: true },
     connectionTimeout: 10000,
+    requestTimeout: QUERY_TIMEOUT,
   });
 
   try {
@@ -889,7 +1046,36 @@ async function getMssqlFullSchema(
       name: t.TABLE_NAME as string,
       type: t.TABLE_TYPE === "VIEW" ? "VIEW" : "TABLE",
     }));
-    return { tables, columns };
+    const full = { tables, columns };
+    // Row counts from partition metadata (heap or clustered index), one query.
+    const countRes = await req().query(
+      `SELECT t.name AS table_name, SUM(p.rows) AS row_count
+       FROM sys.tables t
+       JOIN sys.schemas s ON t.schema_id = s.schema_id
+       JOIN sys.partitions p ON p.object_id = t.object_id AND p.index_id IN (0, 1)
+       WHERE s.name = @schema
+       GROUP BY t.name`,
+    );
+    const rowCounts = new Map(
+      (countRes.recordset as any[]).map((r) => [
+        r.table_name as string,
+        Number(r.row_count),
+      ]),
+    );
+    await sampleColumnValues(
+      full,
+      conn.database,
+      rowCounts,
+      async (table, col, limit) => {
+        const res = await pool
+          .request()
+          .query(
+            `SELECT DISTINCT TOP ${limit} ${mssqlIdent(col)} AS v FROM ${mssqlIdent(schema)}.${mssqlIdent(table)}`,
+          );
+        return (res.recordset as any[]).map((r) => r.v);
+      },
+    );
+    return full;
   } finally {
     await pool.close();
   }

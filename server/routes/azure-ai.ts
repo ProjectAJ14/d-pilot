@@ -344,6 +344,7 @@ router.post("/generate-query", async (req: Request, res: Response) => {
             "- Exactly ONE statement, and it MUST be a single INSERT, UPDATE or DELETE. NEVER a bare SELECT, and NEVER DDL (DROP/ALTER/TRUNCATE/CREATE/GRANT/REVOKE) or stacked statements.",
             "- For UPDATE/DELETE, ALWAYS include a WHERE that scopes it to exactly the intended rows. NEVER a whole-table UPDATE/DELETE unless the user explicitly asks for it.",
             "- Only reference tables and columns that exist in <schema>. Keep it minimal — SET only the columns the request mentions; do not restate unchanged columns.",
+            "- A column with `values: a | b | c` in <schema> stores exactly those values. When filtering on it, use one of them verbatim (same spelling and case), mapping the user's wording to the closest listed value.",
             "- Columns marked [PHI] contain protected health information; only write them when the request clearly requires it.",
             "- <example_queries>, when present, are queries users saved against these tables. Use them as a style/structure reference for naming, joins, and conventions — adapt, do not copy verbatim.",
             "- <current_query>, when present, is the query the user is editing. Use it as context; refine it if relevant.",
@@ -375,6 +376,7 @@ router.post("/generate-query", async (req: Request, res: Response) => {
           [
             "- NEVER produce INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, CREATE, GRANT, REVOKE, EXEC or any write/DDL statement.",
             "- Only reference tables and columns that exist in <schema>.",
+            "- A column with `values: a | b | c` in <schema> stores exactly those values. When filtering on it, use one of them verbatim (same spelling and case), mapping the user's wording to the closest listed value.",
             "- Columns marked [PHI] contain protected health information; you may select them when asked, but never invent filters that expose them unnecessarily.",
             "- Favor concise, readable queries. Use `SELECT *` for a simple single-table lookup; only list explicit columns when the user asks for specific fields, or when joining/aggregating where specific columns are genuinely needed. NEVER enumerate every column just to avoid `*`.",
             "- Do not add filters, ordering, or limits the user did not ask for. The tool applies its own row limit.",
