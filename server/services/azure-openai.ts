@@ -249,3 +249,43 @@ export async function azureChat(
     lastStatus,
   );
 }
+
+/**
+ * Wraps prompt data in `<name>…</name>` so the model can tell trusted
+ * instructions from untrusted content (schema, user text, SQL). Any closing tag
+ * for `name` inside `body` is defanged so the content cannot end the block early
+ * and smuggle in instructions. Deliberately NOT HTML-escaped: SQL uses `<`, `>`
+ * and `<>`, and the model would echo entities back into the generated query.
+ */
+export function tag(name: string, body: string): string {
+  const safe = body.replace(new RegExp(`</(${name})`, "gi"), "<\\/$1");
+  return `<${name}>\n${safe}\n</${name}>`;
+}
+
+/** Robustly extracts {query, explanation} from a model's text output. */
+export function parseGeneration(content: string): {
+  query: string;
+  explanation: string;
+} {
+  const cleaned = content
+    .trim()
+    .replace(/^```(?:json|sql)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+  try {
+    const obj = JSON.parse(cleaned);
+    return {
+      query: typeof obj.query === "string" ? obj.query.trim() : "",
+      explanation:
+        typeof obj.explanation === "string" ? obj.explanation.trim() : "",
+    };
+  } catch {
+    // Fallback: maybe the model returned a bare query or a fenced code block.
+    const fenceMatch = content.match(
+      /```(?:sql|json|javascript)?\s*([\s\S]*?)```/i,
+    );
+    if (fenceMatch) return { query: fenceMatch[1].trim(), explanation: "" };
+    return { query: cleaned, explanation: "" };
+  }
+}
