@@ -1,5 +1,6 @@
 import type {
   AiChatLogEntry,
+  AiSettings,
   Artifact,
   ArtifactBlock,
   ApiErrorCode,
@@ -536,6 +537,14 @@ export const api = {
       relevantSelection?: boolean;
     }>("/azure-ai/generate-query", {
       method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  // AI settings (admin)
+  getAiSettings: () => request<AiSettings>("/azure-ai/settings"),
+  updateAiSettings: (data: AiSettings) =>
+    request<AiSettings>("/azure-ai/settings", {
+      method: "PUT",
       body: JSON.stringify(data),
     }),
 

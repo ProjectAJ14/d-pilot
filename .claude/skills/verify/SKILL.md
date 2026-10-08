@@ -18,6 +18,37 @@ description: How to launch and drive D-Pilot locally to verify changes end-to-en
 - Get a JWT: `POST /api/auth/login` with `{"username","password"}` → `{token}`; pass as
   `Authorization: Bearer <token>` to everything else.
 
+## Isolated stack against a local Postgres
+
+The default way to verify end-to-end without touching the main `.env` or the shared
+`data/dbpilot.sqlite`: a scratch data dir, its own ports, and every setting on the
+command line (command-line env wins over dotenv). Seed the sample schema once:
+
+```bash
+createdb dpilot_local   # any local Postgres; app_core is created by the seed
+psql -h localhost -U <role> -d dpilot_local -f scripts/seed-local.sql
+```
+
+The seed ends with `ANALYZE`. Keep it that way: the AI schema context takes column
+values (`status ... values: draft | placed | ...`) from `pg_stats`, which is empty
+until a table is analyzed. If you change seed data by hand, re-run `ANALYZE` as the
+tables' owner (a non-owner role is silently skipped with a warning).
+
+Then:
+
+```bash
+SCRATCH=$(mktemp -d)
+PORT=3199 DATA_DIR=$SCRATCH/data JWT_SECRET=local-verify-secret-0123456789abcdef \
+EMAIL_DOMAIN=example.com DEFAULT_ADMIN_PASSWORD='Verify#12345' \
+DBFORGE_CONNECTIONS='[{"id":"local-pg","name":"Local Postgres","env":"DEV","type":"postgres","host":"localhost","port":5432,"database":"dpilot_local","username":"<role>","password":"","schema":"app_core"}]' \
+npx tsx server/index.ts
+PORT=3199 VITE_PORT=3198 npx vite   # client on :3198 proxying to :3199
+```
+
+Log in as `admin@example.com` / `Verify#12345`. The admin is seeded into the empty
+scratch DB, so nothing is shared with your day-to-day instance. Kill both processes and
+delete `$SCRATCH` when done.
+
 ## Simulating unreachable databases (VPN-off / connection-failure paths)
 
 Don't edit `.env`. Launch a second isolated stack with connections overridden on the
@@ -34,7 +65,8 @@ Gotchas:
   groups by `conn.env` and silently shows "No connections configured" if it's missing.
 - `host: "nonexistent-host.invalid"` fails fast (DNS); MongoDB takes ~10s
   (serverSelectionTimeoutMS) — useful for observing loading states.
-- Both stacks share `data/dbpilot.sqlite`, so the same admin login works.
+- Without `DATA_DIR`, both stacks share `data/dbpilot.sqlite` (same admin login, but
+  also the same settings and audit log) — prefer the isolated recipe above.
 
 ## Driving the UI
 
@@ -45,7 +77,13 @@ Navigate to the client port, fill the two login fields,
 then interact with the Explorer sidebar / query editor. Mantine `Select` dropdowns render
 options in a portal — snapshot `[role="listbox"]` after clicking the input.
 
+## AI changes
+
+Any change to an AI prompt, dialect guidance, the model/deployment or
+`server/services/azure-openai.ts` also needs the `ai-eval` skill: run the eval on the
+change and on a baseline, and compare.
+
 ## Notes
 
-- `npm run lint` is currently broken (eslint isn't in devDependencies).
-- `npm run build` (vite + tsc for server) is the type-check gate.
+- `npm run verify` (format:check → lint → typecheck → test) is the local CI gate;
+  `pre-push` runs it. CI additionally runs `npm run build`.

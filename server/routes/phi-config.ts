@@ -10,6 +10,7 @@ import {
   logAudit,
 } from "../services/sqlite-store.js";
 import { requireAdmin } from "../middleware/auth.js";
+import { clearSchemaCache } from "../services/schema-introspector.js";
 import {
   getConnection,
   getEnvironments,
@@ -358,6 +359,9 @@ router.post("/import", requireAdmin, (req: Request, res: Response) => {
     phiAccessed: false,
   });
 
+  // Cached schemas carry sampled column values; drop them so a newly
+  // PHI-flagged column's values are never served again.
+  clearSchemaCache();
   res.json({ imported, updated, skipped, total: parsed.length });
 });
 
@@ -377,6 +381,7 @@ router.post("/", requireAdmin, (req: Request, res: Response) => {
     database,
     table,
   });
+  clearSchemaCache(); // see /import
   res.status(201).json(rule);
 });
 
@@ -390,6 +395,7 @@ router.put("/:id", requireAdmin, (req: Request, res: Response) => {
     database,
     table,
   });
+  clearSchemaCache(); // see /import
   res.json(rule);
 });
 
@@ -409,6 +415,7 @@ router.delete("/", requireAdmin, (req: Request, res: Response) => {
     phiAccessed: false,
   });
 
+  clearSchemaCache(); // cached [PHI] flags and values are stale now
   res.json({ deleted, kept });
 });
 
@@ -418,6 +425,7 @@ router.delete("/:id", requireAdmin, (req: Request, res: Response) => {
     res.status(404).json({ error: "Rule not found" });
     return;
   }
+  clearSchemaCache(); // cached [PHI] flags and values are stale now
   res.json({ deleted: true });
 });
 

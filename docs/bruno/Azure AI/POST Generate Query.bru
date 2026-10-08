@@ -26,7 +26,7 @@ body:json {
 }
 
 docs {
-  Generate a query from natural language. `mode`: read | write. Only schema metadata is sent to the model — never row data.
+  Generate a query from natural language. `mode`: read | write. The model receives schema metadata plus, while the AI setting `columnValues` is on (default; see Get AI Settings), the distinct values of short text columns with at most 20 values that no PHI rule matches. Never PHI, never query results or other row data. A request Azure's content filter blocks returns 422 with a "try rephrasing" message.
 
   Requires a valid Bearer JWT ({{token}}) plus **read** capability for the connection's environment — 403 otherwise (admins hold every environment).
 }

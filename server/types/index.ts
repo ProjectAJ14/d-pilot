@@ -221,6 +221,8 @@ export interface ColumnInfo {
   references?: string;
   defaultValue?: string;
   isPhiField: boolean;
+  /** Every distinct value of a short, low-cardinality, non-PHI text column (AI context). */
+  values?: string[];
 }
 
 export interface AuthUser {
@@ -322,4 +324,10 @@ export interface WriteRequest {
   createdAt: string;
   updatedAt: string;
   events?: WriteRequestEvent[];
+}
+
+/** Admin AI settings (`/api/azure-ai/settings`). */
+export interface AiSettings {
+  /** Include distinct values of short, non-PHI text columns in AI schema context. */
+  columnValues: boolean;
 }

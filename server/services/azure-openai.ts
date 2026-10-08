@@ -108,22 +108,61 @@ export function getAzureConfig(): {
 
 export class AzureOpenAIError extends Error {
   status?: number;
-  constructor(message: string, status?: number) {
+  /** Azure's content filter refused the prompt or the completion. */
+  contentFiltered: boolean;
+  constructor(message: string, status?: number, contentFiltered = false) {
     super(message);
     this.name = "AzureOpenAIError";
     this.status = status;
+    this.contentFiltered = contentFiltered;
   }
 }
 
-async function parseErrorMessage(response: {
+/** Shown to the user when Azure's content filter blocks a request. */
+export const CONTENT_FILTER_MESSAGE =
+  "The AI provider's content filter blocked this request. Try rephrasing it.";
+
+/**
+ * Whether an Azure error body is a content-filter refusal: `code:
+ * "content_filter"`, an inner `ResponsibleAIPolicyViolation`, or a message
+ * citing the content management policy.
+ */
+export function isContentFilterError(body: any): boolean {
+  const e = body?.error ?? body;
+  return (
+    e?.code === "content_filter" ||
+    e?.innererror?.code === "ResponsibleAIPolicyViolation" ||
+    /content[_ ]filter|content management policy|ResponsibleAIPolicyViolation/i.test(
+      String(e?.message ?? ""),
+    )
+  );
+}
+
+/** HTTP status + message a route should answer with for a failed AI call. */
+export function aiErrorResponse(
+  err: any,
+  fallback: string,
+): { status: number; error: string } {
+  if (err instanceof AzureOpenAIError && err.contentFiltered)
+    return { status: 422, error: CONTENT_FILTER_MESSAGE };
+  return {
+    status: err instanceof AzureOpenAIError && err.status ? 502 : 500,
+    error: err?.message || fallback,
+  };
+}
+
+async function parseErrorBody(response: {
   json(): Promise<any>;
   statusText: string;
-}): Promise<string> {
+}): Promise<{ message: string; filtered: boolean }> {
   try {
     const body = (await response.json()) as any;
-    return body?.error?.message || body?.message || response.statusText;
+    return {
+      message: body?.error?.message || body?.message || response.statusText,
+      filtered: isContentFilterError(body),
+    };
   } catch {
-    return response.statusText;
+    return { message: response.statusText, filtered: false };
   }
 }
 
@@ -180,6 +219,7 @@ export async function azureChat(
   const maxAttempts = adaptations.length + 1;
   let lastDetail = "";
   let lastStatus: number | undefined;
+  let lastFiltered = false;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const controller = new AbortController();
@@ -221,6 +261,14 @@ export async function azureChat(
 
     if (response.ok) {
       const data = (await response.json()) as any;
+      // The filter can also cut the completion itself, with a 200.
+      if (data?.choices?.[0]?.finish_reason === "content_filter") {
+        throw new AzureOpenAIError(
+          "Azure OpenAI content filter blocked the response",
+          response.status,
+          true,
+        );
+      }
       const content = data?.choices?.[0]?.message?.content ?? "";
       const u = data?.usage;
       return {
@@ -237,7 +285,9 @@ export async function azureChat(
     }
 
     lastStatus = response.status;
-    lastDetail = await parseErrorMessage(response);
+    ({ message: lastDetail, filtered: lastFiltered } =
+      await parseErrorBody(response));
+    if (lastFiltered) break;
 
     // Try to adapt the body to a parameter incompatibility and retry.
     const adapted = adaptations.some((fn) => fn(lastDetail));
@@ -247,5 +297,46 @@ export async function azureChat(
   throw new AzureOpenAIError(
     `Azure OpenAI returned ${lastStatus ?? "error"}: ${lastDetail}`,
     lastStatus,
+    lastFiltered,
   );
+}
+
+/**
+ * Wraps prompt data in `<name>…</name>` so the model can tell trusted
+ * instructions from untrusted content (schema, user text, SQL). Any closing tag
+ * for `name` inside `body` is defanged so the content cannot end the block early
+ * and smuggle in instructions. Deliberately NOT HTML-escaped: SQL uses `<`, `>`
+ * and `<>`, and the model would echo entities back into the generated query.
+ */
+export function tag(name: string, body: string): string {
+  const safe = body.replace(new RegExp(`</(${name})`, "gi"), "<\\/$1");
+  return `<${name}>\n${safe}\n</${name}>`;
+}
+
+/** Robustly extracts {query, explanation} from a model's text output. */
+export function parseGeneration(content: string): {
+  query: string;
+  explanation: string;
+} {
+  const cleaned = content
+    .trim()
+    .replace(/^```(?:json|sql)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+  try {
+    const obj = JSON.parse(cleaned);
+    return {
+      query: typeof obj.query === "string" ? obj.query.trim() : "",
+      explanation:
+        typeof obj.explanation === "string" ? obj.explanation.trim() : "",
+    };
+  } catch {
+    // Fallback: maybe the model returned a bare query or a fenced code block.
+    const fenceMatch = content.match(
+      /```(?:sql|json|javascript)?\s*([\s\S]*?)```/i,
+    );
+    if (fenceMatch) return { query: fenceMatch[1].trim(), explanation: "" };
+    return { query: cleaned, explanation: "" };
+  }
 }

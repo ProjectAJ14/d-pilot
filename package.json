@@ -24,6 +24,7 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm test",
+    "ai:eval": "node scripts/ai-eval/run.mjs",
     "icons:pwa": "node scripts/generate-pwa-icons.mjs",
     "prepare": "husky"
   },

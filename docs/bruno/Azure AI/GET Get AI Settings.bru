@@ -1,0 +1,20 @@
+meta {
+  name: Get AI Settings
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/azure-ai/settings
+  body: none
+  auth: inherit
+}
+
+docs {
+  Read the AI settings: `{ "columnValues": boolean }`.
+
+  `columnValues` (default true) — include in the AI schema context the distinct values of short text columns with at most 20 values that no PHI rule matches (Postgres: from planner statistics; SQL Server: sampled). When false, only schema metadata is sent.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

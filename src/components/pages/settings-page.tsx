@@ -136,7 +136,7 @@ const SETTINGS_SECTIONS = [
     value: "azure",
     label: "Azure OpenAI",
     icon: IconSparkles,
-    desc: "AI provider connection",
+    desc: "AI provider connection & context",
   },
   {
     value: "ai-log",
@@ -3134,6 +3134,28 @@ interface AzureTestResult {
 function AzureOpenAiTab() {
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<AzureTestResult | null>(null);
+  const [columnValues, setColumnValues] = useState<boolean | null>(null);
+  const [savingValues, setSavingValues] = useState(false);
+
+  useEffect(() => {
+    api
+      .getAiSettings()
+      .then((s) => setColumnValues(s.columnValues))
+      .catch((err) => notifyError(err, "Settings"));
+  }, []);
+
+  const saveColumnValues = async (next: boolean) => {
+    setSavingValues(true);
+    try {
+      const s = await api.updateAiSettings({ columnValues: next });
+      setColumnValues(s.columnValues);
+      notifications.show({ message: "AI settings updated", color: "green" });
+    } catch (err: any) {
+      notifyError(err, "Settings");
+    } finally {
+      setSavingValues(false);
+    }
+  };
 
   const handleTest = async () => {
     setTesting(true);
@@ -3195,6 +3217,33 @@ function AzureOpenAiTab() {
         >
           Test Connect to Azure OpenAI
         </Button>
+      </Group>
+
+      <Group
+        justify="space-between"
+        wrap="nowrap"
+        mb="lg"
+        style={{ maxWidth: 520 }}
+      >
+        <div>
+          <Text fw={700} size="sm" c="var(--text)">
+            Include column values in AI context
+          </Text>
+          <Text size="xs" c="dimmed">
+            Sends the distinct values of short text columns with at most 20
+            values that no PHI rule matches (e.g. a status column), so queries
+            use the stored spelling. Postgres reads them from planner
+            statistics; SQL Server samples them.
+          </Text>
+        </div>
+        <Switch
+          checked={!!columnValues}
+          onChange={(e) => saveColumnValues(e.currentTarget.checked)}
+          disabled={columnValues === null || savingValues}
+          size="md"
+          color="teal"
+          aria-label="Include column values in AI context"
+        />
       </Group>
 
       {/* Result panel */}

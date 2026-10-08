@@ -1,0 +1,28 @@
+meta {
+  name: Set AI Settings
+  type: http
+  seq: 6
+}
+
+put {
+  url: {{baseUrl}}/api/azure-ai/settings
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "columnValues": false
+  }
+}
+
+docs {
+  Turn column values in the AI schema context on or off. `columnValues` must be a boolean (400 otherwise). Clears the schema cache so the next generation re-introspects under the new setting; prompts stop showing values immediately either way.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}
