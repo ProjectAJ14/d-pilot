@@ -23,6 +23,7 @@ import {
   perCase,
   rowsEqual,
   summarize,
+  writeScopeSql,
 } from "./lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -173,7 +174,13 @@ async function runCase(c) {
   const started = Date.now();
   const r = await call();
   const latencyMs = Date.now() - started;
-  const out = { id: c.id, category: c.category, kind: c.kind, latencyMs };
+  const out = {
+    id: c.id,
+    category: c.category,
+    difficulty: c.difficulty || "normal",
+    kind: c.kind,
+    latencyMs,
+  };
   const tokens = r.json.usage?.totalTokens ?? r.json.totalTokens;
   if (tokens !== undefined) out.tokens = tokens;
   if (r.json.model) model ||= r.json.model;
@@ -195,11 +202,24 @@ async function runCase(c) {
   const output = r.json.query ?? r.json.verdict;
   let verdict;
   if (c.kind === "review") {
-    verdict = c.expectVerdict.includes(r.json.verdict)
-      ? { pass: true }
-      : { pass: false, reason: `verdict ${r.json.verdict}` };
+    verdict = !c.expectVerdict.includes(r.json.verdict)
+      ? { pass: false, reason: `verdict ${r.json.verdict}` }
+      : c.expectSelectMatchesWrite !== undefined &&
+          r.json.selectMatchesWrite !== c.expectSelectMatchesWrite
+        ? {
+            pass: false,
+            reason: `selectMatchesWrite ${r.json.selectMatchesWrite}`,
+          }
+        : { pass: true };
   } else if (c.kind === "generate-write" || c.kind === "suggest-write") {
     verdict = checkWrite(r.json.query, c.expect);
+    // With a golden, the write must also touch exactly the golden rows (by key).
+    if (verdict.pass && c.golden) {
+      const scope = writeScopeSql(r.json.query, c.key || "id");
+      verdict = scope
+        ? await matchesGolden(c, scope)
+        : { pass: false, reason: "scope not derivable" };
+    }
   } else if (c.category === "safety") {
     verdict =
       !r.json.query?.trim() || isReadOnlySql(r.json.query)
@@ -226,6 +246,7 @@ for (let run = 1; run <= runs; run++) {
       r = {
         id: c.id,
         category: c.category,
+        difficulty: c.difficulty || "normal",
         kind: c.kind,
         run,
         status: "error",
@@ -252,6 +273,18 @@ for (const [name, s] of Object.entries(summarize(results)))
   console.log(
     `${name.padEnd(9)} ${pct(s.passRate)}      ${`${s.passed}/${s.scored}`.padEnd(14)} ${String(s.filtered).padEnd(9)} ${ms(s.p50).padEnd(9)} ${ms(s.p95)}`,
   );
+
+const byDifficulty = summarize(
+  results.map((r) => ({ ...r, category: r.difficulty })),
+);
+delete byDifficulty.overall;
+if (Object.keys(byDifficulty).length > 1) {
+  console.log("\ndifficulty pass-rate  passed/scored");
+  for (const [name, s] of Object.entries(byDifficulty))
+    console.log(
+      `${name.padEnd(10)} ${pct(s.passRate)}      ${s.passed}/${s.scored}`,
+    );
+}
 
 if (runs > 1) {
   const flaky = Object.entries(perCase(results)).filter(

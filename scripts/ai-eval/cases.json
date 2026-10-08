@@ -114,28 +114,40 @@
     "category": "write",
     "kind": "generate-write",
     "prompt": "Mark order 17 as shipped",
-    "expect": { "verb": "UPDATE", "table": "orders" }
+    "expect": {
+      "verb": "UPDATE",
+      "table": "orders"
+    }
   },
   {
     "id": "write-delete-item",
     "category": "write",
     "kind": "generate-write",
     "prompt": "Delete order item 55",
-    "expect": { "verb": "DELETE", "table": "order_items" }
+    "expect": {
+      "verb": "DELETE",
+      "table": "order_items"
+    }
   },
   {
     "id": "write-insert-customer",
     "category": "write",
     "kind": "generate-write",
     "prompt": "Add a new customer named Test User with email test.user@example.com",
-    "expect": { "verb": "INSERT", "table": "customers" }
+    "expect": {
+      "verb": "INSERT",
+      "table": "customers"
+    }
   },
   {
     "id": "write-scoped-bulk-update",
     "category": "write",
     "kind": "generate-write",
     "prompt": "Cancel all draft orders for customer 5",
-    "expect": { "verb": "UPDATE", "table": "orders" }
+    "expect": {
+      "verb": "UPDATE",
+      "table": "orders"
+    }
   },
   {
     "id": "review-whereless-update",
@@ -191,6 +203,162 @@
     "kind": "suggest-write",
     "selectSql": "SELECT * FROM app_core.orders WHERE customer_id = 5 AND status = 'draft'",
     "intent": "cancel these orders",
-    "expect": { "verb": "UPDATE", "table": "orders" }
+    "expect": {
+      "verb": "UPDATE",
+      "table": "orders"
+    }
+  },
+  {
+    "id": "read-hard-waiting-to-ship",
+    "category": "read",
+    "kind": "generate-read",
+    "difficulty": "hard",
+    "prompt": "How many orders are waiting to be shipped?",
+    "golden": "SELECT count(*) FROM app_core.orders WHERE status = 'placed'",
+    "note": "Vague enum wording. Stored statuses are draft/placed/shipped/cancelled: drafts were never submitted and cancelled orders will not ship, so 'waiting to be shipped' is 'placed'. The schema sent to the model does not list the values."
+  },
+  {
+    "id": "read-hard-status-case",
+    "category": "read",
+    "kind": "generate-read",
+    "difficulty": "hard",
+    "prompt": "Sum of total_cents over all orders with status Shipped",
+    "golden": "SELECT sum(total_cents) FROM app_core.orders WHERE status = 'shipped'",
+    "note": "Stored values are lowercase ('shipped'); a literal 'Shipped' matches nothing."
+  },
+  {
+    "id": "read-hard-weekend",
+    "category": "read",
+    "kind": "generate-read",
+    "difficulty": "hard",
+    "prompt": "How many orders were placed on a Saturday or a Sunday?",
+    "golden": "SELECT count(*) FROM app_core.orders WHERE extract(isodow FROM placed_at) IN (6, 7)",
+    "note": "Day-of-week numbering trap: Postgres dow is 0=Sunday..6=Saturday, isodow is 1=Monday..7=Sunday."
+  },
+  {
+    "id": "read-hard-notes-null",
+    "category": "read",
+    "kind": "generate-read",
+    "difficulty": "hard",
+    "prompt": "How many orders have notes that do not mention manual review? Orders with no notes count too.",
+    "golden": "SELECT count(*) FROM app_core.orders WHERE notes IS NULL OR notes NOT ILIKE '%manual review%'",
+    "note": "NULL trap: NOT ILIKE drops the NULL-notes rows (it returns 0 here)."
+  },
+  {
+    "id": "read-hard-pct-born-before-1970",
+    "category": "read",
+    "kind": "generate-read",
+    "difficulty": "hard",
+    "prompt": "What percentage of customers were born before 1970? Round to 2 decimal places.",
+    "golden": "SELECT round(100.0 * count(*) FILTER (WHERE date_of_birth < DATE '1970-01-01') / count(*), 2) FROM app_core.customers",
+    "note": "Integer-division trap: count/count in integer arithmetic gives 0 or 30 instead of 30.83."
+  },
+  {
+    "id": "read-hard-top5-customer-revenue",
+    "category": "read",
+    "kind": "generate-read",
+    "difficulty": "hard",
+    "prompt": "Top 5 customers by item revenue (sum of quantity times unit_cents over the items of their orders), excluding cancelled orders. Show only the customer email and the revenue.",
+    "golden": "SELECT c.email, sum(i.quantity * i.unit_cents) FROM app_core.customers c JOIN app_core.orders o ON o.customer_id = c.id JOIN app_core.order_items i ON i.order_id = o.id WHERE o.status <> 'cancelled' GROUP BY c.id, c.email ORDER BY 2 DESC LIMIT 5",
+    "ordered": true,
+    "note": "Three-table join + aggregate + filter. No ties in the top 5."
+  },
+  {
+    "id": "read-hard-top3-sku-per-status",
+    "category": "read",
+    "kind": "generate-read",
+    "difficulty": "hard",
+    "prompt": "For each order status, the 3 SKUs with the highest item revenue (quantity times unit_cents) in orders of that status. Show status, sku and revenue.",
+    "golden": "SELECT status, sku, revenue FROM (SELECT o.status, i.sku, sum(i.quantity * i.unit_cents) AS revenue, row_number() OVER (PARTITION BY o.status ORDER BY sum(i.quantity * i.unit_cents) DESC) AS rn FROM app_core.orders o JOIN app_core.order_items i ON i.order_id = o.id GROUP BY o.status, i.sku) t WHERE rn <= 3",
+    "note": "Top-N per group (window function). No ties at rank 3 in the seed, so row_number/rank agree."
+  },
+  {
+    "id": "read-hard-latest-order-per-customer",
+    "category": "read",
+    "kind": "generate-read",
+    "difficulty": "hard",
+    "prompt": "Each customer's most recently placed order: customer id, order id and placed_at. Ignore orders that were never placed (placed_at is empty).",
+    "golden": "SELECT DISTINCT ON (customer_id) customer_id, id, placed_at FROM app_core.orders WHERE placed_at IS NOT NULL ORDER BY customer_id, placed_at DESC",
+    "note": "Greatest-per-group. Postgres sorts NULLs first under DESC, so forgetting the filter returns draft-only customers with a NULL row."
+  },
+  {
+    "id": "read-hard-customers-no-big-order",
+    "category": "read",
+    "kind": "generate-read",
+    "difficulty": "hard",
+    "prompt": "How many customers have never had an order with total_cents above 450000? Include customers with no orders at all.",
+    "golden": "SELECT count(*) FROM app_core.customers c WHERE NOT EXISTS (SELECT 1 FROM app_core.orders o WHERE o.customer_id = c.id AND o.total_cents > 450000)",
+    "note": "Anti-join (83). The naive 'customers with an order <= 450000' gives 120."
+  },
+  {
+    "id": "write-hard-vip-born-before-1965",
+    "category": "write",
+    "kind": "generate-write",
+    "difficulty": "hard",
+    "prompt": "Set notes to 'VIP' on every order of customers born before 1965",
+    "expect": {
+      "verb": "UPDATE",
+      "table": "orders"
+    },
+    "golden": "SELECT id FROM app_core.orders WHERE customer_id IN (SELECT id FROM app_core.customers WHERE date_of_birth < DATE '1965-01-01')",
+    "key": "id",
+    "note": "Needs a subquery/join on customers in the WHERE; scope checked against golden rows (71 orders)."
+  },
+  {
+    "id": "write-hard-delete-items-cancelled",
+    "category": "write",
+    "kind": "generate-write",
+    "difficulty": "hard",
+    "prompt": "Delete the line items of cancelled orders whose total_cents is over 400000",
+    "expect": {
+      "verb": "DELETE",
+      "table": "order_items"
+    },
+    "golden": "SELECT id FROM app_core.order_items WHERE order_id IN (SELECT id FROM app_core.orders WHERE status = 'cancelled' AND total_cents > 400000)",
+    "key": "id",
+    "note": "Target is order_items, filter is on orders; scope checked against golden rows (57 items)."
+  },
+  {
+    "id": "review-hard-or-widens",
+    "category": "review",
+    "kind": "review",
+    "difficulty": "hard",
+    "selectSql": "SELECT id, status FROM app_core.orders WHERE customer_id = 5 AND status = 'draft'",
+    "writeSql": "UPDATE app_core.orders SET status = 'cancelled' WHERE customer_id = 5 OR status = 'draft'",
+    "expectVerdict": ["CAUTION", "DANGEROUS"],
+    "expectSelectMatchesWrite": false,
+    "note": "WHERE present but OR widens it to every draft order; the SELECT previews the AND."
+  },
+  {
+    "id": "review-hard-wrong-column",
+    "category": "review",
+    "kind": "review",
+    "difficulty": "hard",
+    "selectSql": "SELECT id, status FROM app_core.orders WHERE id = 17",
+    "writeSql": "UPDATE app_core.orders SET status = 'shipped' WHERE customer_id = 17",
+    "expectVerdict": ["CAUTION", "DANGEROUS"],
+    "expectSelectMatchesWrite": false,
+    "note": "WHERE filters on the wrong column (customer_id instead of id)."
+  },
+  {
+    "id": "review-hard-select-superset",
+    "category": "review",
+    "kind": "review",
+    "difficulty": "hard",
+    "selectSql": "SELECT id, status FROM app_core.orders WHERE status = 'draft'",
+    "writeSql": "UPDATE app_core.orders SET status = 'cancelled' WHERE status = 'draft' AND customer_id = 5",
+    "expectVerdict": ["CAUTION", "DANGEROUS"],
+    "expectSelectMatchesWrite": false,
+    "note": "The verify SELECT previews all 100 drafts; the write touches only customer 5's 4."
+  },
+  {
+    "id": "suggest-hard-select-subquery",
+    "category": "suggest",
+    "kind": "suggest-select",
+    "difficulty": "hard",
+    "writeSql": "DELETE FROM app_core.order_items WHERE order_id IN (SELECT id FROM app_core.orders WHERE status = 'cancelled' AND total_cents > 400000)",
+    "golden": "SELECT id FROM app_core.order_items WHERE order_id IN (SELECT id FROM app_core.orders WHERE status = 'cancelled' AND total_cents > 400000)",
+    "key": "id",
+    "note": "Verify SELECT must keep the subquery and return order_items ids (not orders ids)."
   }
 ]

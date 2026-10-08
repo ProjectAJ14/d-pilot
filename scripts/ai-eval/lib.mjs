@@ -81,6 +81,81 @@ export function checkWrite(sql, expect) {
 }
 
 /**
+ * Blanks comments and string literals to spaces, keeping every character's
+ * position. Quoted identifiers are kept: they can name the target table.
+ */
+function blankSql(sql) {
+  const spaces = (m) => " ".repeat(m.length);
+  return sql
+    .replace(/--[^\n]*/g, spaces)
+    .replace(/\/\*[\s\S]*?\*\//g, spaces)
+    .replace(/'(?:[^']|'')*'/g, spaces);
+}
+
+/** Index of the first `kw` at parenthesis depth 0 at or after `from`, or -1. */
+function topLevel(m, kw, from = 0) {
+  const re = new RegExp(String.raw`^${kw}\b`, "i");
+  let depth = 0;
+  for (let i = 0; i < m.length; i++) {
+    if (m[i] === "(") depth++;
+    else if (m[i] === ")") depth--;
+    else if (i >= from && depth === 0 && !/\w/.test(m[i - 1] || "")) {
+      if (re.test(m.slice(i))) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * The SELECT of the rows a single UPDATE/DELETE would touch — `SELECT DISTINCT
+ * <table>.<key> FROM <table> [, UPDATE..FROM / DELETE..USING list] WHERE <cond>`
+ * — so a generated write's scope can be checked against golden rows without
+ * running it. Null when there is no top-level WHERE or the shape isn't recognised
+ * (e.g. a CTE-wrapped write); the runner scores that as a fail.
+ */
+export function writeScopeSql(sql, key = "id") {
+  const src = (sql || "").trim().replace(/;\s*$/, "");
+  const m = blankSql(src);
+  const ident = String.raw`((?:"?\w+"?\.)?"?\w+"?)`;
+  const alias = (stop) =>
+    String.raw`(?:\s+(?:as\s+)?(?!(?:${stop})\b)("?\w+"?))?`;
+  let head;
+  let extraKw;
+  if (
+    (head = m.match(
+      new RegExp(
+        String.raw`^update\s+(?:only\s+)?${ident}${alias("set")}\s+(?=set\b)`,
+        "i",
+      ),
+    ))
+  )
+    extraKw = "from";
+  else if (
+    (head = m.match(
+      new RegExp(
+        String.raw`^delete\s+from\s+(?:only\s+)?${ident}${alias("using|where|returning")}`,
+        "i",
+      ),
+    ))
+  )
+    extraKw = "using";
+  else return null;
+  const start = head[0].length;
+  const whereAt = topLevel(m, "where", start);
+  if (whereAt < 0) return null;
+  const extraAt = topLevel(m, extraKw, start);
+  const retAt = topLevel(m, "returning", whereAt);
+  const tableText = head[1];
+  const aliasText = head[2];
+  const extra =
+    extraAt >= 0 && extraAt < whereAt
+      ? src.slice(extraAt + extraKw.length, whereAt).trim()
+      : "";
+  const cond = src.slice(whereAt + 5, retAt >= 0 ? retAt : src.length).trim();
+  return `SELECT DISTINCT ${aliasText || tableText}.${key} FROM ${tableText}${aliasText ? ` ${aliasText}` : ""}${extra ? `, ${extra}` : ""} WHERE ${cond}`;
+}
+
+/**
  * Canonical form of one cell. Drivers disagree on numeric types (pg returns
  * bigint/numeric as strings), so anything numeric compares by value.
  */

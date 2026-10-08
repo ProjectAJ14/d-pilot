@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { checkWrite, compareRuns, isReadOnlySql, rowsEqual } from "./lib.mjs";
+import {
+  checkWrite,
+  compareRuns,
+  isReadOnlySql,
+  rowsEqual,
+  writeScopeSql,
+} from "./lib.mjs";
 
 describe("rowsEqual", () => {
   it("ignores column names, column order and row order", () => {
@@ -114,5 +120,41 @@ describe("compareRuns", () => {
     const c = compareRuns(old, now);
     expect(c.flipped).toEqual(["a"]);
     expect(c.fixed).toEqual(["b"]);
+  });
+});
+
+describe("writeScopeSql", () => {
+  it("turns a scoped UPDATE/DELETE into a SELECT of the touched keys", () => {
+    expect(
+      writeScopeSql(
+        "UPDATE app_core.orders SET notes = 'a where b' WHERE customer_id IN (SELECT id FROM app_core.customers WHERE x) RETURNING id;",
+      ),
+    ).toBe(
+      "SELECT DISTINCT app_core.orders.id FROM app_core.orders WHERE customer_id IN (SELECT id FROM app_core.customers WHERE x)",
+    );
+    expect(
+      writeScopeSql(
+        "DELETE FROM order_items i USING orders o WHERE o.id = i.order_id",
+      ),
+    ).toBe(
+      "SELECT DISTINCT i.id FROM order_items i, orders o WHERE o.id = i.order_id",
+    );
+  });
+
+  it("keeps UPDATE ... FROM joins, ignoring FROM/WHERE inside SET subqueries", () => {
+    expect(
+      writeScopeSql(
+        "update orders o set n = (select 1 from t where y) from customers c where c.id = o.customer_id",
+      ),
+    ).toBe(
+      "SELECT DISTINCT o.id FROM orders o, customers c WHERE c.id = o.customer_id",
+    );
+  });
+
+  it("is null without a top-level WHERE or for a CTE-wrapped write", () => {
+    expect(writeScopeSql("UPDATE orders SET status = 'x'")).toBeNull();
+    expect(
+      writeScopeSql("WITH x AS (SELECT 1) DELETE FROM orders WHERE id = 1"),
+    ).toBeNull();
   });
 });
