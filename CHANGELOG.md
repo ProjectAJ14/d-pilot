@@ -5,6 +5,19 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.29.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.28.0...v1.29.0) (2026-10-08)
+
+
+### Bug Fixes
+
+* **ai:** re-check PHI rules before caching sampled values ([6635e23](https://github.com/ProjectAJ14/d-pilot/commit/6635e2347d09e1ef94f765e0dc3c392f805c5fa5))
+
+
+### Features
+
+* **ai:** admin toggle for column values and friendly content-filter errors ([42b01f3](https://github.com/ProjectAJ14/d-pilot/commit/42b01f36e5b48a3299a323c74a292903b44a554b))
+* **ai:** show enum column values in the AI schema context ([fb9bef8](https://github.com/ProjectAJ14/d-pilot/commit/fb9bef81343aecc690681e9d94f6f7a0fa44c4f6))
+
 # [1.28.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.27.2...v1.28.0) (2026-09-29)
 
 
