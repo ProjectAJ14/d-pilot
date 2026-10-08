@@ -3,6 +3,9 @@
 -- nothing company- or deployment-specific goes in the codebase. Column names
 -- are chosen to hit the default PHI rules (*first_name*, *email*, *phone*,
 -- *date_of_birth*, *address_line_1*, *zip_code*) so masking is visible.
+--
+-- Load (drops and recreates app_core, so it is safe to re-run):
+--   psql -h localhost -U <role> -d <database> -f scripts/seed-local.sql
 DROP SCHEMA IF EXISTS app_core CASCADE;
 CREATE SCHEMA app_core;
 
