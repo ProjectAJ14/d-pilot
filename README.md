@@ -371,7 +371,10 @@ paths.
    that person and bounded by their capabilities. Grant _only_ the Read capability, on _only_
    the environments agents should reach — not an admin. Add Write on an environment only if
    agents should be able to save draft write requests there (they still cannot run one).
-2. **Point the agent at the URL** with its username and password. For Claude Code:
+2. **Point the agent at the URL.** The easiest way is the in-app **`/docs/mcp`** page (account
+   menu → _Connect an AI agent_): enter the password and it generates a ready-to-paste prompt
+   for Claude Code or Claude Desktop, with the credentials encoded in the browser. To do it by
+   hand instead, for Claude Code:
 
    ```bash
    claude mcp add --transport http d-pilot https://d-pilot.internal/api/mcp \

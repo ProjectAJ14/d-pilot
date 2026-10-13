@@ -12,6 +12,7 @@ import {
   IconShieldOff,
   IconSettings,
   IconUser,
+  IconRobot,
   IconLogout,
   IconSearch,
   IconPencilBolt,
@@ -20,6 +21,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useStore } from "../../store";
+import { MCP_SETUP_PATH } from "../../utils/mcp-setup";
 import { PhiUnmaskModal } from "../phi/phi-unmask-modal";
 import { ColorSchemeToggle } from "./color-scheme-toggle";
 
@@ -331,6 +333,12 @@ export function TopBar() {
             onClick={() => navigate("/profile")}
           >
             Profile
+          </Menu.Item>
+          <Menu.Item
+            leftSection={<IconRobot size={14} />}
+            onClick={() => navigate(MCP_SETUP_PATH)}
+          >
+            Connect an AI agent
           </Menu.Item>
           {/* Admins get Settings (the hub — PHI/token config, audit, etc. live
               there as tabs). Non-admins get the lighter token config panel. */}

@@ -64,6 +64,7 @@ import { api } from "../../utils/api-client";
 import { notifyError } from "../../utils/notify-error";
 import { copyToClipboard } from "../../utils/clipboard";
 import { generatePassword } from "../../utils/password";
+import { MCP_SETUP_PATH } from "../../utils/mcp-setup";
 import { downloadTextFile } from "../../utils/download-file";
 import {
   envColor,
@@ -1677,6 +1678,8 @@ function buildCredentialMessage(
     `  URL:      ${loginUrl}`,
     `  Username: ${info.email}`,
     `  Password: ${info.password}`,
+    "",
+    `To connect an AI agent (Claude Code / Claude Desktop) after you sign in: ${loginUrl}${MCP_SETUP_PATH}`,
     "",
     outro,
   ].join("\n");
