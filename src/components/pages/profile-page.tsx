@@ -201,7 +201,7 @@ function Avatar({ initials, size }: { initials: string; size: number }) {
   );
 }
 
-function Card({
+export function Card({
   icon,
   title,
   desc,

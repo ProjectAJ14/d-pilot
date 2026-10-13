@@ -13,6 +13,8 @@ import { QueryWorkspace } from "./components/query/query-workspace";
 import { PhiConfigPanel } from "./components/phi/phi-config-panel";
 import { PhiUnmaskModal } from "./components/phi/phi-unmask-modal";
 import { ProfilePage } from "./components/pages/profile-page";
+import { McpSetupPage } from "./components/pages/mcp-setup-page";
+import { MCP_SETUP_PATH } from "./utils/mcp-setup";
 import { SettingsPage } from "./components/pages/settings-page";
 import { WriteWorkspace } from "./components/write/write-workspace";
 import {
@@ -89,6 +91,7 @@ function AuthenticatedApp() {
             }
           />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path={MCP_SETUP_PATH} element={<McpSetupPage />} />
           <Route
             path="/write"
             element={

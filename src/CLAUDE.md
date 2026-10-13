@@ -55,6 +55,7 @@ queries**, **UI** (`sidebarOpen`, `phiPanelOpen`, `aiAssistantOpen`), **write ha
 | `/saved-queries/:id`  | Saved-query share link — opens the query in a new editor tab (`query/saved-query-link.tsx`) |
 | `/artifacts/:id`      | Artifact share link — opens the document as a tab (`query/artifact-link.tsx`)               |
 | `/profile`            | Profile / password (`pages/profile-page.tsx`)                                               |
+| `/docs/mcp`           | Connect an AI agent — MCP setup prompt generator (`pages/mcp-setup-page.tsx`)               |
 | `/settings`           | Admin settings, sidebar-nav (`pages/settings-page.tsx`)                                     |
 
 Unknown paths redirect to `/`.
