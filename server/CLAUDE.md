@@ -128,8 +128,9 @@ name rather than one baked in at build time. In production `express.static` also
   never into a module-level const. Bootstrap vars (PORT, DATA_DIR, BASE_PATH, JWT_SECRET,
   DEFAULT_ADMIN_PASSWORD, proxies) stay env-only.
 - **Connections** (`db_connections`) — the source of truth once the DB is up.
-  `DBFORGE_CONNECTIONS` is imported **once** (marker `connections_seeded`); later edits to
-  the env var are ignored. Before `initDatabase` (unit tests) `loadConnections` reads the
+  `DBFORGE_CONNECTIONS` is imported **once** (marker `connections_seeded`, set only once the
+  table has a connection, so an env var added after an empty first run still seeds); later
+  edits to the env var are ignored. Before `initDatabase` (unit tests) `loadConnections` reads the
   env var directly. The store invalidates the connection cache on every write.
 - **Secrets** (connection password/URI, `AZURE_OPENAI_KEY`) are AES-256-GCM encrypted
   (`config/secrets.ts`) with `SETTINGS_ENCRYPTION_KEY`, else a key generated once into

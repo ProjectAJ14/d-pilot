@@ -271,23 +271,24 @@ export function initDatabase(): void {
 /**
  * One-time import of `DBFORGE_CONNECTIONS` into `db_connections`. After that
  * the table is the source of truth and the env var is ignored — an admin who
- * deletes every connection gets an empty list, not the env ones back. An
- * unparseable env var is not marked as imported, so fixing it still seeds.
+ * deletes every connection gets an empty list, not the env ones back. The
+ * marker is set only once there is something in the table: an unset, empty or
+ * unparseable env var leaves the import open, so setting it later still seeds;
+ * a table an admin already filled is marked as-is, never overwritten.
  */
 function seedConnections(): void {
   invalidateConnections();
   if (getSetting("connections_seeded") !== null) return;
-  const seed = parseEnvConnections();
-  if (!seed) return;
+  const { n } = db
+    .prepare("SELECT COUNT(*) AS n FROM db_connections")
+    .get() as { n: number };
+  const seed = n > 0 ? [] : parseEnvConnections();
+  if (!seed || (n === 0 && seed.length === 0)) return;
   db.transaction(() => {
     for (const conn of seed) saveDbConnection(conn);
     setSetting("connections_seeded", new Date().toISOString());
   })();
-  if (seed.length > 0) {
-    console.log(
-      `Imported ${seed.length} connection(s) from DBFORGE_CONNECTIONS`,
-    );
-  }
+  console.log(`Imported ${seed.length} connection(s) from DBFORGE_CONNECTIONS`);
 }
 
 function seedPhiRules(): void {
