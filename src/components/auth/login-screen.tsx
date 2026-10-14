@@ -2,7 +2,6 @@ import { useState } from "react";
 import { TextInput, PasswordInput, Button, Text } from "@mantine/core";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
-import { Footer } from "../layout/footer";
 
 export function LoginScreen() {
   const login = useStore((s) => s.login);
@@ -222,7 +221,6 @@ export function LoginScreen() {
           </div>
         </div>
       </div>
-      <Footer />
     </div>
   );
 }
