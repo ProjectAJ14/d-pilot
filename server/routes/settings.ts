@@ -312,6 +312,7 @@ router.post("/connections/test", async (req: Request, res: Response) => {
   const { id, ...data } = body.data;
   const existing = id ? getConnection(id) : undefined;
   let conn: ConnectionConfig;
+  let usesStoredSecret = false;
   if (existing) {
     const merged = mergeUpdate(existing, data);
     if ("error" in merged) {
@@ -319,6 +320,10 @@ router.post("/connections/test", async (req: Request, res: Response) => {
       return;
     }
     conn = merged.next;
+    const stored = storedConnectionSecrets(existing.id);
+    usesStoredSecret =
+      (merged.keep.password && stored.password) ||
+      (merged.keep.uri && stored.uri);
   } else {
     const { clearPassword: _p, clearUri: _u, ...fields } = data;
     conn = { ...fields, id: id ?? "unsaved" };
@@ -328,9 +333,15 @@ router.post("/connections/test", async (req: Request, res: Response) => {
     await testConnectionConfig(conn);
   } catch (err) {
     error = (err as Error).message || String(err);
-    // A driver may echo the URI it was given; never hand back a stored secret.
-    for (const secret of [conn.password, conn.uri])
-      if (secret) error = error.split(secret).join("***");
+    // A driver may echo a stored secret in any encoding (percent-encoded in a
+    // Mongo URI, a fragment of a stored URI) — masking cannot catch them all.
+    // So when the test used a secret the admin never saw, return no driver
+    // text; when every secret came from the form, they typed it themselves.
+    if (usesStoredSecret) {
+      console.error(`Connection test for ${existing!.id} failed:`, error);
+      error =
+        "Could not connect using the stored credentials — the driver error is in the server log.";
+    }
   }
   audit(
     req,

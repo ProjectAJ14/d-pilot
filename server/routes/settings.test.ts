@@ -656,7 +656,12 @@ describe("POST /connections/test", () => {
       name: "Renamed in the form only",
     });
     expect(same.status).toBe(200);
-    expect((await same.json()).ok).toBe(false);
+    // A driver may echo the stored secret in any encoding, so a test that used
+    // it returns no driver text at all — the detail goes to the server log.
+    const sameBody = await same.json();
+    expect(sameBody.ok).toBe(false);
+    expect(sameBody.error).not.toMatch(/ECONNREFUSED|127\.0\.0\.1/);
+    expect(sameBody.error).toMatch(/server log/i);
     expect(getPoolStatus("probe").live).toBe(false);
     expect(getConnection("probe")?.name).toBe("Probe");
 

@@ -34,7 +34,7 @@ docs {
 
   With `id` and a blank `password` / `uri`, the stored secret is used only if the request passes the same gate as Update Connection (only `name`, `env`, `schemas` — and `schema`, except on Elasticsearch — may differ from what is stored); otherwise 400 "Re-enter the password…". An invalid body is a 400 like create/update.
 
-  Returns `{ "ok": true }` or `{ "ok": false, "error": "<driver message>" }` (stored secrets are redacted from the message). Audited as `CONNECTION_TEST` with the connection id, env, type and outcome — never secrets.
+  Returns `{ "ok": true }` or `{ "ok": false, "error": "<driver message>" }` — the driver message only when every secret came from the request. If the test used a stored password or URI, `error` is a generic message and the driver text goes to the server log, since a driver can echo a stored secret in an encoding no redaction would catch. Audited as `CONNECTION_TEST` with the connection id, env, type and outcome — never secrets.
 
   Requires a valid Bearer JWT ({{token}}).
   **Admin only.**
