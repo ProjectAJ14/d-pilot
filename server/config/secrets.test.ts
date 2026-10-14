@@ -1,0 +1,94 @@
+import { describe, it, expect, vi, afterEach } from "vitest";
+import fs from "fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import path from "path";
+import { decryptSecret, encryptSecret } from "./secrets.js";
+
+/** Each test gets its own DATA_DIR, so its own key file. */
+function freshDir(): string {
+  const dir = mkdtempSync(path.join(tmpdir(), "d-pilot-secrets-"));
+  vi.stubEnv("DATA_DIR", dir);
+  vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "");
+  return dir;
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
+
+describe("secrets", () => {
+  it("round-trips, with a fresh IV each time", () => {
+    freshDir();
+    const a = encryptSecret("p@ss");
+    expect(a).not.toBe(encryptSecret("p@ss"));
+    expect(decryptSecret(a)).toBe("p@ss");
+  });
+
+  it("returns null for tampered ciphertext", () => {
+    freshDir();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const [iv, tag, ct] = encryptSecret("secret").slice(7).split(":");
+    const flipped = Buffer.from(ct, "base64");
+    flipped[0] ^= 1;
+    expect(
+      decryptSecret(`enc:v1:${iv}:${tag}:${flipped.toString("base64")}`),
+    ).toBeNull();
+  });
+
+  it("returns null under the wrong key", () => {
+    vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "one");
+    const stored = encryptSecret("secret");
+    vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "two");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(decryptSecret(stored)).toBeNull();
+  });
+
+  it("logs a failed decrypt once per stored value, never the value", () => {
+    vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "one");
+    const a = encryptSecret("secret-a");
+    const b = encryptSecret("secret-b");
+    vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "two");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (let i = 0; i < 3; i++) decryptSecret(a);
+    decryptSecret(b);
+    expect(log).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(log.mock.calls)).not.toContain(a.slice(7));
+  });
+
+  it("creates a 0600 key file holding a 32-byte hex key", () => {
+    const dir = freshDir();
+    encryptSecret("x");
+    const file = path.join(dir, "settings.key");
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(readFileSync(file, "utf8")).toMatch(/^[0-9a-f]{64}$/);
+    expect(fs.readdirSync(dir)).toEqual(["settings.key"]);
+  });
+
+  it("adopts the key of a process that created the file first", () => {
+    const dir = freshDir();
+    const file = path.join(dir, "settings.key");
+    const winner = "ab".repeat(32);
+    const link = fs.linkSync;
+    // Another process wins the race between our read and our create.
+    vi.spyOn(fs, "linkSync").mockImplementation((from, to) => {
+      writeFileSync(file, winner, { mode: 0o600 });
+      return link(from, to);
+    });
+    const stored = encryptSecret("x");
+    expect(readFileSync(file, "utf8")).toBe(winner);
+    vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "");
+    expect(decryptSecret(stored)).toBe("x");
+    // No temp file left behind.
+    expect(fs.readdirSync(dir)).toEqual(["settings.key"]);
+  });
+
+  it("refuses an empty key file with a message naming it", () => {
+    const dir = freshDir();
+    const file = path.join(dir, "settings.key");
+    writeFileSync(file, "", { mode: 0o600 });
+    expect(() => encryptSecret("x")).toThrow(file);
+    expect(() => encryptSecret("x")).toThrow(/empty or not a 64-character hex/);
+  });
+});

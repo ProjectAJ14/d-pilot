@@ -37,20 +37,37 @@ function encryptionKey(): Buffer {
   try {
     hex = fs.readFileSync(file, "utf8").trim();
   } catch {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    hex = randomBytes(32).toString("hex");
-    // `wx` so two processes racing on first run cannot both win and leave
-    // secrets encrypted under a key that was then overwritten.
-    try {
-      fs.writeFileSync(file, hex, { mode: 0o600, flag: "wx" });
-    } catch {
-      hex = fs.readFileSync(file, "utf8").trim();
-    }
+    hex = createKeyFile(file);
   }
   const key = Buffer.from(hex, "hex");
-  if (key.length !== 32) throw new Error(`Invalid encryption key in ${file}`);
+  if (!/^[0-9a-f]{64}$/i.test(hex) || key.length !== 32)
+    throw new Error(
+      `Encryption key file ${file} is empty or not a 64-character hex key — restore it from backup (secrets stored under it cannot be read without it), or delete it only if no secrets are stored yet.`,
+    );
   keys.set(file, key);
   return key;
+}
+
+/**
+ * Writes a new random key to `file` without ever exposing a partial file, and
+ * without clobbering one another process created first: the key goes to a
+ * private temp file that is then hard-linked into place, which fails if `file`
+ * exists — in which case that process's key is the one to use.
+ */
+function createKeyFile(file: string): string {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const hex = randomBytes(32).toString("hex");
+  const tmp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+  fs.writeFileSync(tmp, hex, { mode: 0o600, flag: "wx" });
+  try {
+    fs.linkSync(tmp, file);
+    return hex;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    return fs.readFileSync(file, "utf8").trim();
+  } finally {
+    fs.unlinkSync(tmp);
+  }
 }
 
 export function encryptSecret(plain: string): string {
@@ -63,7 +80,11 @@ export function encryptSecret(plain: string): string {
   );
 }
 
-/** Decrypts a stored secret; null (and a log line) when the key no longer fits. */
+// Stored values whose decrypt failure was already logged (as hashes), so a
+// secret read on every request logs once rather than flooding the log.
+const reported = new Set<string>();
+
+/** Decrypts a stored secret; null (and one log line per value) when the key no longer fits. */
 export function decryptSecret(stored: string): string | null {
   if (!stored.startsWith(PREFIX)) return null;
   try {
@@ -76,10 +97,16 @@ export function decryptSecret(stored: string): string | null {
     return Buffer.concat([decipher.update(ct), decipher.final()]).toString(
       "utf8",
     );
-  } catch {
-    console.error(
-      "Failed to decrypt a stored secret — was the settings encryption key changed?",
-    );
+  } catch (err) {
+    const id = createHash("sha256").update(stored).digest("hex");
+    if (!reported.has(id)) {
+      reported.add(id);
+      // The key file's own error (empty, invalid) names the file; say that.
+      const why = /key file/.test((err as Error).message)
+        ? (err as Error).message
+        : "was the settings encryption key changed?";
+      console.error(`Failed to decrypt a stored secret — ${why}`);
+    }
     return null;
   }
 }
