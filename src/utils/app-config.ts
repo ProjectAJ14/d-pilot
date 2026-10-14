@@ -32,13 +32,17 @@ export async function loadAppConfig(): Promise<void> {
   }
 }
 
-/** Reload the connection list, keeping the active one if it still exists. */
+/**
+ * Reload the connection list, keeping the active one if it still exists, else
+ * the first — or none once the last one is gone, so the UI shows its empty
+ * state rather than a deleted connection.
+ */
 export async function loadConnections(): Promise<void> {
   const conns = await api.getConnections();
   const { setConnections, activeConnectionId, setActiveConnection } =
     useStore.getState();
   setConnections(conns);
-  if (conns.length > 0 && !conns.some((c) => c.id === activeConnectionId)) {
+  if (conns.length === 0) useStore.setState({ activeConnectionId: null });
+  else if (!conns.some((c) => c.id === activeConnectionId))
     setActiveConnection(conns[0].id);
-  }
 }

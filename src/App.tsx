@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useStore } from "./store";
 import { BASE_PATH } from "./utils/base-path";
 import { api } from "./utils/api-client";
-import { loadAppConfig } from "./utils/app-config";
+import { loadAppConfig, loadConnections } from "./utils/app-config";
 import { LoginScreen } from "./components/auth/login-screen";
 import { TopBar } from "./components/layout/top-bar";
 import { Sidebar } from "./components/layout/sidebar";
@@ -26,23 +26,13 @@ import { SavedQueryLink } from "./components/query/saved-query-link";
 import { ArtifactLink } from "./components/query/artifact-link";
 
 function AuthenticatedApp() {
-  const setConnections = useStore((s) => s.setConnections);
   const setSavedQueries = useStore((s) => s.setSavedQueries);
   const setArtifacts = useStore((s) => s.setArtifacts);
-  const setActiveConnection = useStore((s) => s.setActiveConnection);
   const login = useStore((s) => s.login);
   const user = useStore((s) => s.user);
 
   useEffect(() => {
-    api
-      .getConnections()
-      .then((conns) => {
-        setConnections(conns);
-        if (conns.length > 0) {
-          setActiveConnection(conns[0].id);
-        }
-      })
-      .catch(console.error);
+    loadConnections().catch(console.error);
 
     api.getSavedQueries().then(setSavedQueries).catch(console.error);
     api.getArtifacts().then(setArtifacts).catch(console.error);
