@@ -18,6 +18,11 @@ export async function loadAppConfig(): Promise<void> {
     }
     link.href = cfg.faviconUrl;
   }
+  // The tab title follows the branding; index.html's static title is only
+  // the first-paint fallback. The iOS name below stays the bare app name.
+  document.title = cfg.loginTagline
+    ? `${cfg.appName} — ${cfg.loginTagline}`
+    : cfg.appName;
   // iOS takes the home-screen name from this tag rather than the
   // manifest, so branding has to be applied to it at runtime too.
   if (cfg.appName) {
