@@ -212,6 +212,19 @@ describe("disconnectPool", () => {
     expect(await disconnectPool("mongo-kick")).toBe(false);
   });
 
+  it("returns promptly while a pg query is still running", async () => {
+    const pool = await getPgPool({ ...pgConn, id: "pg-kick" });
+    // end() waits for checked-out clients — here, a query that never ends.
+    pool.end = () => new Promise<void>(() => {});
+    expect(
+      await Promise.race([
+        disconnectPool("pg-kick"),
+        new Promise((r) => setTimeout(() => r("hung"), 200)),
+      ]),
+    ).toBe(true);
+    expect(getPoolStatus("pg-kick").live).toBe(false);
+  });
+
   it("logs a close that fails instead of rejecting", async () => {
     await getMongoClient({ ...mongoConn, id: "mongo-kick-2" });
     mongoClose.mockRejectedValueOnce(new Error("socket gone"));

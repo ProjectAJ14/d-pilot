@@ -1087,9 +1087,11 @@ export function closeConnectionPool(
 }
 
 /**
- * Force-closes one connection's clients now — the admin "disconnect" action,
- * whose point is to end sessions, so in-flight work is cut off. Edits and
- * timeout changes use closeConnectionPool's graceful retire instead.
+ * Closes one connection's clients now — the admin "disconnect" action, whose
+ * point is to end sessions. MSSQL, Mongo and Elasticsearch clients close at
+ * once, cutting off in-flight work. For pg, in-flight queries finish, but no
+ * new ones start and idle clients close now. Edits and timeout changes use
+ * closeConnectionPool's graceful retire instead.
  */
 export async function disconnectPool(id: string): Promise<boolean> {
   poolGen.set(id, generation(id) + 1);
@@ -1102,8 +1104,11 @@ export async function disconnectPool(id: string): Promise<boolean> {
   poolLastUsed.delete(id);
   // Never rejects: a close that fails is logged, and the caller (an Express
   // route with no try/catch) always gets its answer.
+  // pg's end() resolves only once checked-out clients are released, so it is
+  // not awaited: in-flight pg queries finish, no new ones start, and idle
+  // clients close now.
+  pgPool?.end().catch(logClose);
   for (const r of await Promise.allSettled([
-    pgPool?.end(),
     msPool?.close(),
     mongo?.close(),
     es?.close(),

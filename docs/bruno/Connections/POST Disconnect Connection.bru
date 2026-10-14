@@ -12,7 +12,9 @@ post {
 
 docs {
   Force-close the server-side pool for one connection (all engines: pg pool,
-  MSSQL pool, Mongo client, ES client). The pool is recreated lazily on the
+  MSSQL pool, Mongo client, ES client). MSSQL/Mongo/ES close at once; a pg
+  pool stops taking queries and closes idle clients now, while queries already
+  running finish. The pool is recreated lazily on the
   next query/schema fetch, so this is always safe. Returns { closed } —
   false when no pool was open.
 
