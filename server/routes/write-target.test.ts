@@ -117,6 +117,17 @@ describe("approving a write bound to its connection target", () => {
     executeWrite.mockClear();
   });
 
+  it("refuses once only the default schema changed", async () => {
+    // Postgres writes run under `SET search_path`, so the default schema
+    // decides which table an unqualified UPDATE hits.
+    store.saveDbConnection({ ...qa, schema: "app_core" });
+    const id = await submit();
+    store.saveDbConnection({ ...qa, schema: "archive" }, { password: true });
+    expect((await approve(id)).status).toBe(409);
+    expect(executeWrite).not.toHaveBeenCalled();
+    store.saveDbConnection(qa);
+  });
+
   it("runs after a rename — the name is not part of the target", async () => {
     const id = await submit();
     store.saveDbConnection(

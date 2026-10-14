@@ -12,6 +12,7 @@ import {
   getMongoClient,
   getEsClient,
   parseMongoJson,
+  quoteSchemaIdent,
 } from "./query-executor.js";
 import { scanSql } from "./sql-scan.js";
 import type { ConnectionConfig, DatabaseType } from "../types/index.js";
@@ -281,10 +282,13 @@ async function executePgMigration(
   script: string,
   noTransaction: boolean,
 ): Promise<{ rowsAffected: number; transactional: boolean }> {
+  // Validated before connecting: the schema is admin-supplied text spliced
+  // into SQL, so anything but a plain identifier is refused, never run.
+  const schema = conn.schema ? quoteSchemaIdent(conn.schema) : undefined;
   const pool = await getPgPool(conn);
   const client = await pool.connect();
   try {
-    if (conn.schema) await client.query(`SET search_path TO ${conn.schema}`);
+    if (schema) await client.query(`SET search_path TO ${schema}`);
 
     if (!noTransaction) {
       // Whole script in one transaction — the engine parses it; any failure
@@ -410,11 +414,12 @@ async function executePgWrite(
   conn: ConnectionConfig,
   sql: string,
 ): Promise<number> {
+  const schema = conn.schema ? quoteSchemaIdent(conn.schema) : undefined; // see executePgMigration
   const pool = await getPgPool(conn);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    if (conn.schema) await client.query(`SET search_path TO ${conn.schema}`);
+    if (schema) await client.query(`SET search_path TO ${schema}`);
     const result = await client.query(sql);
     await client.query("COMMIT");
     return result.rowCount ?? 0;

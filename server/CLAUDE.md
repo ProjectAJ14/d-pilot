@@ -185,7 +185,8 @@ entry. There is no MCP tool for it.
 **Bound to its target.** Every transition into `PENDING` (create, submit, revise) stores
 `connectionTarget(conn)` — a SHA-256 of the connection's `instance_id` (random, new on every
 insert, so delete + re-create under the same id differs), env, type, host, port, database,
-username, ES protocol and URI; never name or password. Approve and override recompute it and
+username, `schema` (Postgres `search_path` for writes, ES protocol) and URI — every field the
+write path reads; never name or password. Approve and override recompute it and
 409 on any difference (or a missing connection), leaving the request `PENDING`; resubmitting
 re-binds. Existing pending requests are bound to their connection as of the upgrade (the
 migration backfills them); one whose connection was already gone has no target and never runs.

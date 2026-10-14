@@ -828,7 +828,8 @@ function writeDbConnection(
 
 /**
  * A SHA-256 of where `conn` points: the stored instance (see instance_id), env,
- * type, host, port, database, username, the Elasticsearch protocol and the URI.
+ * type, host, port, database, username, schema (Postgres default schema / ES
+ * protocol) and the URI.
  * Name, schema list and password are not part of it — renaming or rotating a
  * password is not a different target. Null when the connection is not stored.
  * A write request is bound to this when it is submitted, and refuses to run
@@ -847,7 +848,9 @@ export function connectionTarget(conn: ConnectionConfig): string | null {
     conn.port ?? null,
     conn.database ?? null,
     conn.username ?? null,
-    conn.type === "elasticsearch" ? (conn.schema ?? null) : null,
+    // Postgres writes run under `SET search_path` to it; for Elasticsearch it
+    // is the protocol. Every field the write path reads belongs here.
+    conn.schema ?? null,
     conn.uri ?? null,
   ];
   return createHash("sha256").update(JSON.stringify(fields)).digest("hex");
