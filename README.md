@@ -195,7 +195,7 @@ hands to anyone sharing the origin.
 ## Configuration
 
 Configuration comes in three kinds. Copy `.env.example` to `.env`; it is laid out the
-same way.
+same way. Every variable is described in [docs/environment-variables.md](docs/environment-variables.md).
 
 **Bootstrap — env only.** Needed before the app database exists or baked into the
 client build; change them in `.env` and restart (`BASE_PATH`: rebuild).
