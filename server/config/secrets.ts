@@ -35,7 +35,7 @@ function encryptionKey(): Buffer {
 
   let hex: string;
   try {
-    hex = fs.readFileSync(file, "utf8").trim();
+    hex = readKeyFile(file);
   } catch {
     hex = createKeyFile(file);
   }
@@ -58,26 +58,46 @@ function createKeyFile(file: string): string {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const hex = randomBytes(32).toString("hex");
   const tmp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
-  fs.writeFileSync(tmp, hex, { mode: 0o600, flag: "wx" });
+  const fd = fs.openSync(tmp, "wx", 0o600);
+  try {
+    fs.writeSync(fd, hex);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
   try {
     fs.linkSync(tmp, file);
     return hex;
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === "EEXIST") return fs.readFileSync(file, "utf8").trim();
+    if (code === "EEXIST") return readKeyFile(file);
     if (!["EPERM", "ENOTSUP", "ENOSYS", "EXDEV"].includes(code ?? ""))
       throw err;
-    // No hard links on this filesystem: an exclusive create still never
-    // clobbers a racing process's key. Its window (created, not yet written)
-    // is what the read-back below and encryptionKey's validation catch.
-    try {
-      fs.writeFileSync(file, hex, { flag: "wx", mode: 0o600 });
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+    // No hard links on this filesystem: claim the name by renaming the
+    // complete temp file, so the key file is never seen half-written.
+    // ponytail: exists-then-rename has a tiny window where two first-run
+    // processes could both rename; link() above is the race-free path.
+    if (!fs.existsSync(file)) {
+      fs.renameSync(tmp, file);
+      return hex;
     }
-    return fs.readFileSync(file, "utf8").trim();
+    return readKeyFile(file);
   } finally {
-    fs.unlinkSync(tmp);
+    fs.rmSync(tmp, { force: true });
+  }
+}
+
+/**
+ * Reads the key file, waiting up to ~2s while it exists but is empty — another
+ * process may have just created it (exclusive create, no hard links) and not
+ * written it yet. Still empty after that is reported by the caller.
+ */
+function readKeyFile(file: string): string {
+  const deadline = Date.now() + 2000;
+  for (;;) {
+    const hex = fs.readFileSync(file, "utf8").trim();
+    if (hex || Date.now() >= deadline) return hex;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
   }
 }
 

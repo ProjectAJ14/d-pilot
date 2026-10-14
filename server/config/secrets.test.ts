@@ -84,16 +84,54 @@ describe("secrets", () => {
     expect(fs.readdirSync(dir)).toEqual(["settings.key"]);
   });
 
-  it("falls back to an exclusive create where hard links are unsupported", () => {
+  it("falls back to a rename where hard links are unsupported", () => {
     const dir = freshDir();
     vi.spyOn(fs, "linkSync").mockImplementation(() => {
       throw Object.assign(new Error("not supported"), { code: "ENOTSUP" });
     });
+    const rename = vi.spyOn(fs, "renameSync");
     const stored = encryptSecret("x");
     const file = path.join(dir, "settings.key");
     expect(statSync(file).mode & 0o777).toBe(0o600);
     expect(readFileSync(file, "utf8")).toMatch(/^[0-9a-f]{64}$/);
     expect(decryptSecret(stored)).toBe("x");
+    expect(rename).toHaveBeenCalledOnce();
+    expect(fs.readdirSync(dir)).toEqual(["settings.key"]);
+  });
+
+  it("waits for a racing writer that has created the key file but not filled it", () => {
+    const dir = freshDir();
+    const file = path.join(dir, "settings.key");
+    const hex = "cd".repeat(32);
+    writeFileSync(file, "", { mode: 0o600 });
+    const read = fs.readFileSync;
+    let reads = 0;
+    vi.spyOn(fs, "readFileSync").mockImplementation(((
+      p: fs.PathOrFileDescriptor,
+      o?: unknown,
+    ) => {
+      // The other process finishes writing after our second look.
+      if (p === file && ++reads === 2) writeFileSync(file, hex);
+      return read(p, o as BufferEncoding);
+    }) as typeof fs.readFileSync);
+    const stored = encryptSecret("x");
+    expect(decryptSecret(stored)).toBe("x");
+    expect(readFileSync(file, "utf8")).toBe(hex);
+  });
+
+  it("claims the key file by rename, never over one that appeared meanwhile", () => {
+    const dir = freshDir();
+    const file = path.join(dir, "settings.key");
+    const winner = "ef".repeat(32);
+    vi.spyOn(fs, "linkSync").mockImplementation(() => {
+      // No hard links here — and another process wins in the meantime.
+      writeFileSync(file, winner, { mode: 0o600 });
+      throw Object.assign(new Error("not supported"), { code: "ENOTSUP" });
+    });
+    const rename = vi.spyOn(fs, "renameSync");
+    encryptSecret("x");
+    expect(readFileSync(file, "utf8")).toBe(winner);
+    expect(rename).not.toHaveBeenCalled();
     expect(fs.readdirSync(dir)).toEqual(["settings.key"]);
   });
 
@@ -101,7 +139,14 @@ describe("secrets", () => {
     const dir = freshDir();
     const file = path.join(dir, "settings.key");
     writeFileSync(file, "", { mode: 0o600 });
-    expect(() => encryptSecret("x")).toThrow(file);
-    expect(() => encryptSecret("x")).toThrow(/empty or not a 64-character hex/);
+    // (after waiting ~2s for a writer that never comes)
+    let message = "";
+    try {
+      encryptSecret("x");
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain(file);
+    expect(message).toMatch(/empty or not a 64-character hex/);
   });
 });
