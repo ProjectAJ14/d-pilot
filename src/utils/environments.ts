@@ -58,3 +58,14 @@ export function useEnvironments(): string[] {
   const envs = useStore((s) => s.config.environments);
   return [...envs].reverse();
 }
+
+/**
+ * Picker options for a saved env list: every env that exists, then each saved
+ * one that has no connection right now. The admin has to see those to untick
+ * them, and a save sends back exactly what the picker shows — so an orphan is
+ * neither stripped by accident nor kept behind the admin's back.
+ */
+export const withSavedEnvs = (known: string[], saved: string[]): string[] => [
+  ...known,
+  ...saved.filter((e) => !known.includes(e)),
+];

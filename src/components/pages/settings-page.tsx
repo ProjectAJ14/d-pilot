@@ -79,6 +79,7 @@ import {
   envColor,
   isProductionEnv,
   useEnvironments,
+  withSavedEnvs,
 } from "../../utils/environments";
 import type {
   User,
@@ -1387,6 +1388,11 @@ function CapabilityFields({
   setApproveEnvs: (v: string[]) => void;
 }) {
   const envOptions = useEnvironments();
+  const optionsFor = (saved: string[]) =>
+    withSavedEnvs(envOptions, saved).map((env) => ({
+      value: env,
+      label: envOptions.includes(env) ? env : `${env} (no connection)`,
+    }));
   return (
     <>
       <div
@@ -1411,7 +1417,7 @@ function CapabilityFields({
           <MultiSelect
             label="Read environments"
             description="Run read queries in these environments"
-            data={envOptions}
+            data={optionsFor(readEnvs)}
             value={readEnvs}
             onChange={setReadEnvs}
             mb="sm"
@@ -1419,7 +1425,7 @@ function CapabilityFields({
           <MultiSelect
             label="Unmask PHI environments"
             description="De-tokenize PHI in these environments (still needs a reason on masked envs)"
-            data={envOptions}
+            data={optionsFor(unmaskEnvs)}
             value={unmaskEnvs}
             onChange={setUnmaskEnvs}
             mb="sm"
@@ -1427,7 +1433,7 @@ function CapabilityFields({
           <MultiSelect
             label="Write environments"
             description="Author write requests (direct-policy envs run immediately)"
-            data={envOptions}
+            data={optionsFor(writeEnvs)}
             value={writeEnvs}
             onChange={setWriteEnvs}
             mb="sm"
@@ -1435,7 +1441,7 @@ function CapabilityFields({
           <MultiSelect
             label="Approve environments"
             description="Approve others' write requests"
-            data={envOptions}
+            data={optionsFor(approveEnvs)}
             value={approveEnvs}
             onChange={setApproveEnvs}
             mb="sm"
@@ -1983,7 +1989,7 @@ function WriteModeTab() {
         logged). All other environments require approval by a second person.
       </Text>
       <Group gap={8} mb="lg">
-        {envOptions.map((env) => {
+        {withSavedEnvs(envOptions, directEnvs).map((env) => {
           const active = directEnvs.includes(env);
           const locked = isProductionEnv(env);
           const button = (
@@ -2007,6 +2013,11 @@ function WriteModeTab() {
               }}
             >
               {env}
+              {!envOptions.includes(env) && (
+                <Text span size="xs" c="dimmed" ml={4}>
+                  (no connection)
+                </Text>
+              )}
             </Button>
           );
           return locked ? (
@@ -2238,7 +2249,7 @@ function PhiManagementTab() {
         role can request de-tokenization with a logged reason.
       </Text>
       <Group gap={8} mb="lg">
-        {envOptions.map((env) => {
+        {withSavedEnvs(envOptions, maskedEnvs).map((env) => {
           const active = maskedEnvs.includes(env);
           const locked = isProductionEnv(env);
           const button = (
@@ -2262,6 +2273,11 @@ function PhiManagementTab() {
               }}
             >
               {env}
+              {!envOptions.includes(env) && (
+                <Text span size="xs" c="dimmed" ml={4}>
+                  (no connection)
+                </Text>
+              )}
             </Button>
           );
           return locked ? (

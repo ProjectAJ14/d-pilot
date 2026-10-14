@@ -43,14 +43,13 @@ export function getEnvironments(): string[] {
 }
 
 /**
- * An edited env list, as it should be saved over `current`. Valid entries are
- * envs that exist now, plus ones `current` already holds. Every env in
- * `current` that has no connection right now is kept: no picker can show it,
- * so leaving it out is not a removal — dropping it would strip a capability
- * (or a masked env) for good just because its connection was being re-created.
- * Returns null when `sent` is not a list of valid entries.
+ * An edited env list as it should be saved: exactly `sent`, when each entry is
+ * an env that exists now or one `current` already holds. Pickers show saved
+ * envs that have no connection right now, so keeping one means sending it back
+ * and leaving it out revokes it. Returns null for anything else — an env that
+ * was never saved before cannot be granted until a connection defines it.
  */
-export function mergeEnvEdit(
+export function validEnvEdit(
   sent: unknown,
   current: string[],
 ): string[] | null {
@@ -63,7 +62,7 @@ export function mergeEnvEdit(
     )
   )
     return null;
-  return [...new Set([...sent, ...current.filter((e) => !known.includes(e))])];
+  return [...new Set(sent as string[])];
 }
 
 /**

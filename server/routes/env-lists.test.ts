@@ -9,8 +9,8 @@ import type { Server } from "http";
 /**
  * The environment list comes from the connections, so an env whose only
  * connection is deleted (or not yet re-created) vanishes from every picker.
- * Saving a user, the masked list or the write policy while that is so must not
- * strip the env from what was already saved — the admin never saw it to untick.
+ * Its saved grants must stay visible and editable: sending it back keeps it,
+ * leaving it out revokes it, and an env never saved before is refused.
  */
 
 const dir = mkdtempSync(path.join(tmpdir(), "d-pilot-env-lists-"));
@@ -68,57 +68,84 @@ const call = async (method: string, url: string, body?: unknown) => {
 };
 
 describe("an env with no connection right now", () => {
-  it("survives saving a user who already had it", async () => {
-    store.saveDbConnections([conn("dev-core", "DEV"), conn("qa-core", "QA")]);
+  it("is kept on a user when sent, revoked when omitted, and stays revoked", async () => {
+    store.saveDbConnections([
+      conn("dev-core", "DEV"),
+      conn("qa-core", "QA"),
+      conn("uat-core", "UAT"),
+    ]);
     const created = await call("POST", "/users", {
       email: "dev@example.com",
       password: "password123",
-      allowedEnvironments: ["DEV", "QA"],
-      writeEnvironments: ["QA"],
+      allowedEnvironments: ["DEV", "QA", "UAT"],
+      writeEnvironments: ["QA", "UAT"],
     });
-    expect(created.body.allowedEnvironments).toEqual(["DEV", "QA"]);
+    const id = created.body.id;
+    expect(created.body.writeEnvironments).toEqual(["QA", "UAT"]);
 
     store.deleteDbConnection("qa-core");
-    // What the picker sends: only the envs it can show.
-    const updated = await call("PUT", `/users/${created.body.id}`, {
-      allowedEnvironments: ["DEV"],
-      writeEnvironments: [],
+    store.deleteDbConnection("uat-core");
+    // The picker shows saved orphans, so sending one back keeps it...
+    const kept = await call("PUT", `/users/${id}`, {
+      allowedEnvironments: ["DEV", "QA", "UAT"],
+      writeEnvironments: ["QA", "UAT"],
     });
-    expect(updated.body.allowedEnvironments).toEqual(["DEV", "QA"]);
-    expect(updated.body.writeEnvironments).toEqual(["QA"]);
+    expect(kept.body.allowedEnvironments).toEqual(["DEV", "QA", "UAT"]);
+    // ...and unticking one revokes it, even with no connection.
+    const revoked = await call("PUT", `/users/${id}`, {
+      writeEnvironments: ["QA"],
+    });
+    expect(revoked.body.writeEnvironments).toEqual(["QA"]);
 
-    // An unknown env the user did not already have is still dropped.
-    const bogus = await call("PUT", `/users/${created.body.id}`, {
-      allowedEnvironments: ["DEV", "UAT"],
+    // A brand-new unknown env is not granted.
+    const bogus = await call("PUT", `/users/${id}`, {
+      allowedEnvironments: ["DEV", "STG"],
     });
-    expect(bogus.body.allowedEnvironments).toEqual(["DEV", "QA"]);
+    expect(bogus.body.allowedEnvironments).toEqual(["DEV"]);
+
+    // Re-creating UAT does not bring the revoked write back.
+    store.saveDbConnection(conn("uat-core", "UAT"));
+    const after = await call("GET", "/users");
+    const user = after.body.find((u: { id: string }) => u.id === id);
+    expect(user.writeEnvironments).not.toContain("UAT");
     store.saveDbConnection(conn("qa-core", "QA"));
   });
 
-  it("stays masked when the masked list is saved", async () => {
+  it("can be kept in, or removed from, the masked list", async () => {
+    await call("PUT", "/phi/masked-envs", { environments: ["QA", "UAT"] });
+    store.deleteDbConnection("qa-core");
+    store.deleteDbConnection("uat-core");
+    expect(
+      (await call("PUT", "/phi/masked-envs", { environments: ["QA", "UAT"] }))
+        .status,
+    ).toBe(200);
+    expect(store.getPhiMaskedEnvs()).toEqual(["QA", "UAT"]);
     expect(
       (await call("PUT", "/phi/masked-envs", { environments: ["QA"] })).status,
     ).toBe(200);
-    store.deleteDbConnection("qa-core");
-    const saved = await call("PUT", "/phi/masked-envs", { environments: [] });
-    expect(saved.status).toBe(200);
-    expect(store.getPhiMaskedEnvs()).toContain("QA");
-    // Still validated: an env that is neither known nor held is refused.
+    expect(store.getPhiMaskedEnvs()).toEqual(["QA"]);
     expect(
-      (await call("PUT", "/phi/masked-envs", { environments: ["UAT"] })).status,
+      (await call("PUT", "/phi/masked-envs", { environments: ["STG"] })).status,
     ).toBe(400);
     store.saveDbConnection(conn("qa-core", "QA"));
+    store.saveDbConnection(conn("uat-core", "UAT"));
   });
 
-  it("stays direct-write when the write policy is saved", async () => {
-    await call("PUT", "/writes/policy", { directEnvs: ["QA"] });
+  it("can be kept in, or removed from, the direct-write list", async () => {
+    await call("PUT", "/writes/policy", { directEnvs: ["QA", "UAT"] });
     store.deleteDbConnection("qa-core");
-    const saved = await call("PUT", "/writes/policy", { directEnvs: [] });
-    expect(saved.status).toBe(200);
-    expect(store.getWriteDirectEnvs()).toEqual(["QA"]);
+    store.deleteDbConnection("uat-core");
     expect(
-      (await call("PUT", "/writes/policy", { directEnvs: ["UAT"] })).status,
+      (await call("PUT", "/writes/policy", { directEnvs: ["QA", "UAT"] }))
+        .status,
+    ).toBe(200);
+    expect(store.getWriteDirectEnvs()).toEqual(["QA", "UAT"]);
+    await call("PUT", "/writes/policy", { directEnvs: ["UAT"] });
+    expect(store.getWriteDirectEnvs()).toEqual(["UAT"]);
+    expect(
+      (await call("PUT", "/writes/policy", { directEnvs: ["STG"] })).status,
     ).toBe(400);
     store.saveDbConnection(conn("qa-core", "QA"));
+    store.saveDbConnection(conn("uat-core", "UAT"));
   });
 });

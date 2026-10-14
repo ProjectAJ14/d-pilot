@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { randomUUID } from "crypto";
 import { requireAdmin } from "../middleware/auth.js";
 import { getDb } from "../services/sqlite-store.js";
-import { getEnvironments, mergeEnvEdit } from "../config/connections.js";
+import { getEnvironments, validEnvEdit } from "../config/connections.js";
 import { getConfig } from "../config/settings.js";
 
 const router = Router();
@@ -30,13 +30,13 @@ function parseEnvs(raw: string | null | undefined): string[] {
   }
 }
 
-/** Unknown envs are dropped silently; see mergeEnvEdit for what is kept. */
+/** Drops entries validEnvEdit would refuse; what remains is saved as sent. */
 function sanitizeEnvs(value: unknown, currentRaw?: string): string[] {
   const current = parseEnvs(currentRaw);
   const valid = (Array.isArray(value) ? value : []).filter(
-    (e) => mergeEnvEdit([e], current) !== null,
+    (e) => validEnvEdit([e], current) !== null,
   );
-  return mergeEnvEdit(valid, current)!;
+  return validEnvEdit(valid, current)!;
 }
 
 function mapUserRow(u: any) {

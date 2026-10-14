@@ -30,7 +30,9 @@ docs {
   hand-edited setting can't grant direct-write on production either.
 
   `directEnvs` values must be environments this deployment has (see
-  `GET /api/config` → `environments`); an unknown one is a 400.
+  `GET /api/config` → `environments`), or ones already saved that have no
+  connection right now; anything else is a 400. Saved exactly as sent, so leaving
+  such an env out removes it.
 
   Requires a valid Bearer JWT ({{token}}).
   **Admin only.**

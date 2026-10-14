@@ -39,7 +39,9 @@ docs {
   Update a user's display name, admin flag, or capability lists.
 
   Environment names outside this deployment's set (see `GET /api/config` →
-  `environments`) are silently dropped from every capability list.
+  `environments`) are silently dropped from every capability list, unless the
+  user already has them (an env whose connection is gone right now). Each list is
+  saved as sent, so leaving such an env out revokes it.
 
   Requires a valid Bearer JWT ({{token}}).
   **Admin only.**
