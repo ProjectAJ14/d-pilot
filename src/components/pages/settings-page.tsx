@@ -24,6 +24,11 @@ import {
   Divider,
   FileButton,
   Checkbox,
+  Autocomplete,
+  TagsInput,
+  Skeleton,
+  Alert,
+  Stack,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
@@ -57,6 +62,8 @@ import {
   IconMail,
   IconDownload,
   IconUpload,
+  IconAdjustments,
+  IconPlugConnected,
 } from "@tabler/icons-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useStore } from "../../store";
@@ -76,7 +83,11 @@ import type {
   PhiFieldRule,
   MaskingType,
   AiChatLogEntry,
+  AppSettingView,
+  ConnectionAdminView,
 } from "../../types";
+import type { ConnectionInput } from "../../utils/api-client";
+import { loadAppConfig, loadConnections } from "../../utils/app-config";
 import { BASE_PATH } from "../../utils/base-path";
 
 // ── PHI Field Icons ──
@@ -114,6 +125,18 @@ const SETTINGS_SECTIONS = [
     label: "User Management",
     icon: IconUsers,
     desc: "People, roles & environment access",
+  },
+  {
+    value: "connections",
+    label: "Connections",
+    icon: IconDatabase,
+    desc: "Target databases & their environments",
+  },
+  {
+    value: "general",
+    label: "Branding & Limits",
+    icon: IconAdjustments,
+    desc: "App name, logos, query & session limits",
   },
   {
     value: "write",
@@ -244,6 +267,10 @@ export function SettingsPage() {
             {activeTab === "analytics" && <AnalyticsTab />}
             {activeTab === "users" && (
               <UserManagementTab currentUserId={user?.id || ""} />
+            )}
+            {activeTab === "connections" && <ConnectionsTab />}
+            {activeTab === "general" && (
+              <RuntimeSettingsForm groups={["branding", "limits"]} />
             )}
             {activeTab === "write" && <WriteModeTab />}
             {activeTab === "phi" && <PhiManagementTab />}
@@ -3197,21 +3224,19 @@ function AzureOpenAiTab() {
             Azure OpenAI Connection
           </Text>
           <Text size="xs" c="dimmed" style={{ lineHeight: 1.6 }}>
-            Credentials are read from server environment variables (
+            Configure the provider below; a value saved here overrides the
+            matching{" "}
             <Text span ff="monospace" size="xs">
-              AZURE_OPENAI_ENDPOINT
-            </Text>
-            ,{" "}
-            <Text span ff="monospace" size="xs">
-              AZURE_OPENAI_KEY
-            </Text>
-            ,{" "}
-            <Text span ff="monospace" size="xs">
-              AZURE_OPENAI_DEPLOYMENT
-            </Text>
-            ). Click below to send a test request and verify the keys are valid.
+              AZURE_OPENAI_*
+            </Text>{" "}
+            environment variable. Save, then send a test request to verify the
+            keys are valid.
           </Text>
         </div>
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <RuntimeSettingsForm groups={["ai"]} />
       </div>
 
       <Group mb="lg">
@@ -3303,6 +3328,854 @@ function AzureOpenAiTab() {
         </div>
       )}
     </>
+  );
+}
+
+// ═══════════════════════════════════════
+// ── Runtime settings (/api/settings) ──
+// ═══════════════════════════════════════
+
+type SettingGroup = AppSettingView["group"];
+
+const SETTING_GROUP_LABELS: Record<SettingGroup, string> = {
+  ai: "Azure OpenAI",
+  branding: "Branding",
+  limits: "Limits",
+};
+
+/** Labels and input kinds for the keys server/config/settings.ts defines. */
+const SETTING_META: Record<
+  string,
+  { label: string; hint?: string; kind?: "bool" | "int" | "number" | "json" }
+> = {
+  AZURE_OPENAI_ENDPOINT: {
+    label: "Endpoint",
+    hint: "https://<resource>.openai.azure.com",
+  },
+  AZURE_OPENAI_KEY: { label: "API key" },
+  AZURE_OPENAI_DEPLOYMENT: { label: "Deployment" },
+  AZURE_OPENAI_MODEL: { label: "Model" },
+  AZURE_OPENAI_API_VERSION: { label: "API version" },
+  AZURE_OPENAI_INSECURE_TLS: {
+    label: "Skip TLS verification",
+    hint: "Only for a proxy with a self-signed certificate",
+    kind: "bool",
+  },
+  APP_NAME: { label: "App name" },
+  LOGO_URL: { label: "Logo URL", hint: "Top-bar logo on the light theme" },
+  LIGHT_LOGO_URL: {
+    label: "Light logo URL",
+    hint: "Light-coloured logo for the dark theme",
+  },
+  FAVICON_URL: { label: "Favicon URL" },
+  EMAIL_DOMAIN: { label: "Email domain" },
+  APP_BASE_URL: {
+    label: "Public base URL",
+    hint: "Used in links the server builds",
+  },
+  MAX_ROWS: { label: "Max rows per query", kind: "int" },
+  QUERY_TIMEOUT_MS: { label: "Query timeout (ms)", kind: "int" },
+  MCP_MAX_ROWS: { label: "Max rows per MCP query", kind: "int" },
+  SCHEMA_CACHE_TTL_HOURS: {
+    label: "Schema cache TTL (hours)",
+    kind: "number",
+  },
+  COPY_FORMATS: {
+    label: "Copy formats",
+    hint: 'JSON array of results "Copy as" formats',
+    kind: "json",
+  },
+  JWT_EXPIRES_IN: { label: "Session length", hint: 'e.g. "24h" or "7d"' },
+};
+
+const SOURCE_BADGE: Record<
+  AppSettingView["source"],
+  { label: string; color: string; variant: string; tip: string }
+> = {
+  db: {
+    label: "DB",
+    color: "blue",
+    variant: "light",
+    tip: "Saved in Settings — overrides .env",
+  },
+  env: {
+    label: ".env",
+    color: "neutral",
+    variant: "light",
+    tip: "From the server environment",
+  },
+  default: {
+    label: "default",
+    color: "neutral",
+    variant: "outline",
+    tip: "Built-in default",
+  },
+};
+
+const SECRET_PLACEHOLDER = "•••• (unchanged)";
+
+/**
+ * Secret → the settings that decide where it is sent. The server refuses to
+ * keep a stored secret when any of them changes, so it has to be typed again;
+ * resetting the secret resets them too.
+ */
+const SECRET_TARGET: Record<string, { keys: string[]; label: string }> = {
+  AZURE_OPENAI_KEY: {
+    keys: ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_INSECURE_TLS"],
+    label: "the endpoint or TLS setting",
+  },
+};
+
+/** Secrets never come back from the server, so their draft starts blank. */
+const initialValue = (s: AppSettingView) => (s.secret ? "" : (s.value ?? ""));
+
+/**
+ * One input per setting in `groups`, saved together. The server validates and
+ * answers 400 with "<KEY> <problem>", which is shown under that field.
+ * Branding and copy formats come from /api/config, so it is reloaded after
+ * every save/reset to apply them without a page reload.
+ */
+function RuntimeSettingsForm({ groups }: { groups: SettingGroup[] }) {
+  const [settings, setSettings] = useState<AppSettingView[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [fieldError, setFieldError] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState<string | null>(null);
+
+  const apply = (list: AppSettingView[]) => {
+    setSettings(list);
+    setDraft(Object.fromEntries(list.map((s) => [s.key, initialValue(s)])));
+    setFieldError({});
+    setFormError(null);
+  };
+
+  const load = () => {
+    api
+      .getAppSettings()
+      .then(apply)
+      .catch((err) => setLoadError(err.message));
+  };
+  useEffect(load, []);
+
+  const visible = (settings ?? []).filter((s) => groups.includes(s.group));
+  const dirty = visible.filter((s) => draft[s.key] !== initialValue(s));
+
+  const showError = (err: any) => {
+    const msg: string = err?.message ?? String(err);
+    const key = visible.find((s) => msg.startsWith(`${s.key} `))?.key;
+    if (key) setFieldError({ [key]: msg });
+    else setFormError(msg);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setFieldError({});
+    setFormError(null);
+    try {
+      apply(
+        await api.updateAppSettings(
+          Object.fromEntries(dirty.map((s) => [s.key, draft[s.key]])),
+        ),
+      );
+      await loadAppConfig().catch(() => {});
+      notifications.show({ message: "Settings saved", color: "green" });
+    } catch (err) {
+      showError(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const reset = async (key: string) => {
+    setResetting(key);
+    try {
+      apply(await api.resetAppSetting(key));
+      await loadAppConfig().catch(() => {});
+      notifications.show({ message: `${key} reset`, color: "green" });
+    } catch (err) {
+      notifyError(err, "Settings");
+    } finally {
+      setResetting(null);
+    }
+  };
+
+  if (loadError) {
+    return (
+      <Alert color="red" title="Could not load settings">
+        <Text size="sm" mb="xs">
+          {loadError}
+        </Text>
+        <Button
+          size="xs"
+          variant="light"
+          color="red"
+          onClick={() => {
+            setLoadError(null);
+            load();
+          }}
+        >
+          Retry
+        </Button>
+      </Alert>
+    );
+  }
+  if (!settings) {
+    return (
+      <Stack gap="xs">
+        {groups.map((g) => (
+          <Skeleton key={g} height={160} />
+        ))}
+      </Stack>
+    );
+  }
+
+  const set = (key: string, value: string) => {
+    setDraft((d) => ({ ...d, [key]: value }));
+    setFieldError((e) => (e[key] ? {} : e));
+  };
+
+  const control = (s: AppSettingView) => {
+    const meta = SETTING_META[s.key];
+    const label = meta?.label ?? s.key;
+    const common = {
+      "aria-label": label,
+      error: fieldError[s.key],
+      size: "xs" as const,
+    };
+    if (s.secret) {
+      const target = SECRET_TARGET[s.key];
+      // Required only while the target is edited and nothing new is typed.
+      const reenter =
+        !!target &&
+        !!s.set &&
+        !draft[s.key] &&
+        visible.some(
+          (v) =>
+            target.keys.includes(v.key) && draft[v.key] !== initialValue(v),
+        );
+      return (
+        <PasswordInput
+          {...common}
+          required={reenter}
+          description={
+            reenter
+              ? `Re-enter the key when changing ${target.label}`
+              : undefined
+          }
+          value={draft[s.key] ?? ""}
+          onChange={(e) => set(s.key, e.currentTarget.value)}
+          placeholder={s.set ? SECRET_PLACEHOLDER : "Not set"}
+          autoComplete="new-password"
+        />
+      );
+    }
+    switch (meta?.kind) {
+      case "bool":
+        return (
+          <Checkbox
+            {...common}
+            checked={draft[s.key] === "true"}
+            onChange={(e) =>
+              set(s.key, e.currentTarget.checked ? "true" : "false")
+            }
+          />
+        );
+      case "json":
+        return (
+          <Textarea
+            {...common}
+            value={draft[s.key] ?? ""}
+            onChange={(e) => set(s.key, e.currentTarget.value)}
+            placeholder="Built-in formats"
+            autosize
+            minRows={3}
+            maxRows={14}
+            styles={{ input: { fontFamily: "var(--font-mono)" } }}
+          />
+        );
+      default:
+        return (
+          <TextInput
+            {...common}
+            type={
+              meta?.kind === "int" || meta?.kind === "number"
+                ? "number"
+                : "text"
+            }
+            min={
+              meta?.kind === "int" ? 1 : meta?.kind === "number" ? 0 : undefined
+            }
+            value={draft[s.key] ?? ""}
+            onChange={(e) => set(s.key, e.currentTarget.value)}
+            placeholder={s.source === "default" ? "Not set" : undefined}
+          />
+        );
+    }
+  };
+
+  return (
+    <Stack gap="md">
+      {groups.map((g) => (
+        <Panel key={g}>
+          <div className="dp-eyebrow" style={{ marginBottom: 12 }}>
+            {SETTING_GROUP_LABELS[g]}
+          </div>
+          <Stack gap="sm">
+            {visible
+              .filter((s) => s.group === g)
+              .map((s) => {
+                const meta = SETTING_META[s.key];
+                const badge = SOURCE_BADGE[s.source];
+                return (
+                  <div
+                    key={s.key}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "minmax(180px, 240px) 1fr auto",
+                      gap: 12,
+                      alignItems: "start",
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <Text size="sm" fw={600} c="var(--text)">
+                        {meta?.label ?? s.key}
+                      </Text>
+                      <Text size="xs" ff="monospace" c="dimmed" truncate>
+                        {s.key}
+                      </Text>
+                      {meta?.hint && (
+                        <Text size="xs" c="dimmed">
+                          {meta.hint}
+                        </Text>
+                      )}
+                    </div>
+                    <div style={{ minWidth: 0 }}>{control(s)}</div>
+                    <Group
+                      gap={6}
+                      wrap="nowrap"
+                      style={{ minWidth: 112, paddingTop: 7 }}
+                    >
+                      <Tooltip label={badge.tip}>
+                        <Badge
+                          size="xs"
+                          color={badge.color}
+                          variant={badge.variant}
+                        >
+                          {badge.label}
+                        </Badge>
+                      </Tooltip>
+                      {s.source === "db" && (
+                        <Tooltip
+                          label={
+                            SECRET_TARGET[s.key]
+                              ? `Remove the saved value and fall back to .env / default — also resets ${SECRET_TARGET[s.key].label.replace(" or ", " and ")}`
+                              : "Remove the saved value and fall back to .env / default"
+                          }
+                        >
+                          <Button
+                            size="compact-xs"
+                            variant="subtle"
+                            color="neutral"
+                            loading={resetting === s.key}
+                            onClick={() => reset(s.key)}
+                            aria-label={`Reset ${s.key}`}
+                          >
+                            Reset
+                          </Button>
+                        </Tooltip>
+                      )}
+                    </Group>
+                  </div>
+                );
+              })}
+          </Stack>
+        </Panel>
+      ))}
+      {formError && (
+        <Alert color="red" icon={<IconAlertTriangle size={16} />}>
+          {formError}
+        </Alert>
+      )}
+      <Group justify="flex-end" gap="xs">
+        <Button
+          variant="subtle"
+          color="neutral"
+          disabled={dirty.length === 0 || saving}
+          onClick={() => apply(settings)}
+        >
+          Discard
+        </Button>
+        <Button
+          onClick={save}
+          loading={saving}
+          disabled={dirty.length === 0}
+          leftSection={<IconCheck size={16} />}
+        >
+          Save{dirty.length > 0 ? ` (${dirty.length})` : ""}
+        </Button>
+      </Group>
+    </Stack>
+  );
+}
+
+// ═══════════════════════════════════════
+// ── Connections Tab ──
+// ═══════════════════════════════════════
+
+const DB_TYPES = ["postgres", "mssql", "mongodb", "elasticsearch"];
+
+/** After any change: the admin list, plus what the rest of the app reads. */
+async function refreshAppConnections(): Promise<void> {
+  await Promise.all([loadConnections(), loadAppConfig()]).catch(() => {});
+}
+
+function ConnectionsTab() {
+  const [conns, setConns] = useState<ConnectionAdminView[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<ConnectionAdminView | "new" | null>(
+    null,
+  );
+  const [deleting, setDeleting] = useState<ConnectionAdminView | null>(null);
+  const [tests, setTests] = useState<Record<string, boolean | "pending">>({});
+
+  const load = () => {
+    api
+      .getAdminConnections()
+      .then(setConns)
+      .catch((err) => setLoadError(err.message));
+  };
+  useEffect(load, []);
+
+  const changed = () => {
+    load();
+    refreshAppConnections();
+  };
+
+  const test = async (id: string) => {
+    setTests((t) => ({ ...t, [id]: "pending" }));
+    try {
+      const { connected } = await api.testConnection(id);
+      setTests((t) => ({ ...t, [id]: connected }));
+    } catch (err) {
+      setTests((t) => ({ ...t, [id]: false }));
+      notifyError(err, "Settings");
+    }
+  };
+
+  return (
+    <>
+      <Group justify="space-between" mb="md">
+        <Text size="sm" c="dimmed">
+          Saved here, a connection applies immediately. Its environment name
+          also defines the environment — a new name adds one.
+        </Text>
+        <Button
+          leftSection={<IconPlus size={16} />}
+          onClick={() => setEditing("new")}
+        >
+          Add connection
+        </Button>
+      </Group>
+
+      {loadError ? (
+        <Alert color="red" title="Could not load connections">
+          <Text size="sm" mb="xs">
+            {loadError}
+          </Text>
+          <Button
+            size="xs"
+            variant="light"
+            color="red"
+            onClick={() => {
+              setLoadError(null);
+              load();
+            }}
+          >
+            Retry
+          </Button>
+        </Alert>
+      ) : !conns ? (
+        <Skeleton height={200} />
+      ) : conns.length === 0 ? (
+        <Panel>
+          <Text size="sm" c="dimmed" ta="center" py="lg">
+            No connections yet. Add one to start querying.
+          </Text>
+        </Panel>
+      ) : (
+        <Panel>
+          <Table verticalSpacing="xs" highlightOnHover>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Name</Table.Th>
+                <Table.Th>Env</Table.Th>
+                <Table.Th>Type</Table.Th>
+                <Table.Th>Target</Table.Th>
+                <Table.Th>Credentials</Table.Th>
+                <Table.Th />
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {conns.map((c) => {
+                const t = tests[c.id];
+                return (
+                  <Table.Tr key={c.id}>
+                    <Table.Td>
+                      <Text size="sm" fw={600}>
+                        {c.name}
+                      </Text>
+                      <Text size="xs" ff="monospace" c="dimmed">
+                        {c.id}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Badge size="xs" variant="light" color={envColor(c.env)}>
+                        {c.env}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="xs">{c.type}</Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="xs" ff="monospace" truncate maw={260}>
+                        {c.host
+                          ? `${c.host}${c.port ? `:${c.port}` : ""}`
+                          : c.uriSet
+                            ? "URI"
+                            : "—"}
+                        {c.database ? ` / ${c.database}` : ""}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="xs" c="dimmed">
+                        {[c.passwordSet && "password", c.uriSet && "URI"]
+                          .filter(Boolean)
+                          .join(", ") || "none"}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Group gap={4} justify="flex-end" wrap="nowrap">
+                        {t === true && (
+                          <Badge size="xs" color="green" variant="light">
+                            Connected
+                          </Badge>
+                        )}
+                        {t === false && (
+                          <Badge size="xs" color="red" variant="light">
+                            Failed
+                          </Badge>
+                        )}
+                        <Tooltip label="Test connection">
+                          <ActionIcon
+                            variant="subtle"
+                            color="neutral"
+                            aria-label={`Test ${c.name}`}
+                            loading={t === "pending"}
+                            onClick={() => test(c.id)}
+                          >
+                            <IconPlugConnected size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label="Edit">
+                          <ActionIcon
+                            variant="subtle"
+                            color="neutral"
+                            aria-label={`Edit ${c.name}`}
+                            onClick={() => setEditing(c)}
+                          >
+                            <IconEdit size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label="Delete">
+                          <ActionIcon
+                            variant="subtle"
+                            color="red"
+                            aria-label={`Delete ${c.name}`}
+                            onClick={() => setDeleting(c)}
+                          >
+                            <IconTrash size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                      </Group>
+                    </Table.Td>
+                  </Table.Tr>
+                );
+              })}
+            </Table.Tbody>
+          </Table>
+        </Panel>
+      )}
+
+      {editing && (
+        <ConnectionModal
+          connection={editing === "new" ? null : editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            changed();
+          }}
+        />
+      )}
+      <DeleteConnectionModal
+        connection={deleting}
+        onClose={() => setDeleting(null)}
+        onDeleted={changed}
+      />
+    </>
+  );
+}
+
+function ConnectionModal({
+  connection,
+  onClose,
+  onSaved,
+}: {
+  connection: ConnectionAdminView | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const environments = useEnvironments();
+  const isNew = !connection;
+  const [f, setF] = useState({
+    id: connection?.id ?? "",
+    name: connection?.name ?? "",
+    env: connection?.env ?? "",
+    type: connection?.type ?? "postgres",
+    host: connection?.host ?? "",
+    port: connection?.port ? String(connection.port) : "",
+    database: connection?.database ?? "",
+    username: connection?.username ?? "",
+    password: "",
+    schema: connection?.schema ?? "",
+    uri: "",
+  });
+  const [schemas, setSchemas] = useState<string[]>(connection?.schemas ?? []);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const field = (key: keyof typeof f) => ({
+    value: f[key],
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+      const value = e.currentTarget.value;
+      setF((p) => ({ ...p, [key]: value }));
+      setErrors((e) => (e[key] ? {} : e));
+    },
+    error: errors[key],
+  });
+
+  const submit = async () => {
+    setSaving(true);
+    setErrors({});
+    setFormError(null);
+    const opt = (v: string) => v.trim() || undefined;
+    const body: Omit<ConnectionInput, "id"> = {
+      name: f.name.trim(),
+      env: f.env.trim(),
+      type: f.type as ConnectionInput["type"],
+      host: opt(f.host),
+      port: f.port ? Number(f.port) : undefined,
+      database: opt(f.database),
+      username: opt(f.username),
+      // Blank keeps the stored secret (server side).
+      password: f.password || undefined,
+      schema: opt(f.schema),
+      schemas: schemas.length ? schemas : undefined,
+      uri: f.uri || undefined,
+    };
+    try {
+      if (isNew) await api.createConnection({ ...body, id: f.id.trim() });
+      else await api.updateConnection(connection.id, body);
+      notifications.show({
+        message: isNew ? "Connection added" : "Connection updated",
+        color: "green",
+      });
+      onSaved();
+    } catch (err: any) {
+      // Server errors read "<field>: <problem>" — put them on the field.
+      const msg: string = err?.message ?? String(err);
+      const m = /^(\w+): (.*)$/.exec(msg);
+      if (m && m[1] in f) setErrors({ [m[1]]: m[2] });
+      else if (/password/i.test(msg)) setErrors({ password: msg });
+      else setFormError(msg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Keeping a stored password while pointing it elsewhere is refused by the
+  // server, so changing the target makes the password required.
+  const reenterPassword =
+    !isNew &&
+    connection.passwordSet &&
+    !f.password &&
+    (f.type !== connection.type ||
+      f.host.trim() !== (connection.host ?? "") ||
+      f.port !== (connection.port ? String(connection.port) : "") ||
+      !!f.uri ||
+      // Elasticsearch takes its protocol from `schema`.
+      (f.type === "elasticsearch" &&
+        f.schema.trim() !== (connection.schema ?? "")));
+
+  const secretPlaceholder = (set: boolean | undefined) =>
+    set ? SECRET_PLACEHOLDER : "Not set";
+
+  return (
+    <Modal
+      opened
+      onClose={onClose}
+      title={isNew ? "Add connection" : `Edit ${connection.name}`}
+      size="lg"
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <Stack gap="sm">
+          <SimpleGrid cols={2} spacing="sm">
+            <TextInput
+              label="ID"
+              description="Letters, digits, _ or -. Cannot be changed."
+              required
+              disabled={!isNew}
+              {...field("id")}
+              styles={{ input: { fontFamily: "var(--font-mono)" } }}
+            />
+            <TextInput label="Name" required {...field("name")} />
+            <Autocomplete
+              label="Environment"
+              description="Pick one or type a new name"
+              required
+              data={environments}
+              value={f.env}
+              onChange={(v) => setF((p) => ({ ...p, env: v }))}
+              error={errors.env}
+            />
+            <Select
+              label="Type"
+              required
+              allowDeselect={false}
+              data={DB_TYPES}
+              value={f.type}
+              onChange={(v) =>
+                v && setF((p) => ({ ...p, type: v as typeof p.type }))
+              }
+            />
+            <TextInput label="Host" {...field("host")} />
+            <TextInput
+              label="Port"
+              type="number"
+              min={1}
+              max={65535}
+              {...field("port")}
+            />
+            <TextInput label="Database" {...field("database")} />
+            <TextInput
+              label="Username"
+              autoComplete="off"
+              {...field("username")}
+            />
+            <PasswordInput
+              label="Password"
+              required={reenterPassword}
+              description={
+                reenterPassword
+                  ? "Re-enter the password when changing where it is sent (type, host, port, URI, or Elasticsearch protocol)"
+                  : undefined
+              }
+              placeholder={secretPlaceholder(connection?.passwordSet)}
+              autoComplete="new-password"
+              {...field("password")}
+            />
+            <TextInput label="Default schema" {...field("schema")} />
+          </SimpleGrid>
+          <TagsInput
+            label="Schemas"
+            description="Limit the schema browser to these (Enter to add). Empty = all."
+            value={schemas}
+            onChange={setSchemas}
+            error={errors.schemas}
+          />
+          <PasswordInput
+            label="Connection URI"
+            description="Optional connection string; stored encrypted, never shown again"
+            placeholder={secretPlaceholder(connection?.uriSet)}
+            autoComplete="off"
+            {...field("uri")}
+          />
+          {formError && (
+            <Alert color="red" icon={<IconAlertTriangle size={16} />}>
+              {formError}
+            </Alert>
+          )}
+          <Group justify="flex-end" mt="xs">
+            <Button variant="subtle" color="neutral" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={saving}>
+              {isNew ? "Add connection" : "Save"}
+            </Button>
+          </Group>
+        </Stack>
+      </form>
+    </Modal>
+  );
+}
+
+function DeleteConnectionModal({
+  connection,
+  onClose,
+  onDeleted,
+}: {
+  connection: ConnectionAdminView | null;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!connection) return;
+    setDeleting(true);
+    try {
+      await api.deleteConnection(connection.id);
+      notifications.show({ message: "Connection deleted", color: "green" });
+      onClose();
+      onDeleted();
+    } catch (err) {
+      notifyError(err, "Settings");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <Modal
+      opened={!!connection}
+      onClose={onClose}
+      title="Delete connection"
+      size="sm"
+    >
+      <Text size="sm" mb="lg">
+        Delete <strong>{connection?.name}</strong> (
+        <Text span ff="monospace" size="sm">
+          {connection?.id}
+        </Text>
+        )? Open tabs on it stop working, and saved queries that use it can no
+        longer run.
+      </Text>
+      <Group justify="flex-end">
+        <Button variant="subtle" color="neutral" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button color="red" onClick={handleDelete} loading={deleting}>
+          Delete connection
+        </Button>
+      </Group>
+    </Modal>
   );
 }
 

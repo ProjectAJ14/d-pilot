@@ -8,8 +8,16 @@ import type {
   WriteAiReview,
   QueryResult,
   CopyFormat,
+  AppSettingView,
+  ConnectionAdminView,
 } from "../types";
 import { BASE_PATH } from "./base-path";
+
+/** Body for creating/updating a connection. A blank password/uri keeps the stored one. */
+export type ConnectionInput = Omit<
+  ConnectionAdminView,
+  "passwordSet" | "uriSet"
+> & { password?: string; uri?: string };
 
 /**
  * Every API call goes through here, so this one line is what makes the whole
@@ -581,4 +589,33 @@ export const api = {
     if (params.status) q.set("status", params.status);
     return request<AiChatLogEntry[]>(`/azure-ai/chat-log?${q.toString()}`);
   },
+
+  // Runtime settings & connections (admin)
+  getAppSettings: () => request<AppSettingView[]>("/settings"),
+  updateAppSettings: (values: Record<string, string>) =>
+    request<AppSettingView[]>("/settings", {
+      method: "PUT",
+      body: JSON.stringify({ values }),
+    }),
+  resetAppSetting: (key: string) =>
+    request<AppSettingView[]>(`/settings/${encodeURIComponent(key)}`, {
+      method: "DELETE",
+    }),
+  getAdminConnections: () =>
+    request<ConnectionAdminView[]>("/settings/connections"),
+  createConnection: (data: ConnectionInput) =>
+    request<ConnectionAdminView>("/settings/connections", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateConnection: (id: string, data: Omit<ConnectionInput, "id">) =>
+    request<ConnectionAdminView>(
+      `/settings/connections/${encodeURIComponent(id)}`,
+      { method: "PUT", body: JSON.stringify(data) },
+    ),
+  deleteConnection: (id: string) =>
+    request<{ deleted: boolean }>(
+      `/settings/connections/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    ),
 };
