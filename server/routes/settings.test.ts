@@ -224,7 +224,9 @@ describe("secrets", () => {
     const view = (await (await call("GET")).json()).find(
       (s: any) => s.key === "AZURE_OPENAI_KEY",
     );
-    expect(view).toMatchObject({ source: "db", set: false });
+    // "Set" means stored, as the save guard below reads it — so the UI asks
+    // for the key again rather than claiming none is set.
+    expect(view).toMatchObject({ source: "db", set: true });
 
     // Still guarded: restoring the key file later would revive that secret,
     // so its endpoint cannot move until a key is typed again.

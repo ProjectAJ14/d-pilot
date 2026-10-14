@@ -174,7 +174,11 @@ export function getConfigBool(key: SettingKey): boolean {
   return parseBool(getConfig(key));
 }
 
-/** Every setting for the admin UI. Secrets report only whether they are set. */
+/**
+ * Every setting for the admin UI. Secrets report only whether they are set —
+ * stored, not decryptable today, matching the guard in updateSettings and
+ * connections' storedConnectionSecrets.
+ */
 export function listSettings(): AppSettingView[] {
   return (Object.keys(SETTINGS) as SettingKey[]).map((key) => {
     const { value, source } = resolve(key);
@@ -184,7 +188,9 @@ export function listSettings(): AppSettingView[] {
       group: d.group,
       secret: !!d.secret,
       source,
-      ...(d.secret ? { set: !!value } : { value: value ?? null }),
+      ...(d.secret
+        ? { set: getSetting(key) !== null || !!value }
+        : { value: value ?? null }),
       // Limits report what is enforced: clamped to the ceiling, a bad env value
       // replaced by the default.
       ...(d.max !== undefined && {
