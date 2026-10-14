@@ -57,3 +57,21 @@ function describeJsonError(text: string, message: string): string {
     ? `Invalid JSON: ${reason} (${lineCol(text, Number(pos[1]))})`
     : `Invalid JSON: ${reason}`;
 }
+
+/**
+ * Run `fn` over `items` with at most `limit` in flight, so testing 200 pasted
+ * rows opens 4 connections at a time, not 200. `fn` must not throw.
+ */
+export async function runLimited<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) await fn(items[next++]);
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker),
+  );
+}

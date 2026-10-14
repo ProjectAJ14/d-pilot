@@ -92,7 +92,10 @@ import type { ConnectionInput } from "../../utils/api-client";
 import { loadAppConfig, loadConnections } from "../../utils/app-config";
 import { BASE_PATH } from "../../utils/base-path";
 import { settingBool } from "../../utils/setting-bool";
-import { parseConnectionsJson } from "../../utils/connection-import";
+import {
+  parseConnectionsJson,
+  runLimited,
+} from "../../utils/connection-import";
 import { useDebouncedValue } from "@mantine/hooks";
 
 // ── PHI Field Icons ──
@@ -3981,6 +3984,13 @@ type ImportCheck = { for: string } & (
   | { state: "failed"; error: string }
 );
 
+/** A pasted row's connection test — results belong to the text they ran on. */
+type RowTest =
+  | { state: "running" }
+  | { state: "ok" }
+  | { state: "failed"; error: string };
+const NO_TESTS = new Map<number, RowTest>();
+
 /** One preview cell: a string/number field of a pasted item, else blank. */
 function importField(item: unknown, key: string): string {
   const v = (item as Record<string, unknown> | null)?.[key];
@@ -3999,6 +4009,10 @@ function ImportConnectionsModal({
   const [result, setResult] = useState<ImportCheck | null>(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  // Keyed by the text they ran on, so any edit clears them, and a result that
+  // lands after an edit is dropped rather than shown against changed values.
+  const [tests, setTests] = useState({ for: "", rows: NO_TESTS });
+  const textRef = useRef(text);
 
   // Parsing is cheap, so the preview follows every keystroke; only the
   // server check (and showing a syntax error mid-typing) waits for a pause.
@@ -4035,6 +4049,50 @@ function ImportConnectionsModal({
   const errorCount = check?.state === "done" ? check.errors.size : 0;
   const ready =
     !!items && !pending && check?.state === "done" && errorCount === 0;
+
+  const rowTests = tests.for === text ? tests.rows : NO_TESTS;
+  const testable = (i: number) =>
+    !pending && check?.state === "done" && !check.errors.has(i);
+  const setRowTest = (forText: string, i: number, t: RowTest) =>
+    setTests((prev) => {
+      if (forText !== textRef.current) return prev;
+      const rows = new Map(prev.for === forText ? prev.rows : NO_TESTS);
+      rows.set(i, t);
+      return { for: forText, rows };
+    });
+  // No `id`: these are unsaved, so the server uses only the pasted values and
+  // returns the driver's full error.
+  const testRow = async (forText: string, i: number) => {
+    if (!items) return;
+    setRowTest(forText, i, { state: "running" });
+    const { id: _id, ...body } = items[i] as Record<string, unknown>;
+    try {
+      const r = await api.testConnectionDraft(
+        body as Parameters<typeof api.testConnectionDraft>[0],
+      );
+      setRowTest(
+        forText,
+        i,
+        r.ok
+          ? { state: "ok" }
+          : { state: "failed", error: r.error ?? "Failed" },
+      );
+    } catch (err) {
+      setRowTest(forText, i, {
+        state: "failed",
+        error: (err as Error).message,
+      });
+    }
+  };
+  const testAll = () => {
+    if (!items) return;
+    const rows = items.map((_, i) => i).filter(testable);
+    void runLimited(rows, 4, (i) => testRow(text, i));
+  };
+  const testing = [...rowTests.values()].some((t) => t.state === "running");
+  const failedTests = [...rowTests.values()].filter(
+    (t) => t.state === "failed",
+  ).length;
 
   const submit = async () => {
     if (!items || !ready) return;
@@ -4073,6 +4131,7 @@ function ImportConnectionsModal({
           value={text}
           onChange={(e) => {
             setText(e.currentTarget.value);
+            textRef.current = e.currentTarget.value;
             setImportError(null);
           }}
           error={
@@ -4104,6 +4163,7 @@ function ImportConnectionsModal({
                     <Table.Th>Type</Table.Th>
                     <Table.Th>Target</Table.Th>
                     <Table.Th>Status</Table.Th>
+                    <Table.Th>Test</Table.Th>
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
@@ -4114,6 +4174,14 @@ function ImportConnectionsModal({
                     const database = importField(item, "database");
                     const error =
                       check?.state === "done" ? check.errors.get(i) : undefined;
+                    const target = `${
+                      host
+                        ? `${host}${port ? `:${port}` : ""}`
+                        : importField(item, "uri")
+                          ? "URI"
+                          : "—"
+                    }${database ? ` / ${database}` : ""}`;
+                    const t = rowTests.get(i);
                     return (
                       <Table.Tr key={i}>
                         <Table.Td
@@ -4136,13 +4204,14 @@ function ImportConnectionsModal({
                         </Table.Td>
                         <Table.Td>{importField(item, "type")}</Table.Td>
                         <Table.Td ff="monospace">
-                          <Text size="xs" ff="monospace" truncate maw={220}>
-                            {host
-                              ? `${host}${port ? `:${port}` : ""}`
-                              : importField(item, "uri")
-                                ? "URI"
-                                : "—"}
-                            {database ? ` / ${database}` : ""}
+                          <Text
+                            size="xs"
+                            ff="monospace"
+                            truncate
+                            maw={220}
+                            title={target}
+                          >
+                            {target}
                           </Text>
                         </Table.Td>
                         <Table.Td>
@@ -4160,6 +4229,53 @@ function ImportConnectionsModal({
                             </Badge>
                           )}
                         </Table.Td>
+                        <Table.Td style={{ whiteSpace: "nowrap" }}>
+                          <Group gap={6} wrap="nowrap">
+                            <Tooltip label="Test connection">
+                              <ActionIcon
+                                size="sm"
+                                variant="subtle"
+                                color="neutral"
+                                aria-label={`Test connection ${importField(item, "id") || i + 1}`}
+                                disabled={
+                                  !testable(i) || t?.state === "running"
+                                }
+                                onClick={() => testRow(text, i)}
+                              >
+                                <IconPlugConnected size={14} />
+                              </ActionIcon>
+                            </Tooltip>
+                            {t?.state === "running" ? (
+                              <Loader size={12} aria-label="Testing" />
+                            ) : t?.state === "ok" ? (
+                              <Badge size="xs" color="green" variant="light">
+                                Connected
+                              </Badge>
+                            ) : t?.state === "failed" ? (
+                              <Tooltip
+                                label={t.error}
+                                multiline
+                                w={360}
+                                events={{
+                                  hover: true,
+                                  focus: true,
+                                  touch: true,
+                                }}
+                              >
+                                <Badge
+                                  size="xs"
+                                  color="red"
+                                  variant="light"
+                                  tabIndex={0}
+                                  aria-label={`Failed: ${t.error}`}
+                                  style={{ cursor: "help" }}
+                                >
+                                  Failed
+                                </Badge>
+                              </Tooltip>
+                            ) : null}
+                          </Group>
+                        </Table.Td>
                       </Table.Tr>
                     );
                   })}
@@ -4174,18 +4290,37 @@ function ImportConnectionsModal({
           </Alert>
         )}
         <Group justify="space-between" mt="xs">
-          <Text size="xs" c="dimmed">
-            {!items
-              ? ""
-              : pending
-                ? "Validating…"
-                : errorCount > 0
-                  ? `${errorCount} of ${items.length} row${items.length === 1 ? "" : "s"} need fixing`
-                  : check?.state === "done"
-                    ? `${items.length} connection${items.length === 1 ? "" : "s"} ready`
-                    : ""}
-          </Text>
           <Group gap="xs">
+            <Text size="xs" c="dimmed">
+              {!items
+                ? ""
+                : pending
+                  ? "Validating…"
+                  : errorCount > 0
+                    ? `${errorCount} of ${items.length} row${items.length === 1 ? "" : "s"} need fixing`
+                    : check?.state === "done"
+                      ? `${items.length} connection${items.length === 1 ? "" : "s"} ready`
+                      : ""}
+            </Text>
+            {items?.some((_, i) => testable(i)) && (
+              <Button
+                size="xs"
+                variant="default"
+                leftSection={<IconPlugConnected size={14} />}
+                onClick={testAll}
+                loading={testing}
+              >
+                Test all
+              </Button>
+            )}
+          </Group>
+          <Group gap="xs">
+            {failedTests > 0 && !testing && (
+              <Text size="xs" c="var(--warning)">
+                {failedTests} connection{failedTests === 1 ? "" : "s"} failed
+                its test
+              </Text>
+            )}
             <Button variant="subtle" color="neutral" onClick={onClose}>
               Cancel
             </Button>
