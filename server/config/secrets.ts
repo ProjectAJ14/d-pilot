@@ -63,7 +63,18 @@ function createKeyFile(file: string): string {
     fs.linkSync(tmp, file);
     return hex;
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EEXIST") return fs.readFileSync(file, "utf8").trim();
+    if (!["EPERM", "ENOTSUP", "ENOSYS", "EXDEV"].includes(code ?? ""))
+      throw err;
+    // No hard links on this filesystem: an exclusive create still never
+    // clobbers a racing process's key. Its window (created, not yet written)
+    // is what the read-back below and encryptionKey's validation catch.
+    try {
+      fs.writeFileSync(file, hex, { flag: "wx", mode: 0o600 });
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+    }
     return fs.readFileSync(file, "utf8").trim();
   } finally {
     fs.unlinkSync(tmp);

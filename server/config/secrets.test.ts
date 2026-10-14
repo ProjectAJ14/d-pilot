@@ -84,6 +84,19 @@ describe("secrets", () => {
     expect(fs.readdirSync(dir)).toEqual(["settings.key"]);
   });
 
+  it("falls back to an exclusive create where hard links are unsupported", () => {
+    const dir = freshDir();
+    vi.spyOn(fs, "linkSync").mockImplementation(() => {
+      throw Object.assign(new Error("not supported"), { code: "ENOTSUP" });
+    });
+    const stored = encryptSecret("x");
+    const file = path.join(dir, "settings.key");
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(readFileSync(file, "utf8")).toMatch(/^[0-9a-f]{64}$/);
+    expect(decryptSecret(stored)).toBe("x");
+    expect(fs.readdirSync(dir)).toEqual(["settings.key"]);
+  });
+
   it("refuses an empty key file with a message naming it", () => {
     const dir = freshDir();
     const file = path.join(dir, "settings.key");
