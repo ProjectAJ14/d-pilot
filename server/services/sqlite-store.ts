@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { DEFAULT_PHI_RULES } from "../config/phi-defaults.js";
 import {
   getProductionEnvs,
@@ -110,6 +110,7 @@ export function initDatabase(): void {
       schema_name TEXT,
       schemas TEXT,
       uri_enc TEXT,
+      instance_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -226,7 +227,39 @@ export function initDatabase(): void {
     );
   }
 
+  // A random id per stored connection, new on every insert and kept across
+  // updates: deleting and re-creating a connection under the same id gives it
+  // a new one, so a write request bound to the old one cannot run on it.
+  const connCols = db.pragma("table_info(db_connections)") as {
+    name: string;
+  }[];
+  if (!connCols.some((c) => c.name === "instance_id")) {
+    db.exec("ALTER TABLE db_connections ADD COLUMN instance_id TEXT");
+  }
+  db.exec(
+    "UPDATE db_connections SET instance_id = lower(hex(randomblob(16))) WHERE instance_id IS NULL",
+  );
   invalidateConnections();
+
+  // The connection target a request was submitted against (connectionTarget).
+  // Existing pending requests are bound to their connection as of the upgrade;
+  // one whose connection is already gone gets none, so it can never run.
+  if (!wrColNames.has("target_fingerprint")) {
+    db.exec("ALTER TABLE write_requests ADD COLUMN target_fingerprint TEXT");
+    const conns = new Map(
+      (listDbConnections() ?? []).map((c) => [c.id, c] as const),
+    );
+    const pending = db
+      .prepare(
+        "SELECT id, connection_id FROM write_requests WHERE status = 'PENDING'",
+      )
+      .all() as { id: string; connection_id: string }[];
+    for (const row of pending) {
+      const conn = conns.get(row.connection_id);
+      if (conn) setWriteRequestTarget(row.id, connectionTarget(conn));
+    }
+  }
+
   if (process.env.DBFORGE_CONNECTIONS) {
     console.warn(
       "DBFORGE_CONNECTIONS is no longer read; connections are managed in Settings → Connections.",
@@ -766,8 +799,8 @@ function writeDbConnection(
   keep: { password?: boolean; uri?: boolean } = {},
 ): void {
   db.prepare(
-    `INSERT INTO db_connections (id, name, env, type, host, port, database_name, username, password_enc, schema_name, schemas, uri_enc)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO db_connections (id, name, env, type, host, port, database_name, username, password_enc, schema_name, schemas, uri_enc, instance_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, lower(hex(randomblob(16))))
      ON CONFLICT(id) DO UPDATE SET name = excluded.name, env = excluded.env, type = excluded.type,
        host = excluded.host, port = excluded.port, database_name = excluded.database_name,
        username = excluded.username,
@@ -791,6 +824,33 @@ function writeDbConnection(
     keep.password ? 1 : 0,
     keep.uri ? 1 : 0,
   );
+}
+
+/**
+ * A SHA-256 of where `conn` points: the stored instance (see instance_id), env,
+ * type, host, port, database, username, the Elasticsearch protocol and the URI.
+ * Name, schema list and password are not part of it — renaming or rotating a
+ * password is not a different target. Null when the connection is not stored.
+ * A write request is bound to this when it is submitted, and refuses to run
+ * once it changes.
+ */
+export function connectionTarget(conn: ConnectionConfig): string | null {
+  const row = db
+    .prepare("SELECT instance_id FROM db_connections WHERE id = ?")
+    .get(conn.id) as { instance_id: string } | undefined;
+  if (!row) return null;
+  const fields = [
+    row.instance_id,
+    conn.env,
+    conn.type,
+    conn.host ?? null,
+    conn.port ?? null,
+    conn.database ?? null,
+    conn.username ?? null,
+    conn.type === "elasticsearch" ? (conn.schema ?? null) : null,
+    conn.uri ?? null,
+  ];
+  return createHash("sha256").update(JSON.stringify(fields)).digest("hex");
 }
 
 export function deleteDbConnection(id: string): boolean {
@@ -1582,6 +1642,20 @@ export function updateWriteRequest(
     ...params,
   );
   return getWriteRequest(id);
+}
+
+/** Binds a request to the connection target it was submitted against. */
+export function setWriteRequestTarget(id: string, target: string | null): void {
+  db.prepare(
+    "UPDATE write_requests SET target_fingerprint = ? WHERE id = ?",
+  ).run(target, id);
+}
+
+export function getWriteRequestTarget(id: string): string | null {
+  const row = db
+    .prepare("SELECT target_fingerprint FROM write_requests WHERE id = ?")
+    .get(id) as { target_fingerprint: string | null } | undefined;
+  return row?.target_fingerprint ?? null;
 }
 
 /**

@@ -47,6 +47,9 @@ import {
   getPhiMaskedEnvs,
   setSetting,
   logAudit,
+  connectionTarget,
+  getWriteRequestTarget,
+  setWriteRequestTarget,
 } from "../services/sqlite-store.js";
 import type {
   AuthUser,
@@ -301,6 +304,18 @@ async function validateRequestQueries(
 }
 
 /**
+ * Binds a request to where its connection points now. Approval checks it, so a
+ * connection edited (or deleted and re-created) after submission cannot send an
+ * approved statement somewhere its reviewers never saw.
+ */
+function bindTarget(
+  id: string,
+  conn: NonNullable<ReturnType<typeof getConnection>>,
+): void {
+  setWriteRequestTarget(id, connectionTarget(conn));
+}
+
+/**
  * Executes a request immediately on a DIRECT-policy environment (an authorized
  * author self-serves), transitioning it to EXECUTED or FAILED and recording the
  * events + audit. Used by both create and revise.
@@ -495,6 +510,7 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
     isMigration,
     noTransaction: noTx,
   });
+  bindTarget(wr.id, conn);
 
   addWriteRequestEvent(
     wr.id,
@@ -940,9 +956,19 @@ function decideAndRun(override: boolean) {
       return;
     }
 
+    // The request runs only on the target it was submitted against (bindTarget).
+    // It stays PENDING; resubmitting it (reject or cancel, then revise) re-binds.
     const conn = getConnection(wr.connectionId);
     if (!conn) {
-      res.status(404).json({ error: "Connection not found" });
+      res.status(409).json({
+        error: `Connection ${wr.connectionId} no longer exists — this request can't run.`,
+      });
+      return;
+    }
+    if (getWriteRequestTarget(wr.id) !== connectionTarget(conn)) {
+      res.status(409).json({
+        error: `Connection ${wr.connectionId} changed since this request was submitted — re-approve it: reject or cancel it, then resubmit it against the current connection.`,
+      });
       return;
     }
 
@@ -1151,6 +1177,7 @@ router.post(
         .json({ error: "This draft was already submitted by someone else." });
       return;
     }
+    bindTarget(wr.id, conn);
     if (plan.takeOwnership) {
       updateWriteRequest(wr.id, {
         requestedBy: user.sub,
@@ -1339,6 +1366,7 @@ router.post(
       noTransaction: noTx,
       status: plan.keepDraft ? "DRAFT" : "PENDING",
     });
+    bindTarget(wr.id, conn);
     addWriteRequestEvent(
       wr.id,
       user.sub,
