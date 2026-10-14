@@ -27,6 +27,8 @@ interface SettingDef {
   kind: Kind;
   default?: string;
   secret?: boolean;
+  /** Upper bound for int/number settings. */
+  max?: number;
 }
 
 export const SETTINGS = {
@@ -48,10 +50,26 @@ export const SETTINGS = {
   EMAIL_DOMAIN: { group: "branding", kind: "string" },
   APP_BASE_URL: { group: "branding", kind: "url" },
 
-  MAX_ROWS: { group: "limits", kind: "int", default: "10000" },
-  QUERY_TIMEOUT_MS: { group: "limits", kind: "int", default: "90000" },
-  MCP_MAX_ROWS: { group: "limits", kind: "int", default: "1000" },
-  SCHEMA_CACHE_TTL_HOURS: { group: "limits", kind: "number", default: "24" },
+  MAX_ROWS: { group: "limits", kind: "int", default: "10000", max: 1_000_000 },
+  // Node's timer maximum and pg's statement_timeout (INT_MAX) ceiling.
+  QUERY_TIMEOUT_MS: {
+    group: "limits",
+    kind: "int",
+    default: "90000",
+    max: 2_147_483_647,
+  },
+  MCP_MAX_ROWS: {
+    group: "limits",
+    kind: "int",
+    default: "1000",
+    max: 1_000_000,
+  },
+  SCHEMA_CACHE_TTL_HOURS: {
+    group: "limits",
+    kind: "number",
+    default: "24",
+    max: 8760, // a year
+  },
   COPY_FORMATS: { group: "limits", kind: "json" },
   JWT_EXPIRES_IN: { group: "limits", kind: "duration", default: "24h" },
 } satisfies Record<string, SettingDef>;
@@ -163,6 +181,10 @@ export function updateSettings(
     const parsed = VALIDATORS[def(key).kind].safeParse(value);
     if (!parsed.success) {
       throw new Error(`${key} ${parsed.error.issues[0]?.message ?? "invalid"}`);
+    }
+    const max = def(key).max;
+    if (max !== undefined && Number(value) > max) {
+      throw new Error(`${key} must be at most ${max}`);
     }
     writes.push([key, value]);
   }

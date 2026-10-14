@@ -488,3 +488,24 @@ describe("JWT_EXPIRES_IN", () => {
     store.deleteSetting("JWT_EXPIRES_IN");
   });
 });
+
+describe("limits", () => {
+  it("rejects values above each setting's maximum", async () => {
+    for (const [key, value] of [
+      ["QUERY_TIMEOUT_MS", "2147483648"],
+      ["MAX_ROWS", "1000001"],
+      ["MCP_MAX_ROWS", "1000001"],
+      ["SCHEMA_CACHE_TTL_HOURS", "8761"],
+    ]) {
+      const before = rawSetting(key);
+      const res = await call("PUT", "", { values: { [key]: value } });
+      expect(res.status, key).toBe(400);
+      expect(rawSetting(key), key).toBe(before);
+    }
+    const atMax = await call("PUT", "", {
+      values: { QUERY_TIMEOUT_MS: "2147483647" },
+    });
+    expect(atMax.status).toBe(200);
+    await call("DELETE", "/QUERY_TIMEOUT_MS");
+  });
+});
