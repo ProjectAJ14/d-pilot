@@ -744,15 +744,41 @@ export function listDbConnections(): ConnectionConfig[] | null {
   });
 }
 
-/** Insert or replace a connection; password and URI are encrypted at rest. */
-export function saveDbConnection(conn: ConnectionConfig): void {
+/**
+ * Which secrets a connection has stored — ciphertext present, whether or not it
+ * still decrypts. A secret that fails today revives if the key file is
+ * restored, so it counts as set (same rule as the AI key).
+ */
+export function storedConnectionSecrets(id: string): {
+  password: boolean;
+  uri: boolean;
+} {
+  const row = db
+    .prepare(
+      "SELECT password_enc IS NOT NULL AS password, uri_enc IS NOT NULL AS uri FROM db_connections WHERE id = ?",
+    )
+    .get(id) as { password: number; uri: number } | undefined;
+  return { password: !!row?.password, uri: !!row?.uri };
+}
+
+/**
+ * Insert or replace a connection; password and URI are encrypted at rest.
+ * `keep` leaves an existing row's stored ciphertext as it is — including one
+ * that no longer decrypts, which `conn` cannot carry.
+ */
+export function saveDbConnection(
+  conn: ConnectionConfig,
+  keep: { password?: boolean; uri?: boolean } = {},
+): void {
   db.prepare(
     `INSERT INTO db_connections (id, name, env, type, host, port, database_name, username, password_enc, schema_name, schemas, uri_enc)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET name = excluded.name, env = excluded.env, type = excluded.type,
        host = excluded.host, port = excluded.port, database_name = excluded.database_name,
-       username = excluded.username, password_enc = excluded.password_enc,
-       schema_name = excluded.schema_name, schemas = excluded.schemas, uri_enc = excluded.uri_enc,
+       username = excluded.username,
+       password_enc = CASE WHEN ? THEN password_enc ELSE excluded.password_enc END,
+       schema_name = excluded.schema_name, schemas = excluded.schemas,
+       uri_enc = CASE WHEN ? THEN uri_enc ELSE excluded.uri_enc END,
        updated_at = datetime('now')`,
   ).run(
     conn.id,
@@ -767,6 +793,8 @@ export function saveDbConnection(conn: ConnectionConfig): void {
     conn.schema ?? null,
     conn.schemas ? JSON.stringify(conn.schemas) : null,
     conn.uri ? encryptSecret(conn.uri) : null,
+    keep.password ? 1 : 0,
+    keep.uri ? 1 : 0,
   );
   invalidateConnections();
 }

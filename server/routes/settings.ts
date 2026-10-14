@@ -5,6 +5,7 @@ import {
   deleteDbConnection,
   logAudit,
   saveDbConnection,
+  storedConnectionSecrets,
 } from "../services/sqlite-store.js";
 import {
   getConnection,
@@ -113,15 +114,15 @@ router.delete("/:key", async (req: Request, res: Response) => {
 
 // --- Connections ---
 
+// "Set" means stored, not decryptable — see storedConnectionSecrets.
 const toView = ({
-  password,
-  uri,
+  password: _password,
+  uri: _uri,
   ...rest
-}: ConnectionConfig): ConnectionAdminView => ({
-  ...rest,
-  passwordSet: !!password,
-  uriSet: !!uri,
-});
+}: ConnectionConfig): ConnectionAdminView => {
+  const stored = storedConnectionSecrets(rest.id);
+  return { ...rest, passwordSet: stored.password, uriSet: stored.uri };
+};
 
 const optionalText = z.string().trim().max(2000).optional();
 const connectionFields = z.object({
@@ -218,6 +219,11 @@ router.put("/connections/:id", async (req: Request, res: Response) => {
   }
   // An omitted or empty secret keeps the stored one — the client never had it.
   // Clearing drops the secret (nothing is kept, so nothing can be redirected).
+  // A kept secret keeps its stored ciphertext, even one that no longer decrypts.
+  const keep = {
+    password: !fields.password && !clearPassword,
+    uri: !fields.uri && !clearUri,
+  };
   const next: ConnectionConfig = {
     ...fields,
     id,
@@ -246,9 +252,8 @@ router.put("/connections/:id", async (req: Request, res: Response) => {
         .sort(([a], [b]) => a.localeCompare(b)),
     );
   if (
-    existing.password &&
-    !fields.password &&
-    !clearPassword &&
+    keep.password &&
+    storedConnectionSecrets(id).password &&
     target(next) !== target(existing)
   ) {
     res.status(400).json({
@@ -259,7 +264,7 @@ router.put("/connections/:id", async (req: Request, res: Response) => {
   const changed = (Object.keys(next) as (keyof ConnectionConfig)[]).filter(
     (k) => JSON.stringify(next[k]) !== JSON.stringify(existing[k]),
   );
-  saveDbConnection(next);
+  saveDbConnection(next, keep);
   await dropConnectionState(id);
   audit(
     req,

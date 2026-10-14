@@ -32,7 +32,7 @@ vi.stubEnv(
 const store = await import("../services/sqlite-store.js");
 const settings = await import("../config/settings.js");
 const { getConfig } = settings;
-const { getEnvironments, getConnection } =
+const { getEnvironments, getConnection, invalidateConnections } =
   await import("../config/connections.js");
 const { applyDefaultLimit } = await import("../services/query-executor.js");
 const { default: router } = await import("./settings.js");
@@ -449,6 +449,49 @@ describe("connections", () => {
     expect(await cleared.json()).toMatchObject({ passwordSet: false });
     expect(getConnection("clearable")?.password).toBeUndefined();
     await call("DELETE", "/connections/clearable");
+  });
+
+  it("treats a stored but undecryptable password as present", async () => {
+    const pg = {
+      name: "Locked",
+      env: "DEV",
+      type: "postgres" as const,
+      host: "db.example.com",
+    };
+    await call("POST", "/connections", { ...pg, id: "locked", password: "pw" });
+    // A lost or rotated key file leaves ciphertext that no longer decrypts.
+    const bad = "enc:v1:AAAA:AAAA:AAAA";
+    const rawPassword = () =>
+      (
+        store
+          .getDb()
+          .prepare("SELECT password_enc FROM db_connections WHERE id = ?")
+          .get("locked") as { password_enc: string | null }
+      ).password_enc;
+    store
+      .getDb()
+      .prepare("UPDATE db_connections SET password_enc = ? WHERE id = ?")
+      .run(bad, "locked");
+    invalidateConnections();
+
+    const list = await (await call("GET", "/connections")).json();
+    expect(list.find((c: any) => c.id === "locked")).toMatchObject({
+      passwordSet: true,
+    });
+    // Restoring the key file would revive it, so it still guards its target...
+    const moved = await call("PUT", "/connections/locked", {
+      ...pg,
+      host: "elsewhere.example.com",
+    });
+    expect(moved.status).toBe(400);
+    // ...and a save that keeps it leaves the ciphertext untouched.
+    const renamed = await call("PUT", "/connections/locked", {
+      ...pg,
+      name: "Locked (renamed)",
+    });
+    expect(renamed.status).toBe(200);
+    expect(rawPassword()).toBe(bad);
+    await call("DELETE", "/connections/locked");
   });
 
   it("rejects a duplicate id and an invalid body", async () => {
