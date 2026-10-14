@@ -194,31 +194,38 @@ hands to anyone sharing the origin.
 
 ## Configuration
 
-Copy `.env.example` to `.env` and set the following:
+Configuration comes in two kinds. Copy `.env.example` to `.env`; it is laid out the
+same way.
+
+**Bootstrap — env only.** Needed before the app database exists or baked into the
+client build; change them in `.env` and restart (`BASE_PATH`: rebuild).
 
 ```env
-# Server
 PORT=3101
 VITE_PORT=3100
 NODE_ENV=production
+# BASE_PATH=/d-pilot                 # see "Serving under a sub-path"
+# DATA_DIR=data                      # app database + settings.key
 
 # JWT — CHANGE THIS to a random string (e.g. openssl rand -hex 32)
 JWT_SECRET=<your-random-secret-here>
-JWT_EXPIRES_IN=24h
-
-# Branding
-APP_NAME="Your App Name"
-LOGO_URL=/logo/your-logo.svg              # dark-ink mark, shown on the light theme (empty = text-only)
-LIGHT_LOGO_URL=/logo/your-logo-light.svg  # light-ink mark, shown on the dark theme and the login panel
-FAVICON_URL=/logo/favicon.svg         # optional
-
-# Email domain — enforced on user creation, used for the default admin seed
-EMAIL_DOMAIN=yourcompany.com
 
 # Default admin password (only used on first run to seed the admin user)
 DEFAULT_ADMIN_PASSWORD=<strong-password>
 
-# Database connections — JSON array
+# Encrypts secrets stored in the app database. Unset = a key generated into DATA_DIR/settings.key
+# SETTINGS_ENCRYPTION_KEY=<any-long-random-string>
+# HTTPS_PROXY=http://proxy.example:8080   # outbound proxy for the Azure OpenAI call
+```
+
+**Initial values — editable later in Settings.** Admins change these in **Settings →
+Connections / Branding & Limits / Azure OpenAI** without a restart. Precedence is
+**saved in Settings > `.env` > built-in default**: `.env` only seeds them, and once a
+value is saved in Settings, editing `.env` no longer changes it. **Reset** drops the
+saved value so `.env` (or the default) applies again.
+
+```env
+# Database connections — JSON array, imported ONCE (see below)
 DBFORGE_CONNECTIONS='[
   {
     "id": "qa-pg",
@@ -234,19 +241,23 @@ DBFORGE_CONNECTIONS='[
   }
 ]'
 
-# Query safety
+# Branding
+APP_NAME="Your App Name"
+LOGO_URL=/logo/your-logo.svg              # dark-ink mark, shown on the light theme (empty = text-only)
+LIGHT_LOGO_URL=/logo/your-logo-light.svg  # light-ink mark, shown on the dark theme and the login panel
+FAVICON_URL=/logo/favicon.svg         # optional
+EMAIL_DOMAIN=yourcompany.com          # enforced on user creation, used for the default admin seed
+# APP_BASE_URL=https://d-pilot.internal   # origin for artifact links in MCP output
+
+# Limits
+JWT_EXPIRES_IN=24h
 MAX_ROWS=10000            # hard cap on returned rows
 QUERY_TIMEOUT_MS=90000    # per-query timeout
-
+MCP_MAX_ROWS=1000         # rows per MCP agent query (agents may raise per call)
+SCHEMA_CACHE_TTL_HOURS=24 # schema cache (autocomplete + AI); hours, 0 disables
 # Results "Copy as" formats (optional; JSON array). Unset = built-in defaults
 # (CSV, TSV, JSON, Markdown, SQL INSERT, comma, single-quoted, double-quoted).
 # COPY_FORMATS='[{"id":"in-clause","label":"SQL IN","group":"List / SQL","columnMenu":true,"template":{"columnSeparator":",","rowSeparator":",","quote":"single","prefix":"IN (","suffix":")"}}]'
-
-# MCP endpoint for AI agents — rows returned per query (agents may raise per call)
-MCP_MAX_ROWS=1000
-
-# Schema cache (autocomplete + AI); hours, 0 disables
-SCHEMA_CACHE_TTL_HOURS=24
 
 # AI assistant — Azure OpenAI (optional; endpoints return 503 if unset)
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
@@ -257,10 +268,24 @@ AZURE_OPENAI_MODEL=gpt-4o           # optional, informational
 # AZURE_OPENAI_INSECURE_TLS=true    # only for TLS-inspecting corporate proxies
 ```
 
-> **Note:** PHI masking and the write workflow are configured **in-app** (Settings), not
-> via environment variables — masked environments, PHI rules, write-mode toggle, and
-> direct-write environments are stored in the SQLite app database. (The legacy
-> `PHI_ALWAYS_MASKED` / `PHI_ADMIN_CAN_UNMASK` env vars are no longer read.)
+**Connections are imported once.** On the first start with an empty app database,
+`DBFORGE_CONNECTIONS` is copied into it. From then on connections live in **Settings →
+Connections** and changes to the env var are ignored — add, edit or remove them in-app.
+You can leave the variable unset and create every connection in Settings instead.
+
+**Secrets are encrypted at rest.** Connection passwords/URIs and `AZURE_OPENAI_KEY` are
+stored AES-256-GCM encrypted, with `SETTINGS_ENCRYPTION_KEY` or — if unset — a key
+generated once into `DATA_DIR/settings.key`. Settings never shows a stored secret back,
+and a kept password cannot be redirected: editing a connection keeps it only when the
+change is limited to name, env or schemas — anything else (host, port, username,
+database, …) needs it typed again, as does changing the AI endpoint or TLS setting.
+**Back up `settings.key` along with the database, but store it separately** (anyone
+holding both can decrypt the secrets). Lose it and the app still starts, but every
+stored secret must be re-entered in Settings.
+
+> **Note:** PHI masking and the write workflow are configured **in-app** too — masked
+> environments, PHI rules, write-mode toggle, and direct-write environments are stored
+> in the SQLite app database and have no env var.
 
 ### Supported connection types
 
@@ -290,14 +315,15 @@ on every environment whose name contains "prod" — see [Custom environments](#c
 
 ### Custom environments
 
-The environment list is **not** hardcoded — it is derived from the `env` values in
-`DBFORGE_CONNECTIONS`. Adding a connection with a new `env` is all it takes:
+The environment list is **not** hardcoded — it is derived from the `env` values of the
+configured connections. Adding a connection with a new `env` (in **Settings →
+Connections**, or in `DBFORGE_CONNECTIONS` before the first start) is all it takes:
 
 ```jsonc
 { "id": "sp-pg", "name": "Super Prod PostgreSQL", "env": "SUPER_PROD", "type": "postgres", … }
 ```
 
-After a restart, `SUPER_PROD` shows up on its own in the connection tree, the four
+`SUPER_PROD` then shows up on its own in the connection tree, the four
 capability pickers in **Settings → User Management**, the PHI masked-environment toggles
 and the write policy. Only environments the deployment actually has are accepted by the
 API, so a stale name can't be granted to anyone.
@@ -475,6 +501,8 @@ HMR). Verify PWA behavior against a production build — `npm run build && npm s
 - Default admin user seeded: `admin@<EMAIL_DOMAIN>` with `DEFAULT_ADMIN_PASSWORD`, granted all capabilities on all environments
 - Default PHI masking rules seeded (name / DOB / phone / email / address / ZIP patterns, PARTIAL masking)
 - Default app settings seeded: PHI masked on `PROD`, write mode enabled, direct-write on `DEV`
+- `DBFORGE_CONNECTIONS` imported into the app database (once — later edits to it are ignored)
+- Unless `SETTINGS_ENCRYPTION_KEY` is set, a secrets key generated at `data/settings.key`
 
 ---
 
@@ -651,13 +679,18 @@ cp data/dbpilot.sqlite data/dbpilot-backup-$(date +%Y%m%d).sqlite
 cp data/audit_archive.sqlite data/audit_archive-backup-$(date +%Y%m%d).sqlite
 ```
 
+Back up `data/settings.key` too (unless you use `SETTINGS_ENCRYPTION_KEY`), but keep the
+copy **apart from** the database backups: it decrypts the connection passwords and AI key
+stored in `dbpilot.sqlite`. Without it a restored database works, but every stored secret
+has to be re-entered in Settings.
+
 ## Troubleshooting
 
-| Issue                        | Fix                                                                               |
-| ---------------------------- | --------------------------------------------------------------------------------- |
-| `EADDRINUSE` on startup      | Another process is using the port. `lsof -i :3101` to find it                     |
-| Database connection errors   | Verify the server can reach DB hosts: `telnet <host> <port>`                      |
-| AI assistant returns 503     | Set the `AZURE_OPENAI_*` env vars; use **Settings → Azure OpenAI → Test Connect** |
-| Logo not showing             | Check file exists at `public/logo/` and `LOGO_URL` matches the path               |
-| Forgot admin password        | Delete `data/dbpilot.sqlite` and restart — re-seeds from `.env`                   |
-| Permission denied on `data/` | `chown -R www-data:www-data /opt/d-pilot/data`                                    |
+| Issue                        | Fix                                                                                        |
+| ---------------------------- | ------------------------------------------------------------------------------------------ |
+| `EADDRINUSE` on startup      | Another process is using the port. `lsof -i :3101` to find it                              |
+| Database connection errors   | Verify the server can reach DB hosts: `telnet <host> <port>`                               |
+| AI assistant returns 503     | Fill in **Settings → Azure OpenAI** (or the `AZURE_OPENAI_*` seeds), then **Test Connect** |
+| Logo not showing             | Check file exists at `public/logo/` and `LOGO_URL` matches the path                        |
+| Forgot admin password        | Delete `data/dbpilot.sqlite` and restart — re-seeds from `.env`                            |
+| Permission denied on `data/` | `chown -R www-data:www-data /opt/d-pilot/data`                                             |

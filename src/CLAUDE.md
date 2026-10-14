@@ -94,8 +94,8 @@ writing to the tab in the store.
   badges/helpers).
 - **`phi/`** — `phi-config-panel.tsx` (admin rules), `phi-unmask-modal.tsx` (reason/notes
   capture for audited unmask).
-- **`pages/`** — `profile-page.tsx`, `settings-page.tsx` (users, PHI, write policy, Azure
-  OpenAI, analytics, audit).
+- **`pages/`** — `profile-page.tsx`, `settings-page.tsx` (users, PHI, write policy,
+  connections, branding & limits, Azure OpenAI, analytics, audit).
 
 ## Utils (`utils/`)
 
