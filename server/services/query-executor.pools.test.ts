@@ -16,7 +16,20 @@ vi.mock("mongodb", async (orig) => ({
   },
 }));
 
+const esOptions: Record<string, unknown>[] = [];
+vi.mock("@elastic/elasticsearch", () => ({
+  Client: class {
+    constructor(opts: Record<string, unknown>) {
+      esOptions.push(opts);
+    }
+    async ping() {}
+    async close() {}
+  },
+}));
+
 const {
+  testConnection,
+  testConnectionConfig,
   closeAllConnections,
   closeConnectionPool,
   getPgPool,
@@ -126,5 +139,29 @@ describe("closeConnectionPool", () => {
     expect(mongoClose).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(200_000);
     expect(mongoClose).toHaveBeenCalledOnce();
+  });
+});
+
+describe("testConnectionConfig", () => {
+  it("does not retry an Elasticsearch ping, so a dead host fails fast", async () => {
+    await testConnectionConfig({
+      id: "es-1",
+      name: "es",
+      env: "DEV",
+      type: "elasticsearch",
+      host: "127.0.0.1",
+    });
+    expect(esOptions.at(-1)).toMatchObject({ maxRetries: 0 });
+  });
+
+  it("leaves pooled Elasticsearch clients on the driver's retry default", async () => {
+    await testConnection({
+      id: "es-2",
+      name: "es",
+      env: "DEV",
+      type: "elasticsearch",
+      host: "127.0.0.1",
+    });
+    expect("maxRetries" in esOptions.at(-1)!).toBe(false);
   });
 });

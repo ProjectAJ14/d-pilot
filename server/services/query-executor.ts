@@ -741,6 +741,7 @@ async function executeMongo(
 function createEsClient(
   conn: ConnectionConfig,
   requestTimeout = queryTimeout(),
+  maxRetries?: number,
 ): EsClient {
   const protocol = conn.schema || "http"; // reuse schema field for protocol
   const node = conn.uri || `${protocol}://${conn.host}:${conn.port || 9200}`;
@@ -752,6 +753,9 @@ function createEsClient(
         : undefined,
     tls: { rejectUnauthorized: false },
     requestTimeout,
+    // Only when given: the driver's Object.assign defaults would take an
+    // explicit `undefined` as "no retries setting" rather than its default 3.
+    ...(maxRetries !== undefined && { maxRetries }),
   });
 }
 
@@ -931,7 +935,9 @@ async function ping(conn: ConnectionConfig, throwaway: boolean): Promise<void> {
       }
       case "elasticsearch": {
         const client = throwaway
-          ? createEsClient(conn, CONNECT_TIMEOUT_MS)
+          ? // The driver's default 3 retries (with sniff/backoff) would turn
+            // one dead host into a ~40s spin in the Settings form.
+            createEsClient(conn, CONNECT_TIMEOUT_MS, 0)
           : getEsClient(conn);
         if (throwaway) close = () => client.close();
         await client.ping();
