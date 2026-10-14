@@ -214,6 +214,13 @@ describe("secrets", () => {
       (s: any) => s.key === "AZURE_OPENAI_KEY",
     );
     expect(view).toMatchObject({ source: "db", set: false });
+
+    // Still guarded: restoring the key file later would revive that secret,
+    // so its endpoint cannot move until a key is typed again.
+    const moved = await call("PUT", "", {
+      values: { AZURE_OPENAI_ENDPOINT: "https://elsewhere.example.com" },
+    });
+    expect(moved.status).toBe(400);
     await call("DELETE", "/AZURE_OPENAI_KEY");
   });
 

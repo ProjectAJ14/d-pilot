@@ -161,7 +161,10 @@ export function updateSettings(
   );
   if (
     movesKey &&
-    getConfig("AZURE_OPENAI_KEY") &&
+    // Stored, not just decryptable: a key that fails today revives if the
+    // key file is restored, so it guards its target all the same.
+    (getConfig("AZURE_OPENAI_KEY") ||
+      getSetting("AZURE_OPENAI_KEY") !== null) &&
     !writes.some(([k]) => k === "AZURE_OPENAI_KEY")
   ) {
     throw new Error(
