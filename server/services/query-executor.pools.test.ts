@@ -28,7 +28,7 @@ vi.mock("@elastic/elasticsearch", () => ({
 }));
 
 const {
-  holdConnection,
+  holdClient,
   disconnectPool,
   testConnection,
   testConnectionConfig,
@@ -169,13 +169,13 @@ describe("testConnectionConfig", () => {
 });
 
 describe("a retired client with a governed write running", () => {
-  it("closes only once the write has finished", async () => {
-    await getMongoClient({ ...mongoConn, id: "mongo-busy" });
+  it("closes only once the write on it has finished", async () => {
+    const client = await getMongoClient({ ...mongoConn, id: "mongo-busy" });
     vi.useFakeTimers();
     mongoClose.mockClear();
     let finish!: () => void;
-    const write = holdConnection(
-      "mongo-busy",
+    const write = holdClient(
+      client,
       () => new Promise<void>((r) => (finish = r)),
     );
     closeConnectionPool("mongo-busy", 0);
@@ -187,12 +187,28 @@ describe("a retired client with a governed write running", () => {
     expect(mongoClose).toHaveBeenCalledOnce();
   });
 
+  it("is not kept open by writes on its replacement", async () => {
+    const old = await getMongoClient({ ...mongoConn, id: "mongo-swap" });
+    vi.useFakeTimers();
+    mongoClose.mockClear();
+    let finish!: () => void;
+    const write = holdClient(old, () => new Promise<void>((r) => (finish = r)));
+    closeConnectionPool("mongo-swap", 0);
+    const fresh = await getMongoClient({ ...mongoConn, id: "mongo-swap" });
+    expect(fresh).not.toBe(old);
+    void holdClient(fresh, () => new Promise<void>(() => {}));
+    finish();
+    await write;
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(mongoClose).toHaveBeenCalledOnce();
+  });
+
   it("closes anyway after the hard cap, and says so", async () => {
-    await getMongoClient({ ...mongoConn, id: "mongo-stuck" });
+    const client = await getMongoClient({ ...mongoConn, id: "mongo-stuck" });
     vi.useFakeTimers();
     mongoClose.mockClear();
     const log = vi.spyOn(console, "warn").mockImplementation(() => {});
-    void holdConnection("mongo-stuck", () => new Promise<void>(() => {}));
+    void holdClient(client, () => new Promise<void>(() => {}));
     closeConnectionPool("mongo-stuck", 0);
     await vi.advanceTimersByTimeAsync(5 * 3_600_000);
     expect(mongoClose).not.toHaveBeenCalled();

@@ -13,7 +13,7 @@ import {
   getEsClient,
   parseMongoJson,
   quoteSchemaIdent,
-  holdConnection,
+  holdClient,
 } from "./query-executor.js";
 import { scanSql } from "./sql-scan.js";
 import type { ConnectionConfig, DatabaseType } from "../types/index.js";
@@ -245,21 +245,13 @@ export function classifyWrite(
 
 /**
  * Executes a validated migration script, transactional unless opting out.
- * Held against its connection (holdConnection), so an edit that retires the
- * pool mid-run does not close the client under it.
+ * Each engine runs it under holdClient, so an edit that retires the pool
+ * mid-run does not close the client under it.
  */
-export function executeMigration(
+export async function executeMigration(
   conn: ConnectionConfig,
   script: string,
   opts: { noTransaction?: boolean } = {},
-): Promise<WriteResult> {
-  return holdConnection(conn.id, () => runMigration(conn, script, opts));
-}
-
-async function runMigration(
-  conn: ConnectionConfig,
-  script: string,
-  opts: { noTransaction?: boolean },
 ): Promise<WriteResult> {
   const validation = validateMigration(script, conn.type, opts);
   if (!validation.valid)
@@ -348,52 +340,47 @@ async function executeMssqlMigration(
   noTransaction: boolean,
 ): Promise<{ rowsAffected: number; transactional: boolean }> {
   const pool = await getMssqlPool(conn);
-  const sumAffected = (affected: number | number[] | undefined) =>
-    Array.isArray(affected)
-      ? affected.reduce((a, b) => a + b, 0)
-      : (affected ?? 0);
+  return holdClient(pool, async () => {
+    const sumAffected = (affected: number | number[] | undefined) =>
+      Array.isArray(affected)
+        ? affected.reduce((a, b) => a + b, 0)
+        : (affected ?? 0);
 
-  if (noTransaction) {
-    // No wrapping transaction — SQL Server autocommits each statement in the
-    // batch. A mid-batch failure leaves earlier statements committed.
-    const result = await pool.request().query(script);
-    return {
-      rowsAffected: sumAffected(result.rowsAffected),
-      transactional: false,
-    };
-  }
-
-  const tx = new mssql.Transaction(pool);
-  await tx.begin();
-  try {
-    const result = await new mssql.Request(tx).query(script);
-    await tx.commit();
-    return {
-      rowsAffected: sumAffected(result.rowsAffected),
-      transactional: true,
-    };
-  } catch (err) {
-    try {
-      await tx.rollback();
-    } catch {
-      /* ignore rollback failure */
+    if (noTransaction) {
+      // No wrapping transaction — SQL Server autocommits each statement in the
+      // batch. A mid-batch failure leaves earlier statements committed.
+      const result = await pool.request().query(script);
+      return {
+        rowsAffected: sumAffected(result.rowsAffected),
+        transactional: false,
+      };
     }
-    throw err;
-  }
+
+    const tx = new mssql.Transaction(pool);
+    await tx.begin();
+    try {
+      const result = await new mssql.Request(tx).query(script);
+      await tx.commit();
+      return {
+        rowsAffected: sumAffected(result.rowsAffected),
+        transactional: true,
+      };
+    } catch (err) {
+      try {
+        await tx.rollback();
+      } catch {
+        /* ignore rollback failure */
+      }
+      throw err;
+    }
+  });
 }
 
 /**
- * Executes a validated write statement, transactionally where supported. Held
- * against its connection like executeMigration.
+ * Executes a validated write statement, transactionally where supported, held
+ * on its client like executeMigration.
  */
-export function executeWrite(
-  conn: ConnectionConfig,
-  sql: string,
-): Promise<WriteResult> {
-  return holdConnection(conn.id, () => runWrite(conn, sql));
-}
-
-async function runWrite(
+export async function executeWrite(
   conn: ConnectionConfig,
   sql: string,
 ): Promise<WriteResult> {
@@ -463,24 +450,26 @@ async function executeMssqlWrite(
   sql: string,
 ): Promise<number> {
   const pool = await getMssqlPool(conn);
-  const tx = new mssql.Transaction(pool);
-  await tx.begin();
-  try {
-    const request = new mssql.Request(tx);
-    const result = await request.query(sql);
-    await tx.commit();
-    const affected = result.rowsAffected;
-    return Array.isArray(affected)
-      ? affected.reduce((a, b) => a + b, 0)
-      : (affected ?? 0);
-  } catch (err) {
+  return holdClient(pool, async () => {
+    const tx = new mssql.Transaction(pool);
+    await tx.begin();
     try {
-      await tx.rollback();
-    } catch {
-      /* ignore rollback failure */
+      const request = new mssql.Request(tx);
+      const result = await request.query(sql);
+      await tx.commit();
+      const affected = result.rowsAffected;
+      return Array.isArray(affected)
+        ? affected.reduce((a, b) => a + b, 0)
+        : (affected ?? 0);
+    } catch (err) {
+      try {
+        await tx.rollback();
+      } catch {
+        /* ignore rollback failure */
+      }
+      throw err;
     }
-    throw err;
-  }
+  });
 }
 
 /** Splits a MongoDB argument list into top-level JSON values (respects nesting/strings). */
@@ -606,38 +595,40 @@ async function executeMongoWrite(
   sql: string,
 ): Promise<{ rowsAffected: number; transactional: boolean }> {
   const client = await getMongoClient(conn);
-  const dbName =
-    conn.database || conn.uri?.split("/").pop()?.split("?")[0] || "test";
-  const db = client.db(dbName);
-  const { collection: collName, verb, args } = parseMongoArgs(sql);
-  const collection = db.collection(collName);
+  return holdClient(client, async () => {
+    const dbName =
+      conn.database || conn.uri?.split("/").pop()?.split("?")[0] || "test";
+    const db = client.db(dbName);
+    const { collection: collName, verb, args } = parseMongoArgs(sql);
+    const collection = db.collection(collName);
 
-  // Prefer a real transaction; fall back to a direct op if the deployment is not
-  // a replica set (transactions require one).
-  const session = client.startSession();
-  try {
-    let rows = 0;
-    await session.withTransaction(async () => {
-      rows = await runMongoOp(collection, verb, args, session);
-    });
-    return { rowsAffected: rows, transactional: true };
-  } catch (err: any) {
-    const msg = String(err?.message || err);
-    if (
-      // Only the "no transactions here" refusals, which the server sends before
-      // anything runs. Anything broader (e.g. "replica set") could match an
-      // error after a commit landed, and the retry would write twice.
-      /Transaction numbers are only allowed|Transactions are not supported/i.test(
-        msg,
-      )
-    ) {
-      const rows = await runMongoOp(collection, verb, args);
-      return { rowsAffected: rows, transactional: false };
+    // Prefer a real transaction; fall back to a direct op if the deployment is not
+    // a replica set (transactions require one).
+    const session = client.startSession();
+    try {
+      let rows = 0;
+      await session.withTransaction(async () => {
+        rows = await runMongoOp(collection, verb, args, session);
+      });
+      return { rowsAffected: rows, transactional: true };
+    } catch (err: any) {
+      const msg = String(err?.message || err);
+      if (
+        // Only the "no transactions here" refusals, which the server sends before
+        // anything runs. Anything broader (e.g. "replica set") could match an
+        // error after a commit landed, and the retry would write twice.
+        /Transaction numbers are only allowed|Transactions are not supported/i.test(
+          msg,
+        )
+      ) {
+        const rows = await runMongoOp(collection, verb, args);
+        return { rowsAffected: rows, transactional: false };
+      }
+      throw err;
+    } finally {
+      await session.endSession();
     }
-    throw err;
-  } finally {
-    await session.endSession();
-  }
+  });
 }
 
 async function executeEsWrite(
@@ -645,39 +636,41 @@ async function executeEsWrite(
   sql: string,
 ): Promise<number> {
   const client = getEsClient(conn);
-  const m = sql.trim().match(/^(POST|PUT|DELETE)\s+\/?(\S+)\s*([\s\S]*)?$/i);
-  if (!m) throw new Error("Could not parse Elasticsearch write request");
-  const [, method, path, bodyStr] = m;
-  const body = bodyStr?.trim() ? JSON.parse(bodyStr) : undefined;
-  const segments = path.split("/").filter(Boolean);
-  const index = segments[0];
-  const endpoint = segments[1];
-  const id = segments[2];
+  return holdClient(client, async () => {
+    const m = sql.trim().match(/^(POST|PUT|DELETE)\s+\/?(\S+)\s*([\s\S]*)?$/i);
+    if (!m) throw new Error("Could not parse Elasticsearch write request");
+    const [, method, path, bodyStr] = m;
+    const body = bodyStr?.trim() ? JSON.parse(bodyStr) : undefined;
+    const segments = path.split("/").filter(Boolean);
+    const index = segments[0];
+    const endpoint = segments[1];
+    const id = segments[2];
 
-  if (endpoint === "_update_by_query") {
-    const r = await client.updateByQuery({ index, ...(body || {}) });
-    return (r.updated as number) ?? 0;
-  }
-  if (endpoint === "_delete_by_query") {
-    const r = await client.deleteByQuery({ index, ...(body || {}) });
-    return (r.deleted as number) ?? 0;
-  }
-  if (endpoint === "_update" && id) {
-    await client.update({ index, id, ...(body || {}) });
-    return 1;
-  }
-  if (endpoint === "_create" && id) {
-    await client.create({ index, id, document: body });
-    return 1;
-  }
-  if (endpoint === "_doc") {
-    if (method.toUpperCase() === "DELETE") {
-      if (!id) throw new Error("DELETE /index/_doc requires a document id");
-      await client.delete({ index, id });
+    if (endpoint === "_update_by_query") {
+      const r = await client.updateByQuery({ index, ...(body || {}) });
+      return (r.updated as number) ?? 0;
+    }
+    if (endpoint === "_delete_by_query") {
+      const r = await client.deleteByQuery({ index, ...(body || {}) });
+      return (r.deleted as number) ?? 0;
+    }
+    if (endpoint === "_update" && id) {
+      await client.update({ index, id, ...(body || {}) });
       return 1;
     }
-    await client.index({ index, id, document: body });
-    return 1;
-  }
-  throw new Error(`Unsupported Elasticsearch write endpoint: ${endpoint}`);
+    if (endpoint === "_create" && id) {
+      await client.create({ index, id, document: body });
+      return 1;
+    }
+    if (endpoint === "_doc") {
+      if (method.toUpperCase() === "DELETE") {
+        if (!id) throw new Error("DELETE /index/_doc requires a document id");
+        await client.delete({ index, id });
+        return 1;
+      }
+      await client.index({ index, id, document: body });
+      return 1;
+    }
+    throw new Error(`Unsupported Elasticsearch write endpoint: ${endpoint}`);
+  });
 }
