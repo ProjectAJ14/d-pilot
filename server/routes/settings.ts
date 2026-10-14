@@ -303,6 +303,17 @@ router.put("/connections/:id", async (req: Request, res: Response) => {
 // Try the form's values before saving. Builds a throwaway client — the pools
 // and the saved connection are untouched — and runs the same check as
 // GET /api/connections/:id/test.
+/** Masks each secret in `text`, raw and percent-encoded (as in a Mongo URI). */
+export function maskSecrets(
+  text: string,
+  secrets: (string | undefined)[],
+): string {
+  for (const secret of secrets)
+    for (const form of secret ? [secret, encodeURIComponent(secret)] : [])
+      text = text.split(form).join("***");
+  return text;
+}
+
 router.post("/connections/test", async (req: Request, res: Response) => {
   const body = connectionTestBody.safeParse(req.body);
   if (!body.success) {
@@ -338,7 +349,12 @@ router.post("/connections/test", async (req: Request, res: Response) => {
     // So when the test used a secret the admin never saw, return no driver
     // text; when every secret came from the form, they typed it themselves.
     if (usesStoredSecret) {
-      console.error(`Connection test for ${existing!.id} failed:`, error);
+      // Logs outlive the request and reach more people than this admin, so
+      // mask what we can recognise — raw and percent-encoded — before logging.
+      console.error(
+        `Connection test for ${existing!.id} failed:`,
+        maskSecrets(error, [conn.password, conn.uri]),
+      );
       error =
         "Could not connect using the stored credentials — the driver error is in the server log.";
     }

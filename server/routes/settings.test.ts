@@ -36,7 +36,7 @@ const { getEnvironments, getConnection, invalidateConnections } =
   await import("../config/connections.js");
 const { applyDefaultLimit, getPoolStatus } =
   await import("../services/query-executor.js");
-const { default: router } = await import("./settings.js");
+const { default: router, maskSecrets } = await import("./settings.js");
 
 store.initDatabase();
 
@@ -679,5 +679,15 @@ describe("POST /connections/test", () => {
   it("is admin-only", async () => {
     const res = await call("POST", "/connections/test", pg, false);
     expect(res.status).toBe(403);
+  });
+});
+
+describe("maskSecrets", () => {
+  it("masks a secret raw and percent-encoded", () => {
+    const pw = "p@ss/w?rd";
+    const text = `auth failed for mongodb://app:${encodeURIComponent(pw)}@h/db (${pw})`;
+    const masked = maskSecrets(text, [pw, undefined]);
+    expect(masked).not.toContain(pw);
+    expect(masked).not.toContain(encodeURIComponent(pw));
   });
 });
