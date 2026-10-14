@@ -1100,12 +1100,15 @@ export async function disconnectPool(id: string): Promise<boolean> {
   for (const map of [pgPools, mssqlPools, mongClients, esClients])
     map.delete(id);
   poolLastUsed.delete(id);
-  await Promise.all([
+  // Never rejects: a close that fails is logged, and the caller (an Express
+  // route with no try/catch) always gets its answer.
+  for (const r of await Promise.allSettled([
     pgPool?.end(),
     msPool?.close(),
     mongo?.close(),
     es?.close(),
-  ]);
+  ]))
+    if (r.status === "rejected") logClose(r.reason);
   return !!(pgPool || msPool || mongo || es);
 }
 

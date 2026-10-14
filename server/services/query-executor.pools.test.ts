@@ -211,4 +211,12 @@ describe("disconnectPool", () => {
     expect(getPoolStatus("mongo-kick").live).toBe(false);
     expect(await disconnectPool("mongo-kick")).toBe(false);
   });
+
+  it("logs a close that fails instead of rejecting", async () => {
+    await getMongoClient({ ...mongoConn, id: "mongo-kick-2" });
+    mongoClose.mockRejectedValueOnce(new Error("socket gone"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(disconnectPool("mongo-kick-2")).resolves.toBe(true);
+    expect(log).toHaveBeenCalled();
+  });
 });
