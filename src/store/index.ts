@@ -252,12 +252,16 @@ export const useStore = create<AppState>((set, get) => ({
   connections: [],
   activeConnectionId: initialActiveConnectionId,
   // The server's list: a tab still on a connection that is gone (deleted in
-  // Settings) is detached from it, rather than querying a dead id.
+  // Settings) is detached from it, rather than querying a dead id, and the
+  // schema remembered for it is dropped.
   setConnections: (connections) => {
     const ids = new Set(connections.map((c) => c.id));
     const gone = (id: string | null) => id !== null && !ids.has(id);
     set((s) => ({
       connections,
+      schemaByConnection: Object.fromEntries(
+        Object.entries(s.schemaByConnection).filter(([id]) => ids.has(id)),
+      ),
       tabs: s.tabs.some((t) => gone(t.connectionId))
         ? s.tabs.map((t) =>
             gone(t.connectionId)

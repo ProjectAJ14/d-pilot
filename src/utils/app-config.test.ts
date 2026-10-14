@@ -57,4 +57,16 @@ describe("loadConnections", () => {
     ).toBe(true);
     vi.useRealTimers();
   });
+
+  it("forgets the remembered schema of a deleted connection", async () => {
+    h.conns = [{ id: "dev-core" }, { id: "qa-core" }];
+    await loadConnections();
+    useStore.getState().setSchemaForConnection("qa-core", "app_core");
+    useStore.getState().setSchemaForConnection("dev-core", "public");
+    h.conns = [{ id: "dev-core" }];
+    await loadConnections();
+    expect(useStore.getState().schemaByConnection).toEqual({
+      "dev-core": "public",
+    });
+  });
 });
