@@ -3459,8 +3459,8 @@ const initialValue = (s: AppSettingView) => (s.secret ? "" : (s.value ?? ""));
 /**
  * One input per setting in `groups`, saved together. The server validates and
  * answers 400 with "<KEY> <problem>", which is shown under that field.
- * Branding and copy formats come from /api/config, so it is reloaded after
- * every save/reset to apply them without a page reload.
+ * Branding comes from /api/config, so it is reloaded after every save/reset
+ * to apply it without a page reload.
  */
 function RuntimeSettingsForm({ groups }: { groups: SettingGroup[] }) {
   const [settings, setSettings] = useState<AppSettingView[] | null>(null);
