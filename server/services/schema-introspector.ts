@@ -578,6 +578,9 @@ interface SchemaCacheRecord {
 
 const schemaCache = new Map<string, SchemaCacheRecord>();
 const schemaInflight = new Map<string, Promise<FullSchema>>();
+// Bumped by every clear: an introspection that started before it read the old
+// definition (or old PHI rules), so its result must not be cached.
+let schemaGen = 0;
 
 function getSchemaCacheTtlMs(): number {
   // getConfigNumber already falls back to the default when out of range.
@@ -614,12 +617,13 @@ export async function getCachedFullSchema(
   // De-dupe concurrent introspections (skip sharing when forcing a refresh).
   let pending = opts.forceRefresh ? undefined : schemaInflight.get(key);
   if (!pending) {
+    const gen = schemaGen;
     pending = getFullSchema(conn, schemaName)
       .then((schema) => {
         // A PHI rule saved while this introspection ran has already cleared
         // the cache, so re-check here or its values would be cached anyway.
         dropPhiValues(schema);
-        if (ttlMs > 0) {
+        if (ttlMs > 0 && gen === schemaGen) {
           const ts = Date.now();
           schemaCache.set(key, { schema, cachedAt: ts, expiresAt: ts + ttlMs });
         }
@@ -741,16 +745,24 @@ export function matchFkTargets(
 
 /** Clears cached schemas. Pass a connectionId to clear all of its schemas. */
 export function clearSchemaCache(connectionId?: string): { cleared: number } {
+  // ponytail: one global generation — a clear for one connection also keeps
+  // other connections' in-flight results out of the cache (they just re-run).
+  schemaGen++;
+  // Cache keys are `${connectionId}:${schema}` — clear every schema for this conn.
+  const prefix = `${connectionId}:`;
+  const matches = (key: string) =>
+    !connectionId || key === connectionId || key.startsWith(prefix);
+  // New callers must not join an introspection of the old definition.
+  for (const key of schemaInflight.keys())
+    if (matches(key)) schemaInflight.delete(key);
   if (!connectionId) {
     const n = schemaCache.size;
     schemaCache.clear();
     return { cleared: n };
   }
-  // Cache keys are `${connectionId}:${schema}` — clear every schema for this conn.
-  const prefix = `${connectionId}:`;
   let cleared = 0;
   for (const key of schemaCache.keys()) {
-    if (key === connectionId || key.startsWith(prefix)) {
+    if (matches(key)) {
       if (schemaCache.delete(key)) cleared++;
     }
   }
