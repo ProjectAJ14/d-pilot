@@ -1028,10 +1028,15 @@ describe("logo and favicon URLs", () => {
         "//cdn.example.com/logo.png",
         "javascript:alert(1)",
         "ftp://example.com/logo.png",
+        // Browsers read "\" as "/", so this is //evil.example.
+        "/\\evil.example/x.png",
+        "https://cdn.example.com\\logo.png",
       ]) {
         const res = await call("PUT", "", { values: { [key]: bad } });
         expect(res.status, `${key}=${bad}`).toBe(400);
-        expect((await res.json()).error).toMatch(key);
+        const { error } = await res.json();
+        expect(error).toMatch(key);
+        expect(error).toMatch("use /path or https://");
       }
       await call("DELETE", `/${key}`);
     }

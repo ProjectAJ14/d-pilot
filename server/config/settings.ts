@@ -221,16 +221,19 @@ const VALIDATORS: Record<Kind, z.ZodType<string>> = {
   string: z.string().max(2000),
   url: z.union([z.literal(""), z.url().max(2000)]),
   // An image the browser loads: a path on this server, or an http(s) URL.
-  // Not protocol-relative ("//host"), which is another origin in disguise.
+  // Not relative ("logo.png" depends on the page's path) nor protocol-relative
+  // ("//host", another origin in disguise), and no backslash anywhere —
+  // browsers read "\" as "/", so "/\host" is "//host" too.
   asset: z
     .string()
     .max(2000)
     .refine(
       (v) =>
         v === "" ||
-        /^\/(?!\/)/.test(v) ||
-        z.url({ protocol: /^https?$/ }).safeParse(v).success,
-      'must be empty, a path starting with "/", or an http(s) URL',
+        (!v.includes("\\") &&
+          (/^\/(?!\/)/.test(v) ||
+            z.url({ protocol: /^https?$/ }).safeParse(v).success)),
+      "must be empty, a path on this server or an http(s) URL — use /path or https://…",
     ),
   int: z
     .string()
