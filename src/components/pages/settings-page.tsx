@@ -3728,6 +3728,14 @@ function RuntimeSettingsForm({ groups }: { groups: SettingGroup[] }) {
 // ── Connections Tab ──
 // ═══════════════════════════════════════
 
+// Helper text under the field, so inputs side by side in a grid line up.
+const BELOW: ("label" | "input" | "description" | "error")[] = [
+  "label",
+  "input",
+  "description",
+  "error",
+];
+
 const DB_TYPES = ["postgres", "mssql", "mongodb", "elasticsearch"];
 
 /** After any change: the admin list, plus what the rest of the app reads. */
@@ -4136,6 +4144,7 @@ function ConnectionModal({
           <SimpleGrid cols={2} spacing="sm">
             <TextInput
               label="ID"
+              inputWrapperOrder={BELOW}
               description="Letters, digits, _ or -. Cannot be changed."
               required
               disabled={!isNew}
@@ -4145,6 +4154,7 @@ function ConnectionModal({
             <TextInput label="Name" required {...field("name")} />
             <Autocomplete
               label="Environment"
+              inputWrapperOrder={BELOW}
               description={
                 prodLocked
                   ? "Production — can only move to another production environment"
@@ -4186,6 +4196,7 @@ function ConnectionModal({
             />
             <PasswordInput
               label="Password"
+              inputWrapperOrder={BELOW}
               required={reenterPassword}
               autoComplete="new-password"
               {...secretField(
@@ -4198,6 +4209,7 @@ function ConnectionModal({
           </SimpleGrid>
           <TagsInput
             label="Schemas"
+            inputWrapperOrder={BELOW}
             description="Limit the schema browser to these (Enter to add). Empty = all."
             value={schemas}
             onChange={setSchemas}
@@ -4205,6 +4217,7 @@ function ConnectionModal({
           />
           <PasswordInput
             label="Connection URI"
+            inputWrapperOrder={BELOW}
             autoComplete="off"
             {...secretField(
               "uri",

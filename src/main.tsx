@@ -13,7 +13,7 @@ import {
   Kbd,
   ScrollArea,
   SegmentedControl,
-  TextInput,
+  Input,
   defaultVariantColorsResolver,
   type VariantColorsResolver,
   type MantineColorsTuple,
@@ -370,7 +370,9 @@ const theme = createTheme({
       // its own theme key, but forwards to ScrollArea, which picks this up.
       defaultProps: { offsetScrollbars: "present" },
     }),
-    TextInput: TextInput.extend({
+    // On the shared Input base so every field type — Select, Autocomplete,
+    // PasswordInput, TagsInput — draws the same border as TextInput.
+    Input: Input.extend({
       styles: () => ({ input: { borderColor: "var(--border2)" } }),
     }),
   },
