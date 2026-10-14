@@ -29,6 +29,7 @@ import {
   Skeleton,
   Alert,
   Stack,
+  Anchor,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
@@ -3952,6 +3953,8 @@ function ConnectionModal({
     uri: "",
   });
   const [schemas, setSchemas] = useState<string[]>(connection?.schemas ?? []);
+  // Explicit removal of a stored secret — a blank field means "keep it".
+  const [clear, setClear] = useState({ password: false, uri: false });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -3987,7 +3990,12 @@ function ConnectionModal({
     };
     try {
       if (isNew) await api.createConnection({ ...body, id: f.id.trim() });
-      else await api.updateConnection(connection.id, body);
+      else
+        await api.updateConnection(connection.id, {
+          ...body,
+          clearPassword: clear.password || undefined,
+          clearUri: clear.uri || undefined,
+        });
       notifications.show({
         message: isNew ? "Connection added" : "Connection updated",
         color: "green",
@@ -4012,12 +4020,14 @@ function ConnectionModal({
     !isNew &&
     connection.passwordSet &&
     !f.password &&
+    !clear.password &&
     (f.type !== connection.type ||
       f.host.trim() !== (connection.host ?? "") ||
       f.port !== (connection.port ? String(connection.port) : "") ||
       f.database.trim() !== (connection.database ?? "") ||
       f.username.trim() !== (connection.username ?? "") ||
       !!f.uri ||
+      clear.uri ||
       (f.type === "elasticsearch" &&
         f.schema.trim() !== (connection.schema ?? "")));
 
@@ -4027,6 +4037,41 @@ function ConnectionModal({
 
   const secretPlaceholder = (set: boolean | undefined) =>
     set ? SECRET_PLACEHOLDER : "Not set";
+
+  // Props for a write-only field: a Clear/Undo link while a value is stored.
+  const secretField = (
+    key: "password" | "uri",
+    set: boolean | undefined,
+    hint?: ReactNode,
+  ) => {
+    const clearing = clear[key];
+    const toggle = set && (
+      <Anchor
+        component="button"
+        type="button"
+        size="xs"
+        onClick={() => {
+          setClear((c) => ({ ...c, [key]: !c[key] }));
+          setF((p) => ({ ...p, [key]: "" }));
+        }}
+      >
+        {clearing ? "Undo clear" : "Clear stored value"}
+      </Anchor>
+    );
+    return {
+      ...field(key),
+      disabled: clearing,
+      placeholder: clearing
+        ? "Will be cleared on save"
+        : secretPlaceholder(set),
+      description:
+        hint || toggle ? (
+          <>
+            {hint} {toggle}
+          </>
+        ) : undefined,
+    };
+  };
 
   return (
     <Modal
@@ -4094,14 +4139,13 @@ function ConnectionModal({
             <PasswordInput
               label="Password"
               required={reenterPassword}
-              description={
-                reenterPassword
-                  ? "Re-enter the password when changing anything other than the name, environment or schemas"
-                  : undefined
-              }
-              placeholder={secretPlaceholder(connection?.passwordSet)}
               autoComplete="new-password"
-              {...field("password")}
+              {...secretField(
+                "password",
+                connection?.passwordSet,
+                reenterPassword &&
+                  "Re-enter the password when changing anything other than the name, environment or schemas",
+              )}
             />
             <TextInput label="Default schema" {...field("schema")} />
           </SimpleGrid>
@@ -4114,10 +4158,12 @@ function ConnectionModal({
           />
           <PasswordInput
             label="Connection URI"
-            description="Optional connection string; stored encrypted, never shown again"
-            placeholder={secretPlaceholder(connection?.uriSet)}
             autoComplete="off"
-            {...field("uri")}
+            {...secretField(
+              "uri",
+              connection?.uriSet,
+              "Optional connection string; stored encrypted, never shown again",
+            )}
           />
           {formError && (
             <Alert color="red" icon={<IconAlertTriangle size={16} />}>

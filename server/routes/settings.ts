@@ -29,8 +29,8 @@ import type { ConnectionAdminView, ConnectionConfig } from "../types/index.js";
 /**
  * Admin-only runtime configuration: the `.env`-seeded settings (see
  * config/settings.ts) and the target-database connections. Secrets go in, never
- * come out — reads report `set`/`passwordSet`, and an empty secret on update
- * keeps the stored one. Every change is audited by key/field name, never value.
+ * come out — reads report `set`/`passwordSet`, an empty secret on update
+ * keeps the stored one, and `clearPassword`/`clearUri` remove it. Every change is audited by key/field name, never value.
  * Testing a saved connection is the existing `GET /api/connections/:id/test`.
  */
 const router = Router();
@@ -149,6 +149,12 @@ const createBody = connectionFields.extend({
     .regex(/^[A-Za-z0-9_-]{1,64}$/, "id must be letters, digits, _ or -"),
 });
 
+// Clearing is explicit: an empty secret on update means "keep", not "remove".
+const connectionUpdateBody = connectionFields.extend({
+  clearPassword: z.boolean().optional(),
+  clearUri: z.boolean().optional(),
+});
+
 function zodError(err: z.ZodError): string {
   const issue = err.issues[0];
   return issue
@@ -196,25 +202,27 @@ router.put("/connections/:id", async (req: Request, res: Response) => {
     res.status(404).json({ error: "Connection not found" });
     return;
   }
-  const body = connectionFields.safeParse(req.body);
+  const body = connectionUpdateBody.safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: zodError(body.error) });
     return;
   }
+  const { clearPassword, clearUri, ...fields } = body.data;
   // Production rail: the env name is what forces PHI masking and blocks direct
   // writes, so relabelling a production connection would lift both at once.
-  if (isProductionEnv(existing.env) && !isProductionEnv(body.data.env)) {
+  if (isProductionEnv(existing.env) && !isProductionEnv(fields.env)) {
     res.status(422).json({
-      error: `env: ${existing.env} is production — a production connection can't move to a non-production environment (${body.data.env}). Production PHI stays tokenized and production writes stay two-person.`,
+      error: `env: ${existing.env} is production — a production connection can't move to a non-production environment (${fields.env}). Production PHI stays tokenized and production writes stay two-person.`,
     });
     return;
   }
   // An omitted or empty secret keeps the stored one — the client never had it.
+  // Clearing drops the secret (nothing is kept, so nothing can be redirected).
   const next: ConnectionConfig = {
-    ...body.data,
+    ...fields,
     id,
-    password: body.data.password || existing.password,
-    uri: body.data.uri || existing.uri,
+    password: clearPassword ? undefined : fields.password || existing.password,
+    uri: clearUri ? undefined : fields.uri || existing.uri,
   };
   // ...but a kept password must not follow the connection somewhere the admin
   // picks — that would hand them a secret the API never shows. Drivers splice
@@ -239,7 +247,8 @@ router.put("/connections/:id", async (req: Request, res: Response) => {
     );
   if (
     existing.password &&
-    !body.data.password &&
+    !fields.password &&
+    !clearPassword &&
     target(next) !== target(existing)
   ) {
     res.status(400).json({

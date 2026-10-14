@@ -414,6 +414,43 @@ describe("connections", () => {
     await call("DELETE", "/connections/orders-prod");
   });
 
+  it("clears a stored password or URI on request, without re-entry", async () => {
+    const pg = {
+      name: "Clearable",
+      env: "DEV",
+      type: "postgres" as const,
+      host: "db.example.com",
+    };
+    await call("POST", "/connections", {
+      ...pg,
+      id: "clearable",
+      password: "pw",
+      uri: "postgres://db.example.com/app_core",
+    });
+
+    const noUri = await call("PUT", "/connections/clearable", {
+      ...pg,
+      password: "pw",
+      clearUri: true,
+    });
+    expect(noUri.status).toBe(200);
+    expect(await noUri.json()).toMatchObject({
+      uriSet: false,
+      passwordSet: true,
+    });
+
+    // Nothing is kept, so moving the host needs no password.
+    const cleared = await call("PUT", "/connections/clearable", {
+      ...pg,
+      host: "other.example.com",
+      clearPassword: true,
+    });
+    expect(cleared.status).toBe(200);
+    expect(await cleared.json()).toMatchObject({ passwordSet: false });
+    expect(getConnection("clearable")?.password).toBeUndefined();
+    await call("DELETE", "/connections/clearable");
+  });
+
   it("rejects a duplicate id and an invalid body", async () => {
     const dup = await call("POST", "/connections", {
       id: "dev-core",

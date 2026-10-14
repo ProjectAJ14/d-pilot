@@ -19,6 +19,12 @@ export type ConnectionInput = Omit<
   "passwordSet" | "uriSet"
 > & { password?: string; uri?: string };
 
+/** Update body: blank keeps a stored secret, `clear*` removes it. */
+export type ConnectionUpdate = Omit<ConnectionInput, "id"> & {
+  clearPassword?: boolean;
+  clearUri?: boolean;
+};
+
 /**
  * Every API call goes through here, so this one line is what makes the whole
  * client work under a sub-path. BASE_PATH is "" at a domain root (leaving the
@@ -608,7 +614,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  updateConnection: (id: string, data: Omit<ConnectionInput, "id">) =>
+  updateConnection: (id: string, data: ConnectionUpdate) =>
     request<ConnectionAdminView>(
       `/settings/connections/${encodeURIComponent(id)}`,
       { method: "PUT", body: JSON.stringify(data) },
