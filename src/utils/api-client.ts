@@ -619,6 +619,12 @@ export const api = {
       `/settings/connections/${encodeURIComponent(id)}`,
       { method: "PUT", body: JSON.stringify(data) },
     ),
+  /** Test unsaved form values; `id` lets an edit use the stored secrets. */
+  testConnectionDraft: (data: ConnectionUpdate & { id?: string }) =>
+    request<{ ok: boolean; error?: string }>("/settings/connections/test", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   deleteConnection: (id: string) =>
     request<{ deleted: boolean }>(
       `/settings/connections/${encodeURIComponent(id)}`,

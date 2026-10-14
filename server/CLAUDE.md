@@ -75,7 +75,7 @@ name rather than one baked in at build time. In production `express.static` also
 | `/azure-ai`       | `azure-ai.ts`       | `test`, `generate-query`, `settings` (admin), `schema-cache/clear` (admin), `chat-log` (admin)                                         |
 | `/analytics`      | `analytics.ts`      | admin usage dashboard                                                                                                                  |
 | `/write-requests` | `write-requests.ts` | write lifecycle + policy + AI review/suggest                                                                                           |
-| `/settings`       | `settings.ts`       | admin runtime config: settings list/update/reset, connection CRUD (secrets write-only, audited)                                        |
+| `/settings`       | `settings.ts`       | admin runtime config: settings list/update/reset, connection CRUD + pre-save `POST /connections/test` (secrets write-only, audited)    |
 | `/mcp`            | `mcp.ts`            | **read-only MCP endpoint for AI agents — mounted _before_ `authMiddleware`** (HTTP Basic, not Bearer)                                  |
 
 ## Services (`services/`)
@@ -83,7 +83,7 @@ name rather than one baked in at build time. In production `express.static` also
 - **`query-executor.ts`** — read path for all four DB types. `validateQuery`/`isReadQuery`
   block DML/DDL; `applyDefaultLimit` injects a LIMIT when absent (default 500, hard cap
   `MAX_ROWS`). Connection pools are cached and reused. `validateSqlSyntax` does a dry
-  parse; `testConnection` powers the connection tester.
+  parse; `testConnection` powers the connection tester; `testConnectionConfig` runs the same check on a throwaway, never-pooled client (Settings → test before saving).
 - **`write-executor.ts`** — the _only_ write path. `validateWriteQuery` allows exactly one
   statement per dialect (SQL INSERT/UPDATE/DELETE — no stacked semicolons, no DDL;
   Mongo `updateOne/Many`,`insertOne/Many`,`deleteOne/Many`,`replaceOne`; ES

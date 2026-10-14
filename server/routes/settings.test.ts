@@ -34,7 +34,8 @@ const settings = await import("../config/settings.js");
 const { getConfig } = settings;
 const { getEnvironments, getConnection, invalidateConnections } =
   await import("../config/connections.js");
-const { applyDefaultLimit } = await import("../services/query-executor.js");
+const { applyDefaultLimit, getPoolStatus } =
+  await import("../services/query-executor.js");
 const { default: router } = await import("./settings.js");
 
 store.initDatabase();
@@ -595,5 +596,83 @@ describe("getConfigNumber", () => {
     ]) {
       vi.stubEnv(key, "");
     }
+  });
+});
+
+describe("POST /connections/test", () => {
+  // Port 1 refuses at once, so every probe fails fast with a driver error.
+  const pg = {
+    name: "Probe",
+    env: "DEV",
+    type: "postgres" as const,
+    host: "127.0.0.1",
+    port: 1,
+    database: "app_core",
+  };
+
+  it("tests unsaved values and reports the driver error", async () => {
+    const res = await call("POST", "/connections/test", {
+      ...pg,
+      password: "typed-pw",
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.error).toMatch(/ECONNREFUSED|connect/i);
+
+    const audit = JSON.stringify(store.getAuditLog({ limit: 1000 }));
+    expect(audit).toContain("CONNECTION_TEST");
+    expect(audit).not.toContain("typed-pw");
+  });
+
+  it("validates the body like create/update", async () => {
+    const res = await call("POST", "/connections/test", {
+      ...pg,
+      type: "oracle",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("uses a stored password only under the same gate as PUT", async () => {
+    await call("POST", "/connections", {
+      ...pg,
+      id: "probe",
+      password: "stored-pw",
+    });
+    // Pointing the stored password somewhere new is refused, as on save.
+    const moved = await call("POST", "/connections/test", {
+      ...pg,
+      id: "probe",
+      host: "attacker.example.com",
+    });
+    expect(moved.status).toBe(400);
+    expect((await moved.json()).error).toMatch(/Re-enter the password/);
+
+    // Same target: the stored password is used, and the pool maps and the
+    // saved row stay untouched.
+    const same = await call("POST", "/connections/test", {
+      ...pg,
+      id: "probe",
+      name: "Renamed in the form only",
+    });
+    expect(same.status).toBe(200);
+    expect((await same.json()).ok).toBe(false);
+    expect(getPoolStatus("probe").live).toBe(false);
+    expect(getConnection("probe")?.name).toBe("Probe");
+
+    // Clearing keeps nothing, so a new host needs no re-entry.
+    const cleared = await call("POST", "/connections/test", {
+      ...pg,
+      id: "probe",
+      port: 2,
+      clearPassword: true,
+    });
+    expect(cleared.status).toBe(200);
+    await call("DELETE", "/connections/probe");
+  });
+
+  it("is admin-only", async () => {
+    const res = await call("POST", "/connections/test", pg, false);
+    expect(res.status).toBe(403);
   });
 });

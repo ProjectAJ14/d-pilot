@@ -319,12 +319,13 @@ export function applyDefaultLimit(
   return `${trimmed} LIMIT ${limit}`;
 }
 
-export async function getPgPool(conn: ConnectionConfig): Promise<pg.Pool> {
-  touchPool(conn.id);
-  const existing = pgPools.get(conn.id);
-  if (existing) return existing;
+// How long to wait for a server to answer before giving up on it.
+const CONNECT_TIMEOUT_MS = 10000;
 
-  const pool = new pg.Pool({
+// Client builders: unpooled and unconnected. The get* functions below cache
+// them; the connection tester also uses them for throwaway clients.
+const createPgPool = (conn: ConnectionConfig) =>
+  new pg.Pool({
     host: conn.host,
     port: conn.port || 5432,
     database: conn.database,
@@ -332,22 +333,21 @@ export async function getPgPool(conn: ConnectionConfig): Promise<pg.Pool> {
     password: conn.password,
     max: 5,
     idleTimeoutMillis: 60000,
-    connectionTimeoutMillis: 10000,
+    connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
     statement_timeout: queryTimeout(),
   });
 
+export async function getPgPool(conn: ConnectionConfig): Promise<pg.Pool> {
+  touchPool(conn.id);
+  const existing = pgPools.get(conn.id);
+  if (existing) return existing;
+  const pool = createPgPool(conn);
   pgPools.set(conn.id, pool);
   return pool;
 }
 
-export async function getMssqlPool(
-  conn: ConnectionConfig,
-): Promise<mssql.ConnectionPool> {
-  touchPool(conn.id);
-  const existing = mssqlPools.get(conn.id);
-  if (existing?.connected) return existing;
-
-  const pool = new mssql.ConnectionPool({
+const createMssqlPool = (conn: ConnectionConfig) =>
+  new mssql.ConnectionPool({
     server: conn.host || "localhost",
     port: conn.port || 1433,
     database: conn.database,
@@ -358,10 +358,17 @@ export async function getMssqlPool(
       trustServerCertificate: true,
     },
     requestTimeout: queryTimeout(),
-    connectionTimeout: 10000,
+    connectionTimeout: CONNECT_TIMEOUT_MS,
     pool: { max: 5, min: 0, idleTimeoutMillis: 60000 },
   });
 
+export async function getMssqlPool(
+  conn: ConnectionConfig,
+): Promise<mssql.ConnectionPool> {
+  touchPool(conn.id);
+  const existing = mssqlPools.get(conn.id);
+  if (existing?.connected) return existing;
+  const pool = createMssqlPool(conn);
   await pool.connect();
   mssqlPools.set(conn.id, pool);
   return pool;
@@ -378,16 +385,9 @@ export function mongoUri(conn: ConnectionConfig): string {
   return `mongodb://${e(conn.username)}:${e(conn.password)}@${conn.host}:${conn.port || 27017}/${e(conn.database)}`;
 }
 
-export async function getMongoClient(
-  conn: ConnectionConfig,
-): Promise<MongoClient> {
-  touchPool(conn.id);
-  const existing = mongClients.get(conn.id);
-  if (existing) return existing;
-
-  const uri = mongoUri(conn);
-  const client = new MongoClient(uri, {
-    serverSelectionTimeoutMS: 10000,
+const createMongoClient = (conn: ConnectionConfig) =>
+  new MongoClient(mongoUri(conn), {
+    serverSelectionTimeoutMS: CONNECT_TIMEOUT_MS,
     socketTimeoutMS: queryTimeout(),
     // Match the pg/mssql pools: small cap, drop idle sockets. Without these the
     // driver defaults to maxPoolSize 100 and holds sockets indefinitely.
@@ -396,6 +396,13 @@ export async function getMongoClient(
     maxIdleTimeMS: 60000,
   });
 
+export async function getMongoClient(
+  conn: ConnectionConfig,
+): Promise<MongoClient> {
+  touchPool(conn.id);
+  const existing = mongClients.get(conn.id);
+  if (existing) return existing;
+  const client = createMongoClient(conn);
   await client.connect();
   mongClients.set(conn.id, client);
   return client;
@@ -708,24 +715,28 @@ async function executeMongo(
 
 // --- Elasticsearch ---
 
-export function getEsClient(conn: ConnectionConfig): EsClient {
-  touchPool(conn.id);
-  const existing = esClients.get(conn.id);
-  if (existing) return existing;
-
+function createEsClient(
+  conn: ConnectionConfig,
+  requestTimeout = queryTimeout(),
+): EsClient {
   const protocol = conn.schema || "http"; // reuse schema field for protocol
   const node = conn.uri || `${protocol}://${conn.host}:${conn.port || 9200}`;
-
-  const client = new EsClient({
+  return new EsClient({
     node,
     auth:
       conn.username && conn.password
         ? { username: conn.username, password: conn.password }
         : undefined,
     tls: { rejectUnauthorized: false },
-    requestTimeout: queryTimeout(),
+    requestTimeout,
   });
+}
 
+export function getEsClient(conn: ConnectionConfig): EsClient {
+  touchPool(conn.id);
+  const existing = esClients.get(conn.id);
+  if (existing) return existing;
+  const client = createEsClient(conn);
   esClients.set(conn.id, client);
   return client;
 }
@@ -846,32 +857,68 @@ async function executeElasticsearch(
 
 export async function testConnection(conn: ConnectionConfig): Promise<boolean> {
   try {
-    switch (conn.type) {
-      case "postgres": {
-        const pool = await getPgPool(conn);
-        await pool.query("SELECT 1");
-        return true;
-      }
-      case "mssql": {
-        const pool = await getMssqlPool(conn);
-        await pool.request().query("SELECT 1");
-        return true;
-      }
-      case "mongodb": {
-        const client = await getMongoClient(conn);
-        await client.db().admin().ping();
-        return true;
-      }
-      case "elasticsearch": {
-        const client = getEsClient(conn);
-        await client.ping();
-        return true;
-      }
-      default:
-        return false;
-    }
+    await ping(conn, false);
+    return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * The same check on a throwaway client built from `conn` — for testing values
+ * that are not saved yet. Never touches the pool maps; the client is always
+ * closed. Throws the driver's error.
+ */
+export async function testConnectionConfig(
+  conn: ConnectionConfig,
+): Promise<void> {
+  await ping(conn, true);
+}
+
+/** The tester's trivial round-trip, on the pooled client or a throwaway one. */
+async function ping(conn: ConnectionConfig, throwaway: boolean): Promise<void> {
+  let close: (() => Promise<unknown>) | undefined;
+  try {
+    switch (conn.type) {
+      case "postgres": {
+        const pool = throwaway ? createPgPool(conn) : await getPgPool(conn);
+        if (throwaway) close = () => pool.end();
+        await pool.query("SELECT 1");
+        return;
+      }
+      case "mssql": {
+        let pool: mssql.ConnectionPool;
+        if (throwaway) {
+          const fresh = createMssqlPool(conn);
+          close = () => fresh.close();
+          pool = await fresh.connect();
+        } else pool = await getMssqlPool(conn);
+        await pool.request().query("SELECT 1");
+        return;
+      }
+      case "mongodb": {
+        let client: MongoClient;
+        if (throwaway) {
+          const fresh = createMongoClient(conn);
+          close = () => fresh.close();
+          client = await fresh.connect();
+        } else client = await getMongoClient(conn);
+        await client.db().admin().ping();
+        return;
+      }
+      case "elasticsearch": {
+        const client = throwaway
+          ? createEsClient(conn, CONNECT_TIMEOUT_MS)
+          : getEsClient(conn);
+        if (throwaway) close = () => client.close();
+        await client.ping();
+        return;
+      }
+      default:
+        throw new Error(`Unsupported connection type: ${conn.type}`);
+    }
+  } finally {
+    await close?.().catch(() => {});
   }
 }
 

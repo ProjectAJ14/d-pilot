@@ -23,6 +23,7 @@ import {
 import {
   closeAllConnections,
   closeConnectionPool,
+  testConnectionConfig,
 } from "../services/query-executor.js";
 import { clearSchemaCache } from "../services/schema-introspector.js";
 import type { ConnectionAdminView, ConnectionConfig } from "../types/index.js";
@@ -155,6 +156,11 @@ const connectionUpdateBody = connectionFields.extend({
   clearPassword: z.boolean().optional(),
   clearUri: z.boolean().optional(),
 });
+type ConnectionUpdate = z.infer<typeof connectionUpdateBody>;
+// Testing takes the update body, plus the id of the connection being edited.
+const connectionTestBody = connectionUpdateBody.extend({
+  id: createBody.shape.id.optional(),
+});
 
 function zodError(err: z.ZodError): string {
   const issue = err.issues[0];
@@ -167,6 +173,64 @@ function zodError(err: z.ZodError): string {
 async function dropConnectionState(id: string): Promise<void> {
   await closeConnectionPool(id);
   clearSchemaCache(id);
+}
+
+/**
+ * The connection an update would produce, stored secrets filled in where the
+ * body leaves them blank — or why that is refused. PUT and the pre-save test
+ * share it, so a test can never use a stored secret a save could not.
+ */
+function mergeUpdate(
+  existing: ConnectionConfig,
+  data: ConnectionUpdate,
+):
+  | { next: ConnectionConfig; keep: { password: boolean; uri: boolean } }
+  | { error: string } {
+  const { clearPassword, clearUri, ...fields } = data;
+  // An omitted or empty secret keeps the stored one — the client never had it.
+  // Clearing drops the secret (nothing is kept, so nothing can be redirected).
+  // A kept secret keeps its stored ciphertext, even one that no longer decrypts.
+  const keep = {
+    password: !fields.password && !clearPassword,
+    uri: !fields.uri && !clearUri,
+  };
+  const next: ConnectionConfig = {
+    ...fields,
+    id: existing.id,
+    password: clearPassword ? undefined : fields.password || existing.password,
+    uri: clearUri ? undefined : fields.uri || existing.uri,
+  };
+  // ...but a kept password must not follow the connection somewhere the admin
+  // picks — that would hand them a secret the API never shows. Drivers splice
+  // most fields into the destination (Mongo builds a URI from username and
+  // database; Elasticsearch takes its protocol from `schema`), so list what is
+  // safe to change rather than what is dangerous: anything else needs the
+  // password typed again.
+  const target = ({
+    name: _name,
+    env: _env,
+    schemas: _schemas,
+    password: _password,
+    ...rest
+  }: ConnectionConfig) =>
+    JSON.stringify(
+      Object.entries({
+        ...rest,
+        schema: rest.type === "elasticsearch" ? rest.schema : undefined,
+      })
+        .filter(([, v]) => v !== undefined && v !== "")
+        .sort(([a], [b]) => a.localeCompare(b)),
+    );
+  if (
+    keep.password &&
+    storedConnectionSecrets(existing.id).password &&
+    target(next) !== target(existing)
+  ) {
+    return {
+      error: "Re-enter the password when changing where the connection points",
+    };
+  }
+  return { next, keep };
 }
 
 router.get("/connections", (_req: Request, res: Response) => {
@@ -208,59 +272,20 @@ router.put("/connections/:id", async (req: Request, res: Response) => {
     res.status(400).json({ error: zodError(body.error) });
     return;
   }
-  const { clearPassword, clearUri, ...fields } = body.data;
   // Production rail: the env name is what forces PHI masking and blocks direct
   // writes, so relabelling a production connection would lift both at once.
-  if (isProductionEnv(existing.env) && !isProductionEnv(fields.env)) {
+  if (isProductionEnv(existing.env) && !isProductionEnv(body.data.env)) {
     res.status(422).json({
-      error: `env: ${existing.env} is production — a production connection can't move to a non-production environment (${fields.env}). Production PHI stays tokenized and production writes stay two-person.`,
+      error: `env: ${existing.env} is production — a production connection can't move to a non-production environment (${body.data.env}). Production PHI stays tokenized and production writes stay two-person.`,
     });
     return;
   }
-  // An omitted or empty secret keeps the stored one — the client never had it.
-  // Clearing drops the secret (nothing is kept, so nothing can be redirected).
-  // A kept secret keeps its stored ciphertext, even one that no longer decrypts.
-  const keep = {
-    password: !fields.password && !clearPassword,
-    uri: !fields.uri && !clearUri,
-  };
-  const next: ConnectionConfig = {
-    ...fields,
-    id,
-    password: clearPassword ? undefined : fields.password || existing.password,
-    uri: clearUri ? undefined : fields.uri || existing.uri,
-  };
-  // ...but a kept password must not follow the connection somewhere the admin
-  // picks — that would hand them a secret the API never shows. Drivers splice
-  // most fields into the destination (Mongo builds a URI from username and
-  // database; Elasticsearch takes its protocol from `schema`), so list what is
-  // safe to change rather than what is dangerous: anything else needs the
-  // password typed again.
-  const target = ({
-    name: _name,
-    env: _env,
-    schemas: _schemas,
-    password: _password,
-    ...rest
-  }: ConnectionConfig) =>
-    JSON.stringify(
-      Object.entries({
-        ...rest,
-        schema: rest.type === "elasticsearch" ? rest.schema : undefined,
-      })
-        .filter(([, v]) => v !== undefined && v !== "")
-        .sort(([a], [b]) => a.localeCompare(b)),
-    );
-  if (
-    keep.password &&
-    storedConnectionSecrets(id).password &&
-    target(next) !== target(existing)
-  ) {
-    res.status(400).json({
-      error: "Re-enter the password when changing where the connection points",
-    });
+  const merged = mergeUpdate(existing, body.data);
+  if ("error" in merged) {
+    res.status(400).json({ error: merged.error });
     return;
   }
+  const { next, keep } = merged;
   const changed = (Object.keys(next) as (keyof ConnectionConfig)[]).filter(
     (k) => JSON.stringify(next[k]) !== JSON.stringify(existing[k]),
   );
@@ -273,6 +298,47 @@ router.put("/connections/:id", async (req: Request, res: Response) => {
     id,
   );
   res.json(toView(getConnection(id)!));
+});
+
+// Try the form's values before saving. Builds a throwaway client — the pools
+// and the saved connection are untouched — and runs the same check as
+// GET /api/connections/:id/test.
+router.post("/connections/test", async (req: Request, res: Response) => {
+  const body = connectionTestBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: zodError(body.error) });
+    return;
+  }
+  const { id, ...data } = body.data;
+  const existing = id ? getConnection(id) : undefined;
+  let conn: ConnectionConfig;
+  if (existing) {
+    const merged = mergeUpdate(existing, data);
+    if ("error" in merged) {
+      res.status(400).json({ error: merged.error });
+      return;
+    }
+    conn = merged.next;
+  } else {
+    const { clearPassword: _p, clearUri: _u, ...fields } = data;
+    conn = { ...fields, id: id ?? "unsaved" };
+  }
+  let error: string | undefined;
+  try {
+    await testConnectionConfig(conn);
+  } catch (err) {
+    error = (err as Error).message || String(err);
+    // A driver may echo the URI it was given; never hand back a stored secret.
+    for (const secret of [conn.password, conn.uri])
+      if (secret) error = error.split(secret).join("***");
+  }
+  audit(
+    req,
+    "CONNECTION_TEST",
+    `Tested ${existing ? `connection ${existing.id}` : "unsaved connection"} (${conn.env}, ${conn.type}): ${error ? "failed" : "ok"}`,
+    existing?.id,
+  );
+  res.json(error ? { ok: false, error } : { ok: true });
 });
 
 router.delete("/connections/:id", async (req: Request, res: Response) => {

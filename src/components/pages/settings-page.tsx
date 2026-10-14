@@ -3931,6 +3931,9 @@ function ConnectionsTab() {
   );
 }
 
+const REENTER_PASSWORD =
+  "Re-enter the password when changing anything other than the name, environment or schemas";
+
 function ConnectionModal({
   connection,
   onClose,
@@ -3961,6 +3964,11 @@ function ConnectionModal({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    error?: string;
+  } | null>(null);
 
   const field = (key: keyof typeof f) => ({
     value: f[key],
@@ -3968,16 +3976,14 @@ function ConnectionModal({
       const value = e.currentTarget.value;
       setF((p) => ({ ...p, [key]: value }));
       setErrors((e) => (e[key] ? {} : e));
+      setTestResult(null);
     },
     error: errors[key],
   });
 
-  const submit = async () => {
-    setSaving(true);
-    setErrors({});
-    setFormError(null);
+  const buildBody = (): Omit<ConnectionInput, "id"> => {
     const opt = (v: string) => v.trim() || undefined;
-    const body: Omit<ConnectionInput, "id"> = {
+    return {
       name: f.name.trim(),
       env: f.env.trim(),
       type: f.type as ConnectionInput["type"],
@@ -3991,6 +3997,22 @@ function ConnectionModal({
       schemas: schemas.length ? schemas : undefined,
       uri: f.uri || undefined,
     };
+  };
+
+  // Server errors read "<field>: <problem>" — put them on the field.
+  const showServerError = (err: any) => {
+    const msg: string = err?.message ?? String(err);
+    const m = /^(\w+): (.*)$/.exec(msg);
+    if (m && m[1] in f) setErrors({ [m[1]]: m[2] });
+    else if (/password/i.test(msg)) setErrors({ password: msg });
+    else setFormError(msg);
+  };
+
+  const submit = async () => {
+    setSaving(true);
+    setErrors({});
+    setFormError(null);
+    const body = buildBody();
     try {
       if (isNew) await api.createConnection({ ...body, id: f.id.trim() });
       else
@@ -4005,14 +4027,35 @@ function ConnectionModal({
       });
       onSaved();
     } catch (err: any) {
-      // Server errors read "<field>: <problem>" — put them on the field.
-      const msg: string = err?.message ?? String(err);
-      const m = /^(\w+): (.*)$/.exec(msg);
-      if (m && m[1] in f) setErrors({ [m[1]]: m[2] });
-      else if (/password/i.test(msg)) setErrors({ password: msg });
-      else setFormError(msg);
+      showServerError(err);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Tests the form as typed, before saving. Same password rule as Save.
+  const test = async () => {
+    setErrors({});
+    setFormError(null);
+    setTestResult(null);
+    if (reenterPassword) {
+      setErrors({ password: REENTER_PASSWORD });
+      return;
+    }
+    setTesting(true);
+    try {
+      setTestResult(
+        await api.testConnectionDraft({
+          ...buildBody(),
+          id: isNew ? undefined : connection.id,
+          clearPassword: clear.password || undefined,
+          clearUri: clear.uri || undefined,
+        }),
+      );
+    } catch (err: any) {
+      showServerError(err);
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -4121,9 +4164,11 @@ function ConnectionModal({
               allowDeselect={false}
               data={DB_TYPES}
               value={f.type}
-              onChange={(v) =>
-                v && setF((p) => ({ ...p, type: v as typeof p.type }))
-              }
+              onChange={(v) => {
+                if (!v) return;
+                setF((p) => ({ ...p, type: v as typeof p.type }));
+                setTestResult(null);
+              }}
             />
             <TextInput label="Host" {...field("host")} />
             <TextInput
@@ -4146,8 +4191,7 @@ function ConnectionModal({
               {...secretField(
                 "password",
                 connection?.passwordSet,
-                reenterPassword &&
-                  "Re-enter the password when changing anything other than the name, environment or schemas",
+                reenterPassword && REENTER_PASSWORD,
               )}
             />
             <TextInput label="Default schema" {...field("schema")} />
@@ -4173,9 +4217,33 @@ function ConnectionModal({
               {formError}
             </Alert>
           )}
+          {testResult && (
+            <Alert
+              color={testResult.ok ? "green" : "red"}
+              icon={
+                testResult.ok ? (
+                  <IconCheck size={16} />
+                ) : (
+                  <IconAlertTriangle size={16} />
+                )
+              }
+            >
+              {testResult.ok
+                ? "Connected"
+                : `Could not connect: ${testResult.error ?? "unknown error"}`}
+            </Alert>
+          )}
           <Group justify="flex-end" mt="xs">
             <Button variant="subtle" color="neutral" onClick={onClose}>
               Cancel
+            </Button>
+            <Button
+              variant="default"
+              onClick={test}
+              loading={testing}
+              disabled={saving}
+            >
+              Test connection
             </Button>
             <Button type="submit" loading={saving}>
               {isNew ? "Add connection" : "Save"}
