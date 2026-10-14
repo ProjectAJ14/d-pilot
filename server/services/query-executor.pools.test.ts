@@ -28,6 +28,7 @@ vi.mock("@elastic/elasticsearch", () => ({
 }));
 
 const {
+  holdConnection,
   testConnection,
   testConnectionConfig,
   closeAllConnections,
@@ -163,5 +164,39 @@ describe("testConnectionConfig", () => {
       host: "127.0.0.1",
     });
     expect("maxRetries" in esOptions.at(-1)!).toBe(false);
+  });
+});
+
+describe("a retired client with a governed write running", () => {
+  it("closes only once the write has finished", async () => {
+    await getMongoClient({ ...mongoConn, id: "mongo-busy" });
+    vi.useFakeTimers();
+    mongoClose.mockClear();
+    let finish!: () => void;
+    const write = holdConnection(
+      "mongo-busy",
+      () => new Promise<void>((r) => (finish = r)),
+    );
+    closeConnectionPool("mongo-busy", 0);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mongoClose).not.toHaveBeenCalled();
+    finish();
+    await write;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mongoClose).toHaveBeenCalledOnce();
+  });
+
+  it("closes anyway after the hard cap, and says so", async () => {
+    await getMongoClient({ ...mongoConn, id: "mongo-stuck" });
+    vi.useFakeTimers();
+    mongoClose.mockClear();
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    void holdConnection("mongo-stuck", () => new Promise<void>(() => {}));
+    closeConnectionPool("mongo-stuck", 0);
+    await vi.advanceTimersByTimeAsync(5 * 3_600_000);
+    expect(mongoClose).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(3_600_000 + 2000);
+    expect(mongoClose).toHaveBeenCalledOnce();
+    expect(log).toHaveBeenCalled();
   });
 });

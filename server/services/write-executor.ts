@@ -13,6 +13,7 @@ import {
   getEsClient,
   parseMongoJson,
   quoteSchemaIdent,
+  holdConnection,
 } from "./query-executor.js";
 import { scanSql } from "./sql-scan.js";
 import type { ConnectionConfig, DatabaseType } from "../types/index.js";
@@ -242,11 +243,23 @@ export function classifyWrite(
   return { isMigration: statementCount > 1 || hasDdl, statementCount, hasDdl };
 }
 
-/** Executes a validated migration script. Transactional unless opting out. */
-export async function executeMigration(
+/**
+ * Executes a validated migration script, transactional unless opting out.
+ * Held against its connection (holdConnection), so an edit that retires the
+ * pool mid-run does not close the client under it.
+ */
+export function executeMigration(
   conn: ConnectionConfig,
   script: string,
   opts: { noTransaction?: boolean } = {},
+): Promise<WriteResult> {
+  return holdConnection(conn.id, () => runMigration(conn, script, opts));
+}
+
+async function runMigration(
+  conn: ConnectionConfig,
+  script: string,
+  opts: { noTransaction?: boolean },
 ): Promise<WriteResult> {
   const validation = validateMigration(script, conn.type, opts);
   if (!validation.valid)
@@ -369,8 +382,18 @@ async function executeMssqlMigration(
   }
 }
 
-/** Executes a validated write statement, transactionally where supported. */
-export async function executeWrite(
+/**
+ * Executes a validated write statement, transactionally where supported. Held
+ * against its connection like executeMigration.
+ */
+export function executeWrite(
+  conn: ConnectionConfig,
+  sql: string,
+): Promise<WriteResult> {
+  return holdConnection(conn.id, () => runWrite(conn, sql));
+}
+
+async function runWrite(
   conn: ConnectionConfig,
   sql: string,
 ): Promise<WriteResult> {

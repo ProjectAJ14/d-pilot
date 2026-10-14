@@ -45,7 +45,7 @@ function cacheIfCurrent<T extends { close(): Promise<unknown> }>(
   client: T,
 ): T {
   if (generation(id) === gen) map.set(id, client);
-  else closeLater(() => client.close(), queryTimeout());
+  else closeLater(id, () => client.close(), queryTimeout());
   return client;
 }
 
@@ -990,11 +990,67 @@ export function getPoolStatus(id: string): PoolStatus {
 const logClose = (err: unknown) =>
   console.error("Failed to close a retired connection pool:", err);
 
-/** Closes `close` once in-flight work started under `graceMs` has finished. */
-function closeLater(close: () => Promise<unknown>, graceMs: number): void {
+// Governed writes and migrations running per connection id (holdConnection).
+// ponytail: counted per id, not per client — a write on the replacement client
+// also delays closing the retired one; harmless, and capped below.
+const writesInFlight = new Map<string, number>();
+const whenIdle = new Map<string, (() => void)[]>();
+// A migration may legitimately run for hours; past this a retired client is
+// closed regardless, so a hung write cannot pin it forever.
+const WRITE_CLOSE_CAP_MS = 6 * 3_600_000;
+
+/**
+ * Runs a governed write or migration on connection `id`, so a retired client
+ * of that connection is not closed under it (see closeLater).
+ */
+export async function holdConnection<T>(
+  id: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  writesInFlight.set(id, (writesInFlight.get(id) ?? 0) + 1);
+  try {
+    return await fn();
+  } finally {
+    const left = writesInFlight.get(id)! - 1;
+    if (left > 0) writesInFlight.set(id, left);
+    else {
+      writesInFlight.delete(id);
+      whenIdle.get(id)?.forEach((wake) => wake());
+      whenIdle.delete(id);
+    }
+  }
+}
+
+/**
+ * Closes a retired client of connection `id` once the reads started under
+ * `graceMs` have finished or timed out, and no governed write holds it — or
+ * after WRITE_CLOSE_CAP_MS, logging that it was cut short.
+ */
+function closeLater(
+  id: string,
+  close: () => Promise<unknown>,
+  graceMs: number,
+): void {
   // Node clamps anything above 2^31-1 ms to 1 ms, which would close at once.
   const delay = Math.min(graceMs + 1000, 2_147_483_647);
-  setTimeout(() => close().catch(logClose), delay).unref();
+  let done = false;
+  const closeOnce = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(cap); // drop the cap timer's hold on the client
+    close().catch(logClose);
+  };
+  setTimeout(() => {
+    if (!writesInFlight.has(id)) return closeOnce();
+    whenIdle.set(id, [...(whenIdle.get(id) ?? []), closeOnce]);
+  }, delay).unref();
+  const cap = setTimeout(() => {
+    if (done) return;
+    console.warn(
+      `Closing a retired connection pool for ${id} with a write still running after ${WRITE_CLOSE_CAP_MS / 3_600_000}h.`,
+    );
+    closeOnce();
+  }, WRITE_CLOSE_CAP_MS).unref();
 }
 
 /**
@@ -1010,11 +1066,11 @@ function retire(id: string, graceMs: number): boolean {
   const pgPool = pgPools.get(id);
   if (pgPool) pgPool.end().catch(logClose);
   const msPool = mssqlPools.get(id);
-  if (msPool) closeLater(() => msPool.close(), graceMs);
+  if (msPool) closeLater(id, () => msPool.close(), graceMs);
   const mongo = mongClients.get(id);
-  if (mongo) closeLater(() => mongo.close(), graceMs);
+  if (mongo) closeLater(id, () => mongo.close(), graceMs);
   const es = esClients.get(id);
-  if (es) closeLater(() => es.close(), graceMs);
+  if (es) closeLater(id, () => es.close(), graceMs);
   for (const map of [pgPools, mssqlPools, mongClients, esClients])
     closed = map.delete(id) || closed;
   return closed;
