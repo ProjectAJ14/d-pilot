@@ -327,8 +327,9 @@ function connectionIfUnchanged(id: string, target: string | null) {
     : undefined;
 }
 
+// Raised before anything is inserted, claimed or revised, so a retry is safe.
 const changedWhileChecking = (id: string) =>
-  `Connection ${id} changed while this request was being checked — nothing was run; try again.`;
+  `Connection ${id} changed while this request was being checked — nothing was saved or run; try again.`;
 
 /**
  * Executes a request immediately on a DIRECT-policy environment (an authorized
@@ -343,9 +344,7 @@ async function runDirectExecution(
   opts: { isMigration: boolean; noTransaction?: boolean } = {
     isMigration: false,
   },
-): Promise<boolean> {
-  // Runs only on the target bound to the request right before this call.
-  if (!connectionIfUnchanged(conn.id, getWriteRequestTarget(id))) return false;
+): Promise<void> {
   const now = new Date().toISOString();
   addWriteRequestEvent(
     id,
@@ -401,7 +400,6 @@ async function runDirectExecution(
       phiAccessed: false,
     });
   }
-  return true;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -551,15 +549,11 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
   });
 
   // DIRECT-policy environments: an authorized author executes immediately.
-  if (
-    direct &&
-    !(await runDirectExecution(wr.id, conn, writeSql.trim(), user, {
+  if (direct) {
+    await runDirectExecution(wr.id, conn, writeSql.trim(), user, {
       isMigration,
       noTransaction: noTx,
-    }))
-  ) {
-    res.status(409).json({ error: changedWhileChecking(connectionId) });
-    return;
+    });
   }
 
   res.status(201).json(getWriteRequest(wr.id));
@@ -1243,15 +1237,11 @@ router.post(
       phiAccessed: false,
     });
 
-    if (
-      plan.runNow &&
-      !(await runDirectExecution(wr.id, conn, wr.writeSql, user, {
+    if (plan.runNow) {
+      await runDirectExecution(wr.id, conn, wr.writeSql, user, {
         isMigration: !!wr.isMigration,
         noTransaction: wr.noTransaction,
-      }))
-    ) {
-      res.status(409).json({ error: changedWhileChecking(wr.connectionId) });
-      return;
+      });
     }
 
     res.json(getWriteRequest(wr.id));
@@ -1439,15 +1429,11 @@ router.post(
 
     // A DIRECT-policy environment re-runs immediately on resubmit — never on a
     // draft edit, which stays saved until a human submits it.
-    if (
-      plan.runNow &&
-      !(await runDirectExecution(wr.id, conn, newWrite, user, {
+    if (plan.runNow) {
+      await runDirectExecution(wr.id, conn, newWrite, user, {
         isMigration,
         noTransaction: noTx,
-      }))
-    ) {
-      res.status(409).json({ error: changedWhileChecking(wr.connectionId) });
-      return;
+      });
     }
 
     res.json(getWriteRequest(wr.id));

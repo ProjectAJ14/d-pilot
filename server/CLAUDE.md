@@ -191,9 +191,9 @@ write path reads; never name or password. Approve and override recompute it and
 re-binds — and sets the request's `env` to the connection's current env, which every rights
 check (author, direct-write, approve) then uses. Drafts are bound when saved; submitting one
 whose connection moved 409s ("revise it"). Any route that awaits SQL validation re-reads the
-connection afterwards (`connectionIfUnchanged`) and 409s if it changed, and
-`runDirectExecution` runs only on the target bound right before it. Existing pending requests
-and drafts are bound to their connection as of the upgrade (the migration backfills them); one whose
+connection afterwards (`connectionIfUnchanged`) and 409s if it changed — before anything is
+inserted, claimed or revised, so a retry never duplicates — and then binds and runs with no
+await in between. Existing pending requests and drafts are bound to their connection as of the upgrade (the migration backfills them); one whose
 connection was already gone, or now sits in another env, has no target and never runs.
 
 Every request carries a paired verify **SELECT** and the **WRITE**.

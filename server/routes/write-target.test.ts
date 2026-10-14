@@ -271,6 +271,15 @@ describe("the request's env follows its connection", () => {
     );
     expect(res.status).toBe(409);
     expect(executeWrite).not.toHaveBeenCalled();
+    // Refused before the insert, so retrying cannot leave a duplicate.
+    expect(
+      store
+        .getDb()
+        .prepare(
+          "SELECT COUNT(*) AS n FROM write_requests WHERE connection_id = ?",
+        )
+        .get("dev-core"),
+    ).toEqual({ n: 0 });
     store.deleteDbConnection("dev-core");
   });
 });
