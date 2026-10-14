@@ -79,7 +79,7 @@ export function WriteRequestDetail() {
   const [aiLoading, setAiLoading] = useState(false);
 
   const [decisionModal, setDecisionModal] = useState<
-    "approve" | "reject" | null
+    "approve" | "reject" | "override" | null
   >(null);
   const [notes, setNotes] = useState("");
   const [deciding, setDeciding] = useState(false);
@@ -152,7 +152,15 @@ export function WriteRequestDetail() {
     if (!id || !decisionModal) return;
     setDeciding(true);
     try {
-      if (decisionModal === "approve") {
+      if (decisionModal === "override") {
+        const updated = await api.overrideWriteRequest(id, notes.trim());
+        notifications.show({
+          title: "Approval overridden & executed",
+          message: `${updated.rowsAffected ?? 0} row(s) affected`,
+          color: "green",
+          icon: <IconCheck size={16} />,
+        });
+      } else if (decisionModal === "approve") {
         const updated = await api.approveWriteRequest(
           id,
           notes.trim() || undefined,
@@ -327,7 +335,9 @@ export function WriteRequestDetail() {
     ? `Preview ran · ${preview.totalRows} row(s) returned`
     : "Runs the verify SELECT only — read-only, changes nothing";
   const showAiButton = wr.status !== "EXECUTED";
-  const showDecisionBar = canApprove || canCancel || showAiButton;
+  const canOverride = wr.viewerCanOverride && wr.status === "PENDING";
+  const showDecisionBar =
+    canApprove || canOverride || canCancel || showAiButton;
 
   return (
     <div
@@ -733,6 +743,19 @@ export function WriteRequestDetail() {
                       </Button>
                     </>
                   )}
+                  {canOverride && (
+                    <Button
+                      color="red"
+                      variant="light"
+                      leftSection={<IconAlertTriangle size={16} />}
+                      onClick={() => {
+                        setNotes("");
+                        setDecisionModal("override");
+                      }}
+                    >
+                      Override &amp; run
+                    </Button>
+                  )}
                   {canCancel && (
                     <Button
                       variant="default"
@@ -860,7 +883,9 @@ export function WriteRequestDetail() {
             <Text fw={700} size="md" c="var(--text)">
               {decisionModal === "approve"
                 ? "Approve & run write"
-                : "Reject write request"}
+                : decisionModal === "override"
+                  ? "Override approval & run write"
+                  : "Reject write request"}
             </Text>
           </Group>
         }
@@ -871,11 +896,17 @@ export function WriteRequestDetail() {
           </Text>
         ) : (
           <Alert
-            color={dangerous ? "red" : "yellow"}
+            color={dangerous || decisionModal === "override" ? "red" : "yellow"}
             variant="light"
             mb="md"
             icon={<IconAlertTriangle size={16} />}
           >
+            {decisionModal === "override" && (
+              <>
+                <strong>Admin override:</strong> no approver will review
+                this.{" "}
+              </>
+            )}
             This will execute the{" "}
             {wr.isMigration ? "migration script" : "write statement"} against{" "}
             <strong>{wr.connectionName || wr.connectionId}</strong> ({wr.env})
@@ -891,18 +922,22 @@ export function WriteRequestDetail() {
           label={
             decisionModal === "approve"
               ? "Approval note (optional)"
-              : "Reason for rejection"
+              : decisionModal === "override"
+                ? "Reason for override"
+                : "Reason for rejection"
           }
-          required={decisionModal === "reject"}
+          required={decisionModal !== "approve"}
           placeholder={
             decisionModal === "approve"
               ? "Looks correct, verified against preview…"
-              : "Explain why this is being rejected…"
+              : decisionModal === "override"
+                ? "Why this must run without approval (audited)…"
+                : "Explain why this is being rejected…"
           }
           value={notes}
           onChange={(e) => setNotes(e.currentTarget.value)}
           autosize
-          minRows={decisionModal === "reject" ? 3 : 2}
+          minRows={decisionModal === "approve" ? 2 : 3}
           mb="lg"
         />
         <Group justify="flex-end" gap={8}>
@@ -912,10 +947,14 @@ export function WriteRequestDetail() {
           <Button
             color={decisionModal === "approve" ? "green" : "red"}
             loading={deciding}
-            disabled={decisionModal === "reject" && !notes.trim()}
+            disabled={decisionModal !== "approve" && !notes.trim()}
             onClick={submitDecision}
           >
-            {decisionModal === "approve" ? "Approve & run" : "Reject request"}
+            {decisionModal === "approve"
+              ? "Approve & run"
+              : decisionModal === "override"
+                ? "Override & run"
+                : "Reject request"}
           </Button>
         </Group>
       </Modal>
@@ -993,6 +1032,7 @@ const EVENT_COLORS: Record<string, string> = {
   AI_REVIEWED: "violet",
   APPROVED: "green",
   AUTO_APPROVED: "teal",
+  OVERRIDDEN: "red",
   EXECUTED: "green",
   REJECTED: "red",
   RESUBMITTED: "grape",

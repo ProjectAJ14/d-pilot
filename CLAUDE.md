@@ -70,7 +70,10 @@ place. See the README's MCP section.
   `["DEV","QA","UAT","STG","PROD"]`** in a route, picker, zod schema or color map — a
   deployment can define its own env (e.g. `SUPER_PROD`) and every one of those lists would
   silently exclude it. The only legitimate literal is `"PROD"` itself, in the safety rails.
-- **Production safety rails always apply**, regardless of capabilities, and cover **every
+- **Production safety rails always apply**, regardless of capabilities (one exception: an
+  admin can override approval on a single `PENDING` write request, on any env including
+  production, via `POST /write-requests/:id/override` — admin-only, reason required, audited
+  as `WRITE_OVERRIDE`; it does not touch the direct-write/masking rails below), and cover **every
   production-like environment**: `isProductionEnv()` (`server/config/connections.ts`) matches
   any name containing "prod" (`PROD`, `SUPER_PROD`, `PREPROD`). Both rails are enforced in the
   _getter_, so neither can be lifted from Settings **or** by editing `app_settings` —

@@ -231,6 +231,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ notes }),
     }),
+  overrideWriteRequest: (id: string, notes: string) =>
+    request<WriteRequest>(`/write-requests/${id}/override`, {
+      method: "POST",
+      body: JSON.stringify({ notes }),
+    }),
   rejectWriteRequest: (id: string, notes?: string) =>
     request<WriteRequest>(`/write-requests/${id}/reject`, {
       method: "POST",

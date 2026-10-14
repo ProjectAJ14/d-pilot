@@ -120,6 +120,60 @@ export function planDraftSubmit(
 }
 
 /**
+ * Decides whether `user` may approve-and-run a PENDING request, without
+ * touching the database. A normal approval needs approve capability on the env
+ * and a second person. An admin OVERRIDE skips both — no approver, and it may be
+ * the admin's own request — but is admin-only and needs a written reason, since
+ * it is the one path that executes a write nobody else has looked at.
+ */
+export function planDecision(
+  user: AuthUser,
+  wr: Pick<WriteRequest, "status" | "env" | "requestedBy">,
+  override: boolean,
+  notes?: string,
+): { ok: false; status: number; error: string } | { ok: true } {
+  if (wr.status !== "PENDING") {
+    return {
+      ok: false,
+      status: 409,
+      error: `Request is ${wr.status} and can no longer be ${override ? "overridden" : "approved"}`,
+    };
+  }
+  if (override) {
+    if (!user.isAdmin) {
+      return {
+        ok: false,
+        status: 403,
+        error: "Only an admin can override approval",
+      };
+    }
+    if (!notes) {
+      return {
+        ok: false,
+        status: 400,
+        error: "A reason is required to override approval",
+      };
+    }
+    return { ok: true };
+  }
+  if (!canApproveEnv(user, wr.env)) {
+    return {
+      ok: false,
+      status: 403,
+      error: `You are not allowed to approve writes in ${wr.env}`,
+    };
+  }
+  if (wr.requestedBy === user.sub) {
+    return {
+      ok: false,
+      status: 403,
+      error: "You cannot approve your own write request",
+    };
+  }
+  return { ok: true };
+}
+
+/**
  * Decides what editing a request does, without touching the database.
  *
  * A DRAFT edit stays a DRAFT and never executes — an agent editing its own
@@ -696,6 +750,7 @@ router.get("/:id", (req: Request, res: Response) => {
     viewerCanApprove:
       canApproveEnv(user, wr.env) && wr.requestedBy !== user.sub,
     viewerIsRequester: wr.requestedBy === user.sub,
+    viewerCanOverride: user.isAdmin && wr.status === "PENDING",
     viewerCanPreview: canReadEnv(user, wr.env),
     viewerCanSubmit: wr.status === "DRAFT" && canAuthorEnv(user, wr.env),
     // Whether submitting this draft executes it on the spot, so the UI can say
@@ -868,10 +923,8 @@ router.post("/:id/ai-review", async (req: Request, res: Response) => {
 // Decisions: approve (execute), reject, cancel
 // ═══════════════════════════════════════════════════════════════
 
-router.post(
-  "/:id/approve",
-  requireWriteMode,
-  async (req: Request, res: Response) => {
+function decideAndRun(override: boolean) {
+  return async (req: Request, res: Response) => {
     const user = req.user!;
     const notes = (req.body?.notes as string | undefined)?.trim() || undefined;
     const wr = getWriteRequest(req.params.id as string, false);
@@ -879,22 +932,9 @@ router.post(
       res.status(404).json({ error: "Write request not found" });
       return;
     }
-    if (wr.status !== "PENDING") {
-      res.status(409).json({
-        error: `Request is ${wr.status} and can no longer be approved`,
-      });
-      return;
-    }
-    if (!canApproveEnv(user, wr.env)) {
-      res
-        .status(403)
-        .json({ error: `You are not allowed to approve writes in ${wr.env}` });
-      return;
-    }
-    if (wr.requestedBy === user.sub) {
-      res
-        .status(403)
-        .json({ error: "You cannot approve your own write request" });
+    const plan = planDecision(user, wr, override, notes);
+    if (!plan.ok) {
+      res.status(plan.status).json({ error: plan.error });
       return;
     }
 
@@ -927,11 +967,17 @@ router.post(
     }
 
     const now = new Date().toISOString();
-    addWriteRequestEvent(wr.id, user.sub, user.email, "APPROVED", notes);
+    addWriteRequestEvent(
+      wr.id,
+      user.sub,
+      user.email,
+      override ? "OVERRIDDEN" : "APPROVED",
+      notes,
+    );
     logAudit({
       userId: user.sub,
       userEmail: user.email,
-      action: "WRITE_APPROVE",
+      action: override ? "WRITE_OVERRIDE" : "WRITE_APPROVE",
       sql: wr.writeSql,
       connectionId: wr.connectionId,
       phiAccessed: false,
@@ -997,7 +1043,19 @@ router.post(
         request: getWriteRequest(wr.id),
       });
     }
-  },
+  };
+}
+
+router.post("/:id/approve", requireWriteMode, decideAndRun(false));
+
+// Admin-only: run a PENDING request without anyone's approval (own requests
+// included). Production safety rails still apply to direct-write config; this is
+// a per-request, audited, reason-required bypass of the approval queue only.
+router.post(
+  "/:id/override",
+  requireAdmin,
+  requireWriteMode,
+  decideAndRun(true),
 );
 
 router.post("/:id/reject", requireWriteMode, (req: Request, res: Response) => {

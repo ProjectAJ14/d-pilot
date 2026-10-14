@@ -129,8 +129,15 @@ name rather than one baked in at build time. In production `express.static` also
 
 Status: `DRAFT → PENDING → APPROVED → EXECUTED` (or `FAILED`/`REJECTED`/`CANCELLED`).
 Each transition appends a `write_request_events` row (`SAVED`, `SUBMITTED`, `AI_REVIEWED`,
-`APPROVED`/`AUTO_APPROVED`, `REJECTED`, `RESUBMITTED`, `EXECUTED`, `FAILED`, `CANCELLED`)
+`APPROVED`/`AUTO_APPROVED`/`OVERRIDDEN`, `REJECTED`, `RESUBMITTED`, `EXECUTED`, `FAILED`, `CANCELLED`)
 for the timeline.
+
+**Admin override** (`POST /:id/override`, `planDecision` — exported, unit-tested) runs a
+`PENDING` request without any approver, own requests included. Admin-only (`requireAdmin`
+plus `isAdmin` in the planner), a written reason is mandatory, and it is audited as
+`WRITE_OVERRIDE` / `OVERRIDDEN`. It bypasses the approval queue only — the direct-write
+and production rails in `getWriteDirectEnvs()` are untouched. It is deliberately allowed on
+production-like envs: the two-person rule has this one admin exception, always with a reason on the record.
 
 **`DRAFT` is the saved-but-not-running state** (`POST /` with `draft: true`, the composer's
 "Save request", and everything the MCP endpoint creates). A draft is validated exactly like a
