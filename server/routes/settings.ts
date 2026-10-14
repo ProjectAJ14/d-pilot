@@ -92,9 +92,10 @@ router.delete("/:key", async (req: Request, res: Response) => {
     res.status(404).json({ error: `Unknown setting: ${key}` });
     return;
   }
-  if (resetSetting(key)) {
-    await applySettingChange([key]);
-    audit(req, "SETTINGS_RESET", `Reset setting: ${key}`);
+  const reset = resetSetting(key);
+  if (reset.length > 0) {
+    await applySettingChange(reset);
+    audit(req, "SETTINGS_RESET", `Reset settings: ${reset.join(", ")}`);
   }
   res.json(listSettings());
 });
@@ -189,20 +190,6 @@ router.put("/connections/:id", async (req: Request, res: Response) => {
     res.status(400).json({ error: zodError(body.error) });
     return;
   }
-  // A kept password must not follow the connection to a host the admin picks —
-  // that would hand them a secret the API never shows.
-  const target = (c: { type: string; host?: string; port?: number }) =>
-    JSON.stringify([c.type, c.host ?? "", c.port ?? null]);
-  if (
-    existing.password &&
-    !body.data.password &&
-    target(body.data) !== target(existing)
-  ) {
-    res.status(400).json({
-      error: "Re-enter the password when changing host, port or type",
-    });
-    return;
-  }
   // An omitted or empty secret keeps the stored one — the client never had it.
   const next: ConnectionConfig = {
     ...body.data,
@@ -210,6 +197,28 @@ router.put("/connections/:id", async (req: Request, res: Response) => {
     password: body.data.password || existing.password,
     uri: body.data.uri || existing.uri,
   };
+  // ...but a kept password must not follow the connection somewhere the admin
+  // picks — that would hand them a secret the API never shows. These are every
+  // field the drivers build the destination from (Elasticsearch takes its
+  // protocol from `schema` and prefers `uri` over host/port).
+  const target = (c: ConnectionConfig) =>
+    JSON.stringify([
+      c.type,
+      c.host ?? "",
+      c.port ?? null,
+      c.uri ?? "",
+      c.type === "elasticsearch" ? (c.schema ?? "") : "",
+    ]);
+  if (
+    existing.password &&
+    !body.data.password &&
+    target(next) !== target(existing)
+  ) {
+    res.status(400).json({
+      error: "Re-enter the password when changing where the connection points",
+    });
+    return;
+  }
   const changed = (Object.keys(next) as (keyof ConnectionConfig)[]).filter(
     (k) => JSON.stringify(next[k]) !== JSON.stringify(existing[k]),
   );

@@ -173,6 +173,32 @@ describe("secrets", () => {
     expect(getConfig("AZURE_OPENAI_KEY")).toBe("sk-new");
   });
 
+  it("must be re-entered when TLS verification is switched off", async () => {
+    const res = await call("PUT", "", {
+      values: { AZURE_OPENAI_INSECURE_TLS: "true" },
+    });
+    expect(res.status).toBe(400);
+    expect(getConfig("AZURE_OPENAI_INSECURE_TLS")).toBe("false");
+  });
+
+  it("cannot be swapped for the .env key by resetting it", async () => {
+    vi.stubEnv("AZURE_OPENAI_KEY", "sk-from-env");
+    vi.stubEnv("AZURE_OPENAI_ENDPOINT", "https://operator.example.com");
+    // An admin's own endpoint, saved with a throwaway key...
+    await call("PUT", "", {
+      values: {
+        AZURE_OPENAI_ENDPOINT: "https://attacker.example.com",
+        AZURE_OPENAI_KEY: "throwaway",
+      },
+    });
+    // ...then resetting the key must not pair the .env key with that endpoint.
+    await call("DELETE", "/AZURE_OPENAI_KEY");
+    expect(getConfig("AZURE_OPENAI_KEY")).toBe("sk-from-env");
+    expect(getConfig("AZURE_OPENAI_ENDPOINT")).toBe(
+      "https://operator.example.com",
+    );
+  });
+
   it("uses a 0600 key file in DATA_DIR, not the database", () => {
     const keyFile = path.join(dir, "settings.key");
     expect(statSync(keyFile).mode & 0o777).toBe(0o600);
@@ -261,6 +287,36 @@ describe("connections", () => {
     });
     expect(ok.status).toBe(200);
     expect(getConnection("dev-core")?.password).toBe("new-pw");
+  });
+
+  it("requires the password again when an Elasticsearch uri or protocol changes", async () => {
+    const es = {
+      name: "Search",
+      env: "DEV",
+      type: "elasticsearch" as const,
+      host: "search.example.com",
+      schema: "https",
+      username: "elastic",
+    };
+    await call("POST", "/connections", {
+      ...es,
+      id: "search",
+      password: "es-pw",
+    });
+
+    const viaUri = await call("PUT", "/connections/search", {
+      ...es,
+      uri: "https://attacker.example.com",
+    });
+    expect(viaUri.status).toBe(400);
+    const viaHttp = await call("PUT", "/connections/search", {
+      ...es,
+      schema: "http",
+    });
+    expect(viaHttp.status).toBe(400);
+    expect(getConnection("search")).toMatchObject({ schema: "https" });
+    expect(getConnection("search")?.uri).toBeUndefined();
+    await call("DELETE", "/connections/search");
   });
 
   it("rejects a duplicate id and an invalid body", async () => {

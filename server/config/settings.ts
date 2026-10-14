@@ -153,16 +153,17 @@ export function updateSettings(
     writes.push([key, value]);
   }
   // A stored key the admin cannot read must not be sendable to a URL they pick,
-  // so moving the endpoint means typing the key again.
-  const endpoint = writes.find(([k]) => k === "AZURE_OPENAI_ENDPOINT")?.[1];
+  // or over TLS they switched off — moving the key's target means typing it again.
+  const movesKey = writes.some(
+    ([k, v]) => AI_KEY_TARGET.includes(k) && v !== (getConfig(k) ?? ""),
+  );
   if (
-    endpoint !== undefined &&
-    endpoint !== (getConfig("AZURE_OPENAI_ENDPOINT") ?? "") &&
+    movesKey &&
     getConfig("AZURE_OPENAI_KEY") &&
     !writes.some(([k]) => k === "AZURE_OPENAI_KEY")
   ) {
     throw new Error(
-      "AZURE_OPENAI_KEY must be re-entered when the endpoint changes",
+      "AZURE_OPENAI_KEY must be re-entered when the endpoint or TLS setting changes",
     );
   }
   for (const [key, value] of writes) {
@@ -171,7 +172,20 @@ export function updateSettings(
   return writes.map(([key]) => key);
 }
 
-/** Drop the stored value so the env var (or default) applies again. */
-export function resetSetting(key: SettingKey): boolean {
-  return deleteSetting(key);
+/** Settings that decide where AZURE_OPENAI_KEY is sent. */
+const AI_KEY_TARGET: SettingKey[] = [
+  "AZURE_OPENAI_ENDPOINT",
+  "AZURE_OPENAI_INSECURE_TLS",
+];
+
+/**
+ * Drop the stored value so the env var (or default) applies again. Resetting
+ * the key resets its target too: otherwise an admin could save their own
+ * endpoint with a throwaway key, reset the key, and receive the `.env` one.
+ * Returns the keys actually removed.
+ */
+export function resetSetting(key: SettingKey): SettingKey[] {
+  const keys: SettingKey[] =
+    key === "AZURE_OPENAI_KEY" ? [key, ...AI_KEY_TARGET] : [key];
+  return keys.filter((k) => deleteSetting(k));
 }
