@@ -29,7 +29,7 @@ body:json {
 }
 
 docs {
-  Replace a connection's definition (the id is fixed). An omitted or empty `password` / `uri` keeps the stored one — except when anything that decides where it is sent changes (`type`, `host`, `port`, `uri`, or `schema` — the protocol — for Elasticsearch), which is a 400 unless `password` is sent again, so a stored password can never be redirected. Closes the connection's pool and clears its cached schema so the next use reconnects with the new settings. Audited as `CONNECTION_UPDATE` with the changed field names only.
+  Replace a connection's definition (the id is fixed). An omitted or empty `password` / `uri` keeps the stored one — only when the edit touches nothing but `name`, `env`, `schemas` (and `schema`, except on Elasticsearch where it is the protocol). Any other change is a 400 unless `password` is sent again — drivers splice those fields into the destination, so a stored password can never be redirected. Closes the connection's pool and clears its cached schema so the next use reconnects with the new settings. Audited as `CONNECTION_UPDATE` with the changed field names only.
 
   Requires a valid Bearer JWT ({{token}}).
   **Admin only.**

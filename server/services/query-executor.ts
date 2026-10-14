@@ -367,6 +367,17 @@ export async function getMssqlPool(
   return pool;
 }
 
+/**
+ * Connection string for a Mongo connection: the stored `uri`, else one built
+ * from the fields. Each part is percent-encoded — a raw `@`, `/` or `?` in a
+ * username or password would otherwise move the host the password is sent to.
+ */
+export function mongoUri(conn: ConnectionConfig): string {
+  if (conn.uri) return conn.uri;
+  const e = (v: string | undefined) => encodeURIComponent(v ?? "");
+  return `mongodb://${e(conn.username)}:${e(conn.password)}@${conn.host}:${conn.port || 27017}/${e(conn.database)}`;
+}
+
 export async function getMongoClient(
   conn: ConnectionConfig,
 ): Promise<MongoClient> {
@@ -374,9 +385,7 @@ export async function getMongoClient(
   const existing = mongClients.get(conn.id);
   if (existing) return existing;
 
-  const uri =
-    conn.uri ||
-    `mongodb://${conn.username}:${conn.password}@${conn.host}:${conn.port || 27017}/${conn.database}`;
+  const uri = mongoUri(conn);
   const client = new MongoClient(uri, {
     serverSelectionTimeoutMS: 10000,
     socketTimeoutMS: queryTimeout(),

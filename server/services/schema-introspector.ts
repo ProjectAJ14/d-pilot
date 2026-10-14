@@ -10,6 +10,7 @@ import type {
 import { findMatchingRule } from "./phi-masking.js";
 import { getAiColumnValuesEnabled } from "./sqlite-store.js";
 import { scanSql } from "./sql-scan.js";
+import { mongoUri } from "./query-executor.js";
 import { getConfigNumber } from "../config/settings.js";
 
 /** The default schema for a connection when none is explicitly selected. */
@@ -367,9 +368,7 @@ async function getMssqlColumns(
 async function getMongoCollections(
   conn: ConnectionConfig,
 ): Promise<TableInfo[]> {
-  const uri =
-    conn.uri ||
-    `mongodb://${conn.username}:${conn.password}@${conn.host}:${conn.port || 27017}/${conn.database}`;
+  const uri = mongoUri(conn);
   const client = new MongoClient(uri, { serverSelectionTimeoutMS: 10000 });
 
   try {
@@ -393,9 +392,7 @@ async function getMongoFields(
   conn: ConnectionConfig,
   collectionName: string,
 ): Promise<ColumnInfo[]> {
-  const uri =
-    conn.uri ||
-    `mongodb://${conn.username}:${conn.password}@${conn.host}:${conn.port || 27017}/${conn.database}`;
+  const uri = mongoUri(conn);
   const client = new MongoClient(uri, { serverSelectionTimeoutMS: 10000 });
 
   try {

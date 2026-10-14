@@ -319,6 +319,45 @@ describe("connections", () => {
     await call("DELETE", "/connections/search");
   });
 
+  it("requires the password again for any change outside the safe fields", async () => {
+    const mongo = {
+      name: "Docs",
+      env: "DEV",
+      type: "mongodb" as const,
+      host: "docs.example.com",
+      database: "orders",
+      username: "app",
+    };
+    await call("POST", "/connections", {
+      ...mongo,
+      id: "docs",
+      password: "m-pw",
+    });
+
+    // The username is spliced into the URI, so it can move the host.
+    const viaUser = await call("PUT", "/connections/docs", {
+      ...mongo,
+      username: "x@attacker.example.com:27017/orders?",
+    });
+    expect(viaUser.status).toBe(400);
+    const viaDb = await call("PUT", "/connections/docs", {
+      ...mongo,
+      database: "orders?authSource=x",
+    });
+    expect(viaDb.status).toBe(400);
+
+    // Renaming, re-labelling the env or narrowing schemas cannot redirect.
+    const safe = await call("PUT", "/connections/docs", {
+      ...mongo,
+      name: "Docs (renamed)",
+      env: "QA",
+      schemas: ["orders"],
+    });
+    expect(safe.status).toBe(200);
+    expect(getConnection("docs")?.password).toBe("m-pw");
+    await call("DELETE", "/connections/docs");
+  });
+
   it("rejects a duplicate id and an invalid body", async () => {
     const dup = await call("POST", "/connections", {
       id: "dev-core",

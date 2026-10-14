@@ -198,17 +198,26 @@ router.put("/connections/:id", async (req: Request, res: Response) => {
     uri: body.data.uri || existing.uri,
   };
   // ...but a kept password must not follow the connection somewhere the admin
-  // picks — that would hand them a secret the API never shows. These are every
-  // field the drivers build the destination from (Elasticsearch takes its
-  // protocol from `schema` and prefers `uri` over host/port).
-  const target = (c: ConnectionConfig) =>
-    JSON.stringify([
-      c.type,
-      c.host ?? "",
-      c.port ?? null,
-      c.uri ?? "",
-      c.type === "elasticsearch" ? (c.schema ?? "") : "",
-    ]);
+  // picks — that would hand them a secret the API never shows. Drivers splice
+  // most fields into the destination (Mongo builds a URI from username and
+  // database; Elasticsearch takes its protocol from `schema`), so list what is
+  // safe to change rather than what is dangerous: anything else needs the
+  // password typed again.
+  const target = ({
+    name: _name,
+    env: _env,
+    schemas: _schemas,
+    password: _password,
+    ...rest
+  }: ConnectionConfig) =>
+    JSON.stringify(
+      Object.entries({
+        ...rest,
+        schema: rest.type === "elasticsearch" ? rest.schema : undefined,
+      })
+        .filter(([, v]) => v !== undefined && v !== "")
+        .sort(([a], [b]) => a.localeCompare(b)),
+    );
   if (
     existing.password &&
     !body.data.password &&

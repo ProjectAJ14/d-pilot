@@ -4005,8 +4005,9 @@ function ConnectionModal({
     }
   };
 
-  // Keeping a stored password while pointing it elsewhere is refused by the
-  // server, so changing the target makes the password required.
+  // The server keeps a stored password only when name, env or the schema list
+  // changed (plus `schema`, except on Elasticsearch where it is the protocol) —
+  // anything else could point the password elsewhere. Mirror that here.
   const reenterPassword =
     !isNew &&
     connection.passwordSet &&
@@ -4014,8 +4015,9 @@ function ConnectionModal({
     (f.type !== connection.type ||
       f.host.trim() !== (connection.host ?? "") ||
       f.port !== (connection.port ? String(connection.port) : "") ||
+      f.database.trim() !== (connection.database ?? "") ||
+      f.username.trim() !== (connection.username ?? "") ||
       !!f.uri ||
-      // Elasticsearch takes its protocol from `schema`.
       (f.type === "elasticsearch" &&
         f.schema.trim() !== (connection.schema ?? "")));
 
@@ -4084,7 +4086,7 @@ function ConnectionModal({
               required={reenterPassword}
               description={
                 reenterPassword
-                  ? "Re-enter the password when changing where it is sent (type, host, port, URI, or Elasticsearch protocol)"
+                  ? "Re-enter the password when changing anything other than the name, environment or schemas"
                   : undefined
               }
               placeholder={secretPlaceholder(connection?.passwordSet)}
