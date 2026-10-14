@@ -4,7 +4,7 @@ import { useStore } from "../store";
  * Environment presentation + the deployment's environment list.
  *
  * The set of environments is NOT hardcoded here: it comes from the server
- * (`/api/config` → `environments`, derived from `DBFORGE_CONNECTIONS`), so a
+ * (`/api/config` → `environments`, derived from the configured connections), so a
  * deployment can add its own (e.g. `SUPER_PROD`) without a frontend change.
  * Only the colors/labels of the well-known ones live here, with a fallback for
  * anything else.

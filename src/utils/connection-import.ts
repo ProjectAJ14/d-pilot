@@ -1,5 +1,5 @@
 /**
- * Parse pasted DBFORGE_CONNECTIONS-style JSON for Settings → Connections →
+ * Parse pasted connections JSON (the old DBFORGE_CONNECTIONS shape) for Settings → Connections →
  * Import: an array of connections, or one connection object. Only the JSON
  * shape is checked here — each item is validated by the server (dry run), so
  * the field rules live in one place. Invalid JSON is reported, never repaired.

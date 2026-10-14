@@ -1289,7 +1289,7 @@ router.post(
     }
 
     // Plan against the connection's CURRENT env, not the one stamped on the
-    // request: a connection moved between environments in DBFORGE_CONNECTIONS
+    // request: a connection moved between environments in Settings
     // must be judged by where it points now, or a stale QA stamp would authorize
     // an edit — and a direct re-run — against what is now a production database.
     const plan = planRevise(

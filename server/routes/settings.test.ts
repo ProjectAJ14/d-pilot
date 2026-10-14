@@ -14,20 +14,6 @@ import type { Server } from "http";
 const dir = mkdtempSync(path.join(tmpdir(), "d-pilot-admin-settings-"));
 vi.stubEnv("DATA_DIR", dir);
 vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "");
-vi.stubEnv(
-  "DBFORGE_CONNECTIONS",
-  JSON.stringify([
-    {
-      id: "dev-core",
-      name: "Dev core",
-      env: "DEV",
-      type: "postgres",
-      host: "localhost",
-      database: "app_core",
-      password: "seed-pw",
-    },
-  ]),
-);
 
 const store = await import("../services/sqlite-store.js");
 const settings = await import("../config/settings.js");
@@ -39,6 +25,15 @@ const { applyDefaultLimit, getPoolStatus } =
 const { default: router, maskSecrets } = await import("./settings.js");
 
 store.initDatabase();
+store.saveDbConnection({
+  id: "dev-core",
+  name: "Dev core",
+  env: "DEV",
+  type: "postgres",
+  host: "localhost",
+  database: "app_core",
+  password: "seed-pw",
+});
 
 let server: Server;
 let base: string;
@@ -250,7 +245,7 @@ describe("access", () => {
 });
 
 describe("connections", () => {
-  it("seeds from DBFORGE_CONNECTIONS on first run, password encrypted", async () => {
+  it("stores the password encrypted and never returns it", async () => {
     expect(getConnection("dev-core")?.password).toBe("seed-pw");
     const row = store
       .getDb()

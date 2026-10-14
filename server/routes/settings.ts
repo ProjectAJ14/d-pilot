@@ -269,7 +269,7 @@ const importBody = z.object({
 });
 
 /**
- * Bulk create from DBFORGE_CONNECTIONS-shaped JSON: `{ connections: [...],
+ * Bulk create from a JSON array of connections (the old DBFORGE_CONNECTIONS shape): `{ connections: [...],
  * dryRun? }`. Each item is validated exactly like POST /connections. All or
  * nothing — any bad item (invalid, duplicated in the payload, or an id that
  * already exists) means 400 `{ errors: [{ index, id, error }] }` and no

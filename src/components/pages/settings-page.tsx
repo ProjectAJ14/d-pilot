@@ -4116,9 +4116,10 @@ function ImportConnectionsModal({
     <Modal opened onClose={onClose} title="Import connections" size="xl">
       <Stack gap="sm">
         <Text size="sm" c="dimmed">
-          Paste the same JSON as <Code>DBFORGE_CONNECTIONS</Code>: an array of
-          connections, or a single connection object. Nothing is saved unless
-          every row is valid, and existing connections are never overwritten.
+          Paste an array of connections, or a single connection object — an old{" "}
+          <Code>DBFORGE_CONNECTIONS</Code> value works as-is. Nothing is saved
+          unless every row is valid, and existing connections are never
+          overwritten.
         </Text>
         <Textarea
           aria-label="Connections JSON"
