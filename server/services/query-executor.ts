@@ -26,6 +26,29 @@ function touchPool(id: string): void {
   poolLastUsed.set(id, Date.now());
 }
 
+// Bumped whenever a connection's pool is retired. A connect that was awaiting
+// when its generation changed was built from a definition that is gone, so it
+// must not be cached (see `cacheIfCurrent`).
+const poolGen = new Map<string, number>();
+let genAll = 0;
+const generation = (id: string) => genAll + (poolGen.get(id) ?? 0);
+
+/**
+ * Caches a freshly connected client unless its connection was retired while it
+ * connected. A stale one still serves the caller that asked for it (who holds
+ * the old definition anyway), then closes after the query timeout.
+ */
+function cacheIfCurrent<T extends { close(): Promise<unknown> }>(
+  map: Map<string, T>,
+  id: string,
+  gen: number,
+  client: T,
+): T {
+  if (generation(id) === gen) map.set(id, client);
+  else closeLater(() => client.close(), queryTimeout());
+  return client;
+}
+
 // DML/DDL patterns that should be blocked
 const BLOCKED_PATTERNS = [
   /^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE|EXEC|EXECUTE)\b/i,
@@ -368,10 +391,10 @@ export async function getMssqlPool(
   touchPool(conn.id);
   const existing = mssqlPools.get(conn.id);
   if (existing?.connected) return existing;
+  const gen = generation(conn.id);
   const pool = createMssqlPool(conn);
   await pool.connect();
-  mssqlPools.set(conn.id, pool);
-  return pool;
+  return cacheIfCurrent(mssqlPools, conn.id, gen, pool);
 }
 
 /**
@@ -402,10 +425,10 @@ export async function getMongoClient(
   touchPool(conn.id);
   const existing = mongClients.get(conn.id);
   if (existing) return existing;
+  const gen = generation(conn.id);
   const client = createMongoClient(conn);
   await client.connect();
-  mongClients.set(conn.id, client);
-  return client;
+  return cacheIfCurrent(mongClients, conn.id, gen, client);
 }
 
 export interface RawQueryResult {
@@ -958,60 +981,64 @@ export function getPoolStatus(id: string): PoolStatus {
   return { live: false, lastUsedAt };
 }
 
-/** Closes and evicts the pool for one connection; it reconnects lazily on next use. */
-export async function closeConnectionPool(id: string): Promise<boolean> {
+const logClose = (err: unknown) =>
+  console.error("Failed to close a retired connection pool:", err);
+
+/** Closes `close` once in-flight work started under `graceMs` has finished. */
+function closeLater(close: () => Promise<unknown>, graceMs: number): void {
+  // Node clamps anything above 2^31-1 ms to 1 ms, which would close at once.
+  const delay = Math.min(graceMs + 1000, 2_147_483_647);
+  setTimeout(() => close().catch(logClose), delay).unref();
+}
+
+/**
+ * Evicts one connection's clients synchronously and closes them in the
+ * background, so nothing here awaits or throws. pg's `end()` already lets
+ * checked-out clients finish. mssql/Mongo/ES `close()` would abort in-flight
+ * work — governed writes included, since write-executor shares these pools —
+ * so those wait out `graceMs`, the timeout their queries were started under.
+ */
+function retire(id: string, graceMs: number): boolean {
+  poolGen.set(id, generation(id) + 1);
   let closed = false;
   const pgPool = pgPools.get(id);
-  if (pgPool) {
-    pgPools.delete(id);
-    await pgPool.end();
-    closed = true;
-  }
+  if (pgPool) pgPool.end().catch(logClose);
   const msPool = mssqlPools.get(id);
-  if (msPool) {
-    mssqlPools.delete(id);
-    await msPool.close();
-    closed = true;
-  }
+  if (msPool) closeLater(() => msPool.close(), graceMs);
   const mongo = mongClients.get(id);
-  if (mongo) {
-    mongClients.delete(id);
-    await mongo.close();
-    closed = true;
-  }
+  if (mongo) closeLater(() => mongo.close(), graceMs);
   const es = esClients.get(id);
-  if (es) {
-    esClients.delete(id);
-    await es.close();
-    closed = true;
-  }
+  if (es) closeLater(() => es.close(), graceMs);
+  for (const map of [pgPools, mssqlPools, mongClients, esClients])
+    closed = map.delete(id) || closed;
+  return closed;
+}
+
+/** Retires the pool for one connection; it reconnects lazily on next use. */
+export function closeConnectionPool(
+  id: string,
+  graceMs = queryTimeout(),
+): boolean {
+  const closed = retire(id, graceMs);
   poolLastUsed.delete(id);
   return closed;
 }
 
 /**
  * Retires every pool so the next query builds a fresh one with current
- * settings. The maps are cleared synchronously; the old pools close in the
- * background and nothing here awaits or throws, so a settings save neither
- * hangs on a long query nor fails after it was written. pg's `end()` already
- * lets checked-out clients finish. mssql/Mongo/ES `close()` would abort
- * in-flight work, so those wait out `graceMs` — the timeout their queries were
- * started under — by which point every such query has finished or timed out.
+ * settings — see `retire`. A settings save neither hangs on a long query nor
+ * fails after it was written.
  */
 export function closeAllConnections(graceMs = queryTimeout()): void {
-  const log = (err: unknown) =>
-    console.error("Failed to close a retired connection pool:", err);
-  // Node clamps anything above 2^31-1 ms to 1 ms, which would close at once.
-  const delay = Math.min(graceMs + 1000, 2_147_483_647);
-  const later = (close: () => Promise<unknown>) =>
-    setTimeout(() => close().catch(log), delay).unref();
-  for (const pool of pgPools.values()) pool.end().catch(log);
-  for (const pool of mssqlPools.values()) later(() => pool.close());
-  for (const client of mongClients.values()) later(() => client.close());
-  for (const client of esClients.values()) later(() => client.close());
-  pgPools.clear();
-  mssqlPools.clear();
-  mongClients.clear();
-  esClients.clear();
+  const ids = new Set([
+    ...pgPools.keys(),
+    ...mssqlPools.keys(),
+    ...mongClients.keys(),
+    ...esClients.keys(),
+  ]);
+  for (const id of ids) retire(id, graceMs);
+  // Connects still in flight have no map entry yet; bumping every
+  // generation makes them discard their client too.
+  genAll++;
   poolLastUsed.clear();
 }

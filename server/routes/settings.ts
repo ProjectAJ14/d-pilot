@@ -170,9 +170,13 @@ function zodError(err: z.ZodError): string {
     : "Invalid body";
 }
 
-/** Pools and cached schemas were built from the old definition. */
-async function dropConnectionState(id: string): Promise<void> {
-  await closeConnectionPool(id);
+/**
+ * Pools and cached schemas were built from the old definition. Synchronous and
+ * never throws: the old clients close in the background, so the route neither
+ * hangs on a running query nor fails after the write without auditing it.
+ */
+function dropConnectionState(id: string): void {
+  closeConnectionPool(id);
   clearSchemaCache(id);
 }
 
@@ -251,7 +255,7 @@ router.post("/connections", async (req: Request, res: Response) => {
     return;
   }
   saveDbConnection(body.data);
-  await dropConnectionState(body.data.id);
+  dropConnectionState(body.data.id);
   audit(
     req,
     "CONNECTION_CREATE",
@@ -322,7 +326,7 @@ router.post("/connections/import", async (req: Request, res: Response) => {
   // No await between the checks above and this write, so nothing can claim
   // an id in between.
   saveDbConnections(valid);
-  await Promise.all(valid.map((c) => dropConnectionState(c.id)));
+  valid.forEach((c) => dropConnectionState(c.id));
   audit(
     req,
     "CONNECTION_IMPORT",
@@ -361,7 +365,7 @@ router.put("/connections/:id", async (req: Request, res: Response) => {
     (k) => JSON.stringify(next[k]) !== JSON.stringify(existing[k]),
   );
   saveDbConnection(next, keep);
-  await dropConnectionState(id);
+  dropConnectionState(id);
   audit(
     req,
     "CONNECTION_UPDATE",
@@ -445,7 +449,7 @@ router.delete("/connections/:id", async (req: Request, res: Response) => {
     res.status(404).json({ error: "Connection not found" });
     return;
   }
-  await dropConnectionState(id);
+  dropConnectionState(id);
   audit(req, "CONNECTION_DELETE", `Deleted connection ${id}`, id);
   res.json({ deleted: true });
 });

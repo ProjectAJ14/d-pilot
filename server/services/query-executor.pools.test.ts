@@ -7,16 +7,22 @@ import type { ConnectionConfig } from "../types/index.js";
  */
 
 const mongoClose = vi.fn(async () => {});
+const mongoConnect = vi.fn(async () => {});
 vi.mock("mongodb", async (orig) => ({
   ...(await orig<typeof import("mongodb")>()),
   MongoClient: class {
-    async connect() {}
+    connect = mongoConnect;
     close = mongoClose;
   },
 }));
 
-const { closeAllConnections, getPgPool, getMongoClient, getPoolStatus } =
-  await import("./query-executor.js");
+const {
+  closeAllConnections,
+  closeConnectionPool,
+  getPgPool,
+  getMongoClient,
+  getPoolStatus,
+} = await import("./query-executor.js");
 
 const pgConn: ConnectionConfig = {
   id: "pg-1",
@@ -75,6 +81,50 @@ describe("closeAllConnections", () => {
     await vi.advanceTimersByTimeAsync(4000);
     expect(mongoClose).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(2500);
+    expect(mongoClose).toHaveBeenCalledOnce();
+  });
+});
+
+describe("closeConnectionPool", () => {
+  it("returns at once, without waiting for in-flight pg queries to end", () => {
+    return getPgPool(pgConn).then((old) => {
+      old.end = () => new Promise<void>(() => {});
+      expect(closeConnectionPool(pgConn.id)).toBe(true);
+      expect(getPoolStatus(pgConn.id).live).toBe(false);
+    });
+  });
+
+  it("closes a Mongo client only after the grace period, and logs a failed close", async () => {
+    await getMongoClient(mongoConn);
+    vi.useFakeTimers();
+    mongoClose.mockClear();
+    mongoClose.mockRejectedValueOnce(new Error("boom"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(() => closeConnectionPool(mongoConn.id, 5000)).not.toThrow();
+    expect(getPoolStatus(mongoConn.id).live).toBe(false);
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(mongoClose).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(mongoClose).toHaveBeenCalledOnce();
+    expect(log).toHaveBeenCalled();
+  });
+
+  it("does not cache a client whose connect finished after the pool was evicted", async () => {
+    let finish!: () => void;
+    mongoConnect.mockImplementationOnce(
+      () => new Promise<void>((r) => (finish = r)),
+    );
+    mongoClose.mockClear();
+    const pending = getMongoClient({ ...mongoConn, id: "mongo-race" });
+    closeConnectionPool("mongo-race", 0);
+    vi.useFakeTimers();
+    finish();
+    await pending;
+    // The client to the old target is not handed to the next caller...
+    expect(getPoolStatus("mongo-race").live).toBe(false);
+    // ...and is closed once the caller that asked for it is done.
+    expect(mongoClose).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(200_000);
     expect(mongoClose).toHaveBeenCalledOnce();
   });
 });

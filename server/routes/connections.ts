@@ -26,7 +26,8 @@ router.get("/status", requireAdmin, (_req: Request, res: Response) => {
   res.json(statuses);
 });
 
-// Force-close a connection's pool; it reconnects lazily on next use.
+// Retire a connection's pool (closed once in-flight work is done); it
+// reconnects lazily on next use.
 router.post(
   "/:id/disconnect",
   requireAdmin,
@@ -36,7 +37,7 @@ router.post(
       res.status(404).json({ error: "Connection not found" });
       return;
     }
-    const closed = await closeConnectionPool(conn.id);
+    const closed = closeConnectionPool(conn.id);
     res.json({ connectionId: conn.id, closed });
   },
 );
