@@ -566,3 +566,34 @@ describe("bool settings", () => {
     vi.stubEnv("AZURE_OPENAI_INSECURE_TLS", "");
   });
 });
+
+describe("getConfigNumber", () => {
+  it("falls back to the default for a non-positive or out-of-range env value", async () => {
+    for (const key of ["MCP_MAX_ROWS", "MAX_ROWS", "QUERY_TIMEOUT_MS"]) {
+      await call("DELETE", `/${key}`);
+    }
+    // "0" used to truncate every MCP result to zero rows.
+    for (const bad of ["0", "-5", "abc"]) {
+      vi.stubEnv("MCP_MAX_ROWS", bad);
+      expect(settings.getConfigNumber("MCP_MAX_ROWS"), bad).toBe(1000);
+      vi.stubEnv("MAX_ROWS", bad);
+      expect(settings.getConfigNumber("MAX_ROWS"), bad).toBe(10000);
+    }
+    vi.stubEnv("QUERY_TIMEOUT_MS", "99999999999");
+    expect(settings.getConfigNumber("QUERY_TIMEOUT_MS")).toBe(90000);
+    vi.stubEnv("SCHEMA_CACHE_TTL_HOURS", "-1");
+    expect(settings.getConfigNumber("SCHEMA_CACHE_TTL_HOURS")).toBe(24);
+    vi.stubEnv("SCHEMA_CACHE_TTL_HOURS", "0");
+    expect(settings.getConfigNumber("SCHEMA_CACHE_TTL_HOURS")).toBe(0);
+    vi.stubEnv("MCP_MAX_ROWS", "250");
+    expect(settings.getConfigNumber("MCP_MAX_ROWS")).toBe(250);
+    for (const key of [
+      "MCP_MAX_ROWS",
+      "MAX_ROWS",
+      "QUERY_TIMEOUT_MS",
+      "SCHEMA_CACHE_TTL_HOURS",
+    ]) {
+      vi.stubEnv(key, "");
+    }
+  });
+});

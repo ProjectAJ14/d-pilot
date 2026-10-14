@@ -42,12 +42,6 @@ import { getConfig, getConfigNumber } from "../config/settings.js";
 
 const router = Router();
 
-/**
- * Default rows returned per query (MCP_MAX_ROWS); agents can raise it per call via `limit`.
- * A non-numeric value falls back to the default rather than becoming NaN, which
- * would silently truncate every result to zero rows.
- */
-
 const MONGO_WRITE_HINT =
   'For MongoDB: one `db.<collection>.updateOne|updateMany|insertOne|insertMany|deleteOne|deleteMany|replaceOne(...)` call whose arguments are Extended JSON with quoted keys — a non-string `_id` is `{"$oid": "..."}` or `{"$binary": {"base64": "...", "subType": "..."}}`, a date `{"$date": "..."}`.';
 
@@ -149,7 +143,10 @@ const readOnly = { readOnlyHint: true, openWorldHint: true };
 
 export function createMcpServer(client: DPilotApiClient): McpServer {
   const server = new McpServer({ name: "d-pilot", version: "1.0.0" });
-  // Per server (i.e. per MCP session), so a changed setting reaches new sessions.
+  // Default rows returned per query; agents can raise it per call via `limit`.
+  // Read per server (i.e. per MCP session), so a changed setting reaches new
+  // sessions. getConfigNumber turns a non-numeric or non-positive value into
+  // the default rather than one that truncates every result to zero rows.
   const MCP_MAX_ROWS = getConfigNumber("MCP_MAX_ROWS");
 
   server.registerTool(

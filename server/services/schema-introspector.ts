@@ -580,10 +580,8 @@ const schemaCache = new Map<string, SchemaCacheRecord>();
 const schemaInflight = new Map<string, Promise<FullSchema>>();
 
 function getSchemaCacheTtlMs(): number {
-  const hours = getConfigNumber("SCHEMA_CACHE_TTL_HOURS");
-  return Number.isFinite(hours) && hours >= 0
-    ? hours * 3_600_000
-    : 24 * 3_600_000;
+  // getConfigNumber already falls back to the default when out of range.
+  return getConfigNumber("SCHEMA_CACHE_TTL_HOURS") * 3_600_000;
 }
 
 /**

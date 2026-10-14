@@ -103,10 +103,18 @@ export function getConfig(key: SettingKey): string | undefined {
   return resolve(key).value;
 }
 
-/** Numeric setting; anything unparseable falls back to the built-in default. */
+/**
+ * Numeric setting. Anything the Settings form would reject — unparseable,
+ * non-positive for an int, above the setting's max — falls back to the
+ * built-in default, so a stray env "0" can't truncate results to zero rows.
+ */
 export function getConfigNumber(key: SettingKey): number {
-  const n = Number(getConfig(key));
-  return Number.isFinite(n) ? n : Number(def(key).default);
+  const raw = getConfig(key)?.trim() ?? "";
+  const max = def(key).max;
+  const ok =
+    VALIDATORS[def(key).kind].safeParse(raw).success &&
+    (max === undefined || Number(raw) <= max);
+  return Number(ok ? raw : def(key).default);
 }
 
 const parseBool = (v: string | undefined) => /^(1|true|yes|on)$/i.test(v ?? "");
