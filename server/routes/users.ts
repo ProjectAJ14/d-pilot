@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { randomUUID } from "crypto";
 import { requireAdmin } from "../middleware/auth.js";
 import { getDb } from "../services/sqlite-store.js";
-import { getEnvironments, validEnvEdit } from "../config/connections.js";
+import { getEnvironments } from "../config/connections.js";
 import { getConfig } from "../config/settings.js";
 
 const router = Router();
@@ -30,13 +30,16 @@ function parseEnvs(raw: string | null | undefined): string[] {
   }
 }
 
-/** Drops entries validEnvEdit would refuse; what remains is saved as sent. */
+/**
+ * Drops entries validEnvEdit would refuse (unknown, unless the user already
+ * has them); what remains is saved as sent.
+ */
 function sanitizeEnvs(value: unknown, currentRaw?: string): string[] {
+  const known = getEnvironments();
   const current = parseEnvs(currentRaw);
-  const valid = (Array.isArray(value) ? value : []).filter(
-    (e) => validEnvEdit([e], current) !== null,
-  );
-  return validEnvEdit(valid, current)!;
+  const ok = (e: unknown): e is string =>
+    typeof e === "string" && (known.includes(e) || current.includes(e));
+  return [...new Set((Array.isArray(value) ? value : []).filter(ok))];
 }
 
 function mapUserRow(u: any) {
@@ -244,9 +247,7 @@ router.post("/:id/reset-password", (req: Request, res: Response) => {
   }
 
   const db = getDb();
-  const existing = db.prepare("SELECT * FROM users WHERE id = ?").get(id) as
-    | Record<string, string>
-    | undefined;
+  const existing = db.prepare("SELECT id FROM users WHERE id = ?").get(id);
   if (!existing) {
     res.status(404).json({ error: "User not found" });
     return;
