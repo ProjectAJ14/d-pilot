@@ -619,6 +619,18 @@ export const api = {
       `/settings/connections/${encodeURIComponent(id)}`,
       { method: "PUT", body: JSON.stringify(data) },
     ),
+  /** Dry run of importConnections: every item's problem, nothing written. */
+  checkConnectionImport: (connections: unknown[]) =>
+    request<{ errors: { index: number; id?: string; error: string }[] }>(
+      "/settings/connections/import",
+      { method: "POST", body: JSON.stringify({ connections, dryRun: true }) },
+    ),
+  /** All-or-nothing, create-only bulk create. */
+  importConnections: (connections: unknown[]) =>
+    request<ConnectionAdminView[]>("/settings/connections/import", {
+      method: "POST",
+      body: JSON.stringify({ connections }),
+    }),
   /** Test unsaved form values; `id` lets an edit use the stored secrets. */
   testConnectionDraft: (data: ConnectionUpdate & { id?: string }) =>
     request<{ ok: boolean; error?: string }>("/settings/connections/test", {

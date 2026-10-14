@@ -30,6 +30,7 @@ import {
   Alert,
   Stack,
   Anchor,
+  Code,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
@@ -91,6 +92,8 @@ import type { ConnectionInput } from "../../utils/api-client";
 import { loadAppConfig, loadConnections } from "../../utils/app-config";
 import { BASE_PATH } from "../../utils/base-path";
 import { settingBool } from "../../utils/setting-bool";
+import { parseConnectionsJson } from "../../utils/connection-import";
+import { useDebouncedValue } from "@mantine/hooks";
 
 // ── PHI Field Icons ──
 const FIELD_ICONS: Record<string, string> = {
@@ -3750,6 +3753,7 @@ function ConnectionsTab() {
     null,
   );
   const [deleting, setDeleting] = useState<ConnectionAdminView | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [tests, setTests] = useState<Record<string, boolean | "pending">>({});
 
   const load = () => {
@@ -3783,12 +3787,21 @@ function ConnectionsTab() {
           Saved here, a connection applies immediately. Its environment name
           also defines the environment — a new name adds one.
         </Text>
-        <Button
-          leftSection={<IconPlus size={16} />}
-          onClick={() => setEditing("new")}
-        >
-          Add connection
-        </Button>
+        <Group gap="xs" wrap="nowrap">
+          <Button
+            variant="default"
+            leftSection={<IconUpload size={16} />}
+            onClick={() => setImportOpen(true)}
+          >
+            Import
+          </Button>
+          <Button
+            leftSection={<IconPlus size={16} />}
+            onClick={() => setEditing("new")}
+          >
+            Add connection
+          </Button>
+        </Group>
       </Group>
 
       {loadError ? (
@@ -3930,12 +3943,264 @@ function ConnectionsTab() {
           }}
         />
       )}
+      {importOpen && (
+        <ImportConnectionsModal
+          onClose={() => setImportOpen(false)}
+          onImported={() => {
+            setImportOpen(false);
+            changed();
+          }}
+        />
+      )}
       <DeleteConnectionModal
         connection={deleting}
         onClose={() => setDeleting(null)}
         onDeleted={changed}
       />
     </>
+  );
+}
+
+const IMPORT_PLACEHOLDER = `[
+  {
+    "id": "qa-orders",
+    "name": "QA Orders",
+    "env": "QA",
+    "type": "postgres",
+    "host": "db.example.com",
+    "port": 5432,
+    "database": "orders",
+    "username": "dpilot",
+    "password": "…"
+  }
+]`;
+
+/** The server's verdict on one pasted text (`for`). */
+type ImportCheck = { for: string } & (
+  | { state: "done"; errors: Map<number, string> }
+  | { state: "failed"; error: string }
+);
+
+/** One preview cell: a string/number field of a pasted item, else blank. */
+function importField(item: unknown, key: string): string {
+  const v = (item as Record<string, unknown> | null)?.[key];
+  return typeof v === "string" || typeof v === "number" ? String(v) : "";
+}
+
+function ImportConnectionsModal({
+  onClose,
+  onImported,
+}: {
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const [text, setText] = useState("");
+  const [debounced] = useDebouncedValue(text, 300);
+  const [result, setResult] = useState<ImportCheck | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  // Parsing is cheap, so the preview follows every keystroke; only the
+  // server check (and showing a syntax error mid-typing) waits for a pause.
+  const parsed = text.trim() ? parseConnectionsJson(text) : null;
+  const items = parsed && "items" in parsed ? parsed.items : null;
+
+  // The server validates each item (dry run), so the field rules are the
+  // create route's own — nothing duplicated here.
+  useEffect(() => {
+    const settled = debounced.trim() ? parseConnectionsJson(debounced) : null;
+    if (!settled || !("items" in settled)) return;
+    let stale = false;
+    api
+      .checkConnectionImport(settled.items)
+      .then(({ errors }) => {
+        if (!stale)
+          setResult({
+            for: debounced,
+            state: "done",
+            errors: new Map(errors.map((e) => [e.index, e.error])),
+          });
+      })
+      .catch((err) => {
+        if (!stale)
+          setResult({ for: debounced, state: "failed", error: err.message });
+      });
+    return () => {
+      stale = true;
+    };
+  }, [debounced]);
+
+  const check = result?.for === debounced ? result : null;
+  const pending = text !== debounced || (!!items && !check);
+  const errorCount = check?.state === "done" ? check.errors.size : 0;
+  const ready =
+    !!items && !pending && check?.state === "done" && errorCount === 0;
+
+  const submit = async () => {
+    if (!items || !ready) return;
+    setImporting(true);
+    setImportError(null);
+    try {
+      const created = await api.importConnections(items);
+      notifications.show({
+        message: `Imported ${created.length} connection${created.length === 1 ? "" : "s"}`,
+        color: "green",
+      });
+      onImported();
+    } catch (err) {
+      setImportError((err as Error).message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <Modal opened onClose={onClose} title="Import connections" size="xl">
+      <Stack gap="sm">
+        <Text size="sm" c="dimmed">
+          Paste the same JSON as <Code>DBFORGE_CONNECTIONS</Code>: an array of
+          connections, or a single connection object. Nothing is saved unless
+          every row is valid, and existing connections are never overwritten.
+        </Text>
+        <Textarea
+          aria-label="Connections JSON"
+          placeholder={IMPORT_PLACEHOLDER}
+          autosize
+          minRows={16}
+          maxRows={24}
+          spellCheck={false}
+          autoComplete="off"
+          value={text}
+          onChange={(e) => {
+            setText(e.currentTarget.value);
+            setImportError(null);
+          }}
+          error={
+            text === debounced && parsed && "error" in parsed
+              ? parsed.error
+              : undefined
+          }
+          styles={{
+            input: {
+              fontFamily: "var(--font-mono)",
+              fontSize: "var(--text-xs)",
+            },
+          }}
+        />
+        {check?.state === "failed" && (
+          <Alert color="red" icon={<IconAlertTriangle size={16} />}>
+            {check.error}
+          </Alert>
+        )}
+        {items && check?.state !== "failed" && (
+          <Panel>
+            <ScrollArea.Autosize mah={280}>
+              <Table verticalSpacing={4} fz="xs">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>ID</Table.Th>
+                    <Table.Th>Name</Table.Th>
+                    <Table.Th>Env</Table.Th>
+                    <Table.Th>Type</Table.Th>
+                    <Table.Th>Target</Table.Th>
+                    <Table.Th>Status</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {items.map((item, i) => {
+                    const env = importField(item, "env");
+                    const host = importField(item, "host");
+                    const port = importField(item, "port");
+                    const database = importField(item, "database");
+                    const error =
+                      check?.state === "done" ? check.errors.get(i) : undefined;
+                    return (
+                      <Table.Tr key={i}>
+                        <Table.Td
+                          ff="monospace"
+                          style={{ whiteSpace: "nowrap" }}
+                        >
+                          {importField(item, "id") || "—"}
+                        </Table.Td>
+                        <Table.Td>{importField(item, "name")}</Table.Td>
+                        <Table.Td>
+                          {env && (
+                            <Badge
+                              size="xs"
+                              variant="light"
+                              color={envColor(env)}
+                            >
+                              {env}
+                            </Badge>
+                          )}
+                        </Table.Td>
+                        <Table.Td>{importField(item, "type")}</Table.Td>
+                        <Table.Td ff="monospace">
+                          <Text size="xs" ff="monospace" truncate maw={220}>
+                            {host
+                              ? `${host}${port ? `:${port}` : ""}`
+                              : importField(item, "uri")
+                                ? "URI"
+                                : "—"}
+                            {database ? ` / ${database}` : ""}
+                          </Text>
+                        </Table.Td>
+                        <Table.Td>
+                          {pending ? (
+                            <Text size="xs" c="dimmed">
+                              Checking…
+                            </Text>
+                          ) : error ? (
+                            <Text size="xs" c="var(--error)">
+                              {error}
+                            </Text>
+                          ) : (
+                            <Badge size="xs" color="green" variant="light">
+                              Ready
+                            </Badge>
+                          )}
+                        </Table.Td>
+                      </Table.Tr>
+                    );
+                  })}
+                </Table.Tbody>
+              </Table>
+            </ScrollArea.Autosize>
+          </Panel>
+        )}
+        {importError && (
+          <Alert color="red" icon={<IconAlertTriangle size={16} />}>
+            {importError}
+          </Alert>
+        )}
+        <Group justify="space-between" mt="xs">
+          <Text size="xs" c="dimmed">
+            {!items
+              ? ""
+              : pending
+                ? "Validating…"
+                : errorCount > 0
+                  ? `${errorCount} of ${items.length} row${items.length === 1 ? "" : "s"} need fixing`
+                  : check?.state === "done"
+                    ? `${items.length} connection${items.length === 1 ? "" : "s"} ready`
+                    : ""}
+          </Text>
+          <Group gap="xs">
+            <Button variant="subtle" color="neutral" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              onClick={submit}
+              loading={importing}
+              disabled={!ready}
+              leftSection={<IconUpload size={16} />}
+            >
+              Import{items && ready ? ` ${items.length}` : ""}
+            </Button>
+          </Group>
+        </Group>
+      </Stack>
+    </Modal>
   );
 }
 
