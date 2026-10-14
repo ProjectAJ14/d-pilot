@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [1.31.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.30.0...v1.31.0) (2026-10-14)
+
+
+### Features
+
+* **write:** admin override to run a pending write without approval ([1385fa2](https://github.com/ProjectAJ14/d-pilot/commit/1385fa27ac3d4fb93c8c6c4efcd766b1921434a3))
+
 # [1.30.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.29.0...v1.30.0) (2026-10-13)
 
 
