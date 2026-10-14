@@ -27,7 +27,10 @@ interface SettingDef {
   kind: Kind;
   default?: string;
   secret?: boolean;
-  /** Upper bound for int/number settings. */
+  /**
+   * Built-in upper bound for int/number settings. The operator can lower it
+   * with `<KEY>_LIMIT` in .env (see `settingMax`), never raise it.
+   */
   max?: number;
 }
 
@@ -105,18 +108,44 @@ export function getConfig(key: SettingKey): string | undefined {
   return resolve(key).value;
 }
 
+const warned = new Set<string>();
+
 /**
- * Numeric setting. Anything the Settings form would reject — unparseable,
- * non-positive for an int, above the setting's max — falls back to the
- * built-in default, so a stray env "0" can't truncate results to zero rows.
+ * Effective ceiling for a numeric setting: the operator's `<KEY>_LIMIT` env var
+ * when it is a valid value at or below the built-in cap, else the built-in cap.
+ * Read at use time, like every setting.
+ */
+export function settingMax(key: SettingKey): number | undefined {
+  const cap = def(key).max;
+  const raw = process.env[`${key}_LIMIT`]?.trim();
+  if (cap === undefined || !raw) return cap;
+  const n = Number(raw);
+  const ok = VALIDATORS[def(key).kind].safeParse(raw).success && n > 0;
+  if (ok && n <= cap) return n;
+  if (!warned.has(`${key}=${raw}`)) {
+    warned.add(`${key}=${raw}`);
+    console.warn(
+      `Ignoring ${key}_LIMIT=${raw}: must be a number > 0 and ≤ ${cap}; using ${cap}.`,
+    );
+  }
+  return cap;
+}
+
+/**
+ * Numeric setting, capped at the operator ceiling (`settingMax`). Anything the
+ * Settings form would reject — unparseable, non-positive for an int, above the
+ * built-in max — falls back to the built-in default, so a stray env "0" can't
+ * truncate results to zero rows. A valid value above a lowered ceiling (saved
+ * before the operator lowered it) is clamped, not discarded.
  */
 export function getConfigNumber(key: SettingKey): number {
   const raw = getConfig(key)?.trim() ?? "";
-  const max = def(key).max;
+  const cap = def(key).max;
   const ok =
     VALIDATORS[def(key).kind].safeParse(raw).success &&
-    (max === undefined || Number(raw) <= max);
-  return Number(ok ? raw : def(key).default);
+    (cap === undefined || Number(raw) <= cap);
+  const n = Number(ok ? raw : def(key).default);
+  return Math.min(n, settingMax(key) ?? Infinity);
 }
 
 const parseBool = (v: string | undefined) => /^(1|true|yes|on)$/i.test(v ?? "");
@@ -136,6 +165,7 @@ export function listSettings(): AppSettingView[] {
       secret: !!d.secret,
       source,
       ...(d.secret ? { set: !!value } : { value: value ?? null }),
+      ...(d.max !== undefined && { max: settingMax(key) }),
     };
   });
 }
@@ -194,9 +224,13 @@ export function updateSettings(
     if (!parsed.success) {
       throw new Error(`${key} ${parsed.error.issues[0]?.message ?? "invalid"}`);
     }
-    const max = def(key).max;
+    const max = settingMax(key);
     if (max !== undefined && Number(value) > max) {
-      throw new Error(`${key} must be at most ${max}`);
+      throw new Error(
+        max < def(key).max!
+          ? `${key} must be ≤ ${max} (set by the server operator)`
+          : `${key} must be at most ${max}`,
+      );
     }
     writes.push([key, value]);
   }

@@ -91,6 +91,8 @@ export interface AppSettingView {
   value?: string | null;
   /** Secrets only: whether a value is configured. */
   set?: boolean;
+  /** Numeric limits only: the highest value that may be saved (operator ceiling). */
+  max?: number;
 }
 
 /** A connection as the admin API returns it — credentials replaced by flags. */

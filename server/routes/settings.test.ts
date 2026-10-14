@@ -843,3 +843,73 @@ describe("POST /connections/import", () => {
     await call("DELETE", "/connections/imp-b");
   });
 });
+
+describe("operator ceilings (*_LIMIT)", () => {
+  const maxOf = async (key: string) =>
+    (await (await call("GET")).json()).find((s: any) => s.key === key).max;
+
+  afterAll(() => {
+    for (const key of ["MAX_ROWS_LIMIT", "MAX_ROWS"]) vi.stubEnv(key, "");
+  });
+
+  it("refuses to save a value above the ceiling", async () => {
+    vi.stubEnv("MAX_ROWS_LIMIT", "500");
+    const res = await call("PUT", "", { values: { MAX_ROWS: "1000" } });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe(
+      "MAX_ROWS must be ≤ 500 (set by the server operator)",
+    );
+    expect(
+      (await call("PUT", "", { values: { MAX_ROWS: "500" } })).status,
+    ).toBe(200);
+  });
+
+  it("clamps a saved value when the ceiling is lowered below it", async () => {
+    vi.stubEnv("MAX_ROWS_LIMIT", "");
+    await call("PUT", "", { values: { MAX_ROWS: "1000" } });
+    vi.stubEnv("MAX_ROWS_LIMIT", "300");
+    expect(settings.getConfigNumber("MAX_ROWS")).toBe(300);
+    expect(applyDefaultLimit("SELECT * FROM orders", 5000)).toBe(
+      "SELECT * FROM orders LIMIT 300",
+    );
+  });
+
+  it("clamps the env fallback and the default too", async () => {
+    await call("DELETE", "/MAX_ROWS");
+    vi.stubEnv("MAX_ROWS_LIMIT", "300");
+    expect(settings.getConfigNumber("MAX_ROWS")).toBe(300); // default 10000
+    vi.stubEnv("MAX_ROWS", "2000");
+    expect(settings.getConfigNumber("MAX_ROWS")).toBe(300);
+    vi.stubEnv("MAX_ROWS", "200");
+    expect(settings.getConfigNumber("MAX_ROWS")).toBe(200);
+    vi.stubEnv("MAX_ROWS", "");
+  });
+
+  it("ignores a bogus ceiling or one above the built-in cap", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const bad of ["abc", "0", "-5", "12.5", "2000000"]) {
+      vi.stubEnv("MAX_ROWS_LIMIT", bad);
+      expect(await maxOf("MAX_ROWS"), bad).toBe(1_000_000);
+      expect(settings.getConfigNumber("MAX_ROWS"), bad).toBe(10000);
+    }
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("MAX_ROWS_LIMIT"),
+    );
+    warn.mockRestore();
+    expect(
+      (await call("PUT", "", { values: { MAX_ROWS: "1000000" } })).status,
+    ).toBe(200);
+    await call("DELETE", "/MAX_ROWS");
+  });
+
+  it("exposes each limit's max in GET /settings", async () => {
+    vi.stubEnv("MAX_ROWS_LIMIT", "500");
+    vi.stubEnv("SCHEMA_CACHE_TTL_HOURS_LIMIT", "48");
+    expect(await maxOf("MAX_ROWS")).toBe(500);
+    expect(await maxOf("SCHEMA_CACHE_TTL_HOURS")).toBe(48);
+    expect(await maxOf("MCP_MAX_ROWS")).toBe(1_000_000);
+    expect(await maxOf("QUERY_TIMEOUT_MS")).toBe(2_147_483_647);
+    expect(await maxOf("APP_NAME")).toBeUndefined();
+    vi.stubEnv("SCHEMA_CACHE_TTL_HOURS_LIMIT", "");
+  });
+});

@@ -3617,6 +3617,10 @@ function RuntimeSettingsForm({ groups }: { groups: SettingGroup[] }) {
             min={
               meta?.kind === "int" ? 1 : meta?.kind === "number" ? 0 : undefined
             }
+            max={s.max}
+            description={
+              s.max !== undefined ? `max ${s.max.toLocaleString()}` : undefined
+            }
             value={draft[s.key] ?? ""}
             onChange={(e) => set(s.key, e.currentTarget.value)}
             placeholder={s.source === "default" ? "Not set" : undefined}
