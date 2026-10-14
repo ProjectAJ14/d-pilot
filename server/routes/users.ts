@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { randomUUID } from "crypto";
 import { requireAdmin } from "../middleware/auth.js";
 import { getDb } from "../services/sqlite-store.js";
-import { getEnvironments } from "../config/connections.js";
+import { envEditAllows, getEnvironments } from "../config/connections.js";
 import { getConfig } from "../config/settings.js";
 
 const router = Router();
@@ -35,10 +35,7 @@ function parseEnvs(raw: string | null | undefined): string[] {
  * has them); what remains is saved as sent.
  */
 function sanitizeEnvs(value: unknown, currentRaw?: string): string[] {
-  const known = getEnvironments();
-  const current = parseEnvs(currentRaw);
-  const ok = (e: unknown): e is string =>
-    typeof e === "string" && (known.includes(e) || current.includes(e));
+  const ok = envEditAllows(parseEnvs(currentRaw));
   return [...new Set((Array.isArray(value) ? value : []).filter(ok))];
 }
 

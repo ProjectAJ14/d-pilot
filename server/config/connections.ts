@@ -53,16 +53,18 @@ export function validEnvEdit(
   sent: unknown,
   current: string[],
 ): string[] | null {
-  const known = getEnvironments();
-  if (
-    !Array.isArray(sent) ||
-    !sent.every(
-      (e) =>
-        typeof e === "string" && (known.includes(e) || current.includes(e)),
-    )
-  )
-    return null;
+  if (!Array.isArray(sent) || !sent.every(envEditAllows(current))) return null;
   return [...new Set(sent as string[])];
+}
+
+/**
+ * The rule for one entry of an edited env list (see validEnvEdit): an env that
+ * exists now, or one `current` already holds.
+ */
+export function envEditAllows(current: string[]) {
+  const known = getEnvironments();
+  return (e: unknown): e is string =>
+    typeof e === "string" && (known.includes(e) || current.includes(e));
 }
 
 /**

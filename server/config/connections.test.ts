@@ -4,6 +4,7 @@ import {
   getProductionEnvs,
   invalidateConnections,
   isProductionEnv,
+  envEditAllows,
 } from "./connections.js";
 
 /** Connections come from the app database only; stand in for its table. */
@@ -92,5 +93,19 @@ describe("getProductionEnvs", () => {
         conn("d", "QA"),
       ]),
     ).toEqual(["PROD", "SUPER_PROD"]);
+  });
+});
+
+describe("envEditAllows", () => {
+  it("accepts an env that exists, or one already saved; nothing else", () => {
+    use([conn("dev-core", "DEV")]);
+    const ok = envEditAllows(["UAT"]);
+    expect(["DEV", "UAT", "QA", 1, null].map(ok)).toEqual([
+      true,
+      true,
+      false,
+      false,
+      false,
+    ]);
   });
 });
