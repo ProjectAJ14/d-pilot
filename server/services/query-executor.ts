@@ -942,11 +942,26 @@ export async function closeConnectionPool(id: string): Promise<boolean> {
   return closed;
 }
 
-export async function closeAllConnections(): Promise<void> {
-  for (const pool of pgPools.values()) await pool.end();
-  for (const pool of mssqlPools.values()) await pool.close();
-  for (const client of mongClients.values()) await client.close();
-  for (const client of esClients.values()) await client.close();
+/**
+ * Retires every pool so the next query builds a fresh one with current
+ * settings. The maps are cleared synchronously; the old pools close in the
+ * background and nothing here awaits or throws, so a settings save neither
+ * hangs on a long query nor fails after it was written. pg's `end()` already
+ * lets checked-out clients finish. mssql/Mongo/ES `close()` would abort
+ * in-flight work, so those wait out `graceMs` — the timeout their queries were
+ * started under — by which point every such query has finished or timed out.
+ */
+export function closeAllConnections(graceMs = queryTimeout()): void {
+  const log = (err: unknown) =>
+    console.error("Failed to close a retired connection pool:", err);
+  // Node clamps anything above 2^31-1 ms to 1 ms, which would close at once.
+  const delay = Math.min(graceMs + 1000, 2_147_483_647);
+  const later = (close: () => Promise<unknown>) =>
+    setTimeout(() => close().catch(log), delay).unref();
+  for (const pool of pgPools.values()) pool.end().catch(log);
+  for (const pool of mssqlPools.values()) later(() => pool.close());
+  for (const client of mongClients.values()) later(() => client.close());
+  for (const client of esClients.values()) later(() => client.close());
   pgPools.clear();
   mssqlPools.clear();
   mongClients.clear();

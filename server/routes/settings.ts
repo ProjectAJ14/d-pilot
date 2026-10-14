@@ -8,6 +8,7 @@ import {
 } from "../services/sqlite-store.js";
 import { getConnection, loadConnections } from "../config/connections.js";
 import {
+  getConfigNumber,
   isSettingKey,
   listSettings,
   resetSetting,
@@ -47,10 +48,14 @@ function audit(
   });
 }
 
-/** Caches that captured a setting's old value. */
-async function applySettingChange(keys: SettingKey[]): Promise<void> {
+/**
+ * Caches that captured a setting's old value. `timeoutBefore` is the query
+ * timeout in force before the change — how long the retired pools' in-flight
+ * queries may still run.
+ */
+function applySettingChange(keys: SettingKey[], timeoutBefore: number): void {
   // Pools carry the timeout they were created with; they reconnect lazily.
-  if (keys.includes("QUERY_TIMEOUT_MS")) await closeAllConnections();
+  if (keys.includes("QUERY_TIMEOUT_MS")) closeAllConnections(timeoutBefore);
   // Cached entries carry the expiry computed under the old TTL.
   if (keys.includes("SCHEMA_CACHE_TTL_HOURS")) clearSchemaCache();
 }
@@ -71,6 +76,7 @@ router.put("/", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Body must be { values: { KEY: value } }" });
     return;
   }
+  const timeoutBefore = getConfigNumber("QUERY_TIMEOUT_MS");
   let written: SettingKey[];
   try {
     written = updateSettings(body.data.values);
@@ -79,7 +85,7 @@ router.put("/", async (req: Request, res: Response) => {
     return;
   }
   if (written.length > 0) {
-    await applySettingChange(written);
+    applySettingChange(written, timeoutBefore);
     audit(req, "SETTINGS_UPDATE", `Updated settings: ${written.join(", ")}`);
   }
   res.json(listSettings());
@@ -92,9 +98,10 @@ router.delete("/:key", async (req: Request, res: Response) => {
     res.status(404).json({ error: `Unknown setting: ${key}` });
     return;
   }
+  const timeoutBefore = getConfigNumber("QUERY_TIMEOUT_MS");
   const reset = resetSetting(key);
   if (reset.length > 0) {
-    await applySettingChange(reset);
+    applySettingChange(reset, timeoutBefore);
     audit(req, "SETTINGS_RESET", `Reset settings: ${reset.join(", ")}`);
   }
   res.json(listSettings());
