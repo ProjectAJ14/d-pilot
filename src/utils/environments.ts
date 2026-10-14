@@ -69,3 +69,15 @@ export const withSavedEnvs = (known: string[], saved: string[]): string[] => [
   ...known,
   ...saved.filter((e) => !known.includes(e)),
 ];
+
+/**
+ * MultiSelect options for a saved env list: withSavedEnvs, each orphan
+ * labelled "(no connection)". Pass the list as SAVED (when the editor opened),
+ * not the live form value — an orphan unticked by mistake must stay on offer
+ * to tick again before saving.
+ */
+export const envPickerOptions = (known: string[], saved: string[]) =>
+  withSavedEnvs(known, saved).map((env) => ({
+    value: env,
+    label: known.includes(env) ? env : `${env} (no connection)`,
+  }));

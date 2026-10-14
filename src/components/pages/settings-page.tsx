@@ -80,6 +80,7 @@ import {
   isProductionEnv,
   useEnvironments,
   withSavedEnvs,
+  envPickerOptions,
 } from "../../utils/environments";
 import type {
   User,
@@ -1363,6 +1364,13 @@ function AddUserModal({
   );
 }
 
+interface SavedEnvLists {
+  read: string[];
+  unmask: string[];
+  write: string[];
+  approve: string[];
+}
+
 /** Shared capability editor: Administrator toggle + four env-scoped multiselects. */
 function CapabilityFields({
   isAdmin,
@@ -1375,7 +1383,10 @@ function CapabilityFields({
   setWriteEnvs,
   approveEnvs,
   setApproveEnvs,
+  saved,
 }: {
+  /** The user's lists as stored — orphan envs in them stay pickable. */
+  saved?: SavedEnvLists;
   isAdmin: boolean;
   setIsAdmin: (v: boolean) => void;
   readEnvs: string[];
@@ -1388,11 +1399,10 @@ function CapabilityFields({
   setApproveEnvs: (v: string[]) => void;
 }) {
   const envOptions = useEnvironments();
-  const optionsFor = (saved: string[]) =>
-    withSavedEnvs(envOptions, saved).map((env) => ({
-      value: env,
-      label: envOptions.includes(env) ? env : `${env} (no connection)`,
-    }));
+  // From the lists as saved, not the form, so an orphan unticked by mistake
+  // stays on offer until the edit is saved.
+  const optionsFor = (list: keyof SavedEnvLists) =>
+    envPickerOptions(envOptions, saved?.[list] ?? []);
   return (
     <>
       <div
@@ -1417,7 +1427,7 @@ function CapabilityFields({
           <MultiSelect
             label="Read environments"
             description="Run read queries in these environments"
-            data={optionsFor(readEnvs)}
+            data={optionsFor("read")}
             value={readEnvs}
             onChange={setReadEnvs}
             mb="sm"
@@ -1425,7 +1435,7 @@ function CapabilityFields({
           <MultiSelect
             label="Unmask PHI environments"
             description="De-tokenize PHI in these environments (still needs a reason on masked envs)"
-            data={optionsFor(unmaskEnvs)}
+            data={optionsFor("unmask")}
             value={unmaskEnvs}
             onChange={setUnmaskEnvs}
             mb="sm"
@@ -1433,7 +1443,7 @@ function CapabilityFields({
           <MultiSelect
             label="Write environments"
             description="Author write requests (direct-policy envs run immediately)"
-            data={optionsFor(writeEnvs)}
+            data={optionsFor("write")}
             value={writeEnvs}
             onChange={setWriteEnvs}
             mb="sm"
@@ -1441,7 +1451,7 @@ function CapabilityFields({
           <MultiSelect
             label="Approve environments"
             description="Approve others' write requests"
-            data={optionsFor(approveEnvs)}
+            data={optionsFor("approve")}
             value={approveEnvs}
             onChange={setApproveEnvs}
             mb="sm"
@@ -1526,6 +1536,16 @@ function EditUserModal({
         mb="sm"
       />
       <CapabilityFields
+        saved={
+          user
+            ? {
+                read: user.allowedEnvironments || [],
+                unmask: user.unmaskEnvironments || [],
+                write: user.writeEnvironments || [],
+                approve: user.approveEnvironments || [],
+              }
+            : undefined
+        }
         isAdmin={isAdmin}
         setIsAdmin={setIsAdmin}
         readEnvs={readEnvs}
