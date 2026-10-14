@@ -29,6 +29,7 @@ vi.mock("@elastic/elasticsearch", () => ({
 
 const {
   holdConnection,
+  disconnectPool,
   testConnection,
   testConnectionConfig,
   closeAllConnections,
@@ -198,5 +199,16 @@ describe("a retired client with a governed write running", () => {
     await vi.advanceTimersByTimeAsync(3_600_000 + 2000);
     expect(mongoClose).toHaveBeenCalledOnce();
     expect(log).toHaveBeenCalled();
+  });
+});
+
+describe("disconnectPool", () => {
+  it("closes at once — an admin stopping sessions does not wait out a grace period", async () => {
+    await getMongoClient({ ...mongoConn, id: "mongo-kick" });
+    mongoClose.mockClear();
+    expect(await disconnectPool("mongo-kick")).toBe(true);
+    expect(mongoClose).toHaveBeenCalledOnce();
+    expect(getPoolStatus("mongo-kick").live).toBe(false);
+    expect(await disconnectPool("mongo-kick")).toBe(false);
   });
 });

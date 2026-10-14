@@ -1087,6 +1087,29 @@ export function closeConnectionPool(
 }
 
 /**
+ * Force-closes one connection's clients now — the admin "disconnect" action,
+ * whose point is to end sessions, so in-flight work is cut off. Edits and
+ * timeout changes use closeConnectionPool's graceful retire instead.
+ */
+export async function disconnectPool(id: string): Promise<boolean> {
+  poolGen.set(id, generation(id) + 1);
+  const pgPool = pgPools.get(id);
+  const msPool = mssqlPools.get(id);
+  const mongo = mongClients.get(id);
+  const es = esClients.get(id);
+  for (const map of [pgPools, mssqlPools, mongClients, esClients])
+    map.delete(id);
+  poolLastUsed.delete(id);
+  await Promise.all([
+    pgPool?.end(),
+    msPool?.close(),
+    mongo?.close(),
+    es?.close(),
+  ]);
+  return !!(pgPool || msPool || mongo || es);
+}
+
+/**
  * Retires every pool so the next query builds a fresh one with current
  * settings — see `retire`. A settings save neither hangs on a long query nor
  * fails after it was written.
