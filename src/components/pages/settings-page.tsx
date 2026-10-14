@@ -3679,8 +3679,8 @@ function RuntimeSettingsForm({ groups }: { groups: SettingGroup[] }) {
                       {s.source === "db" && (
                         <Tooltip
                           label={
-                            SECRET_TARGET[s.key]
-                              ? `Remove the saved value and fall back to .env / default — also resets ${SECRET_TARGET[s.key].label.replace(" or ", " and ")}`
+                            s.group === "ai"
+                              ? "Remove the saved value"
                               : "Remove the saved value and fall back to .env / default"
                           }
                         >

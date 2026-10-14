@@ -178,22 +178,36 @@ describe("secrets", () => {
     expect(getConfig("AZURE_OPENAI_INSECURE_TLS")).toBe("false");
   });
 
-  it("cannot be swapped for the .env key by resetting it", async () => {
-    vi.stubEnv("AZURE_OPENAI_KEY", "sk-from-env");
+  it("ignores AZURE_OPENAI_* in .env", async () => {
     vi.stubEnv("AZURE_OPENAI_ENDPOINT", "https://operator.example.com");
-    // An admin's own endpoint, saved with a throwaway key...
+    vi.stubEnv("AZURE_OPENAI_DEPLOYMENT", "env-deployment");
+    vi.stubEnv("AZURE_OPENAI_API_VERSION", "2099-01-01");
+    expect(getConfig("AZURE_OPENAI_DEPLOYMENT")).toBeUndefined();
+    expect(getConfig("AZURE_OPENAI_API_VERSION")).toBe("2024-08-01-preview");
+    const list = await (await call("GET")).json();
+    expect(
+      list.find((s: any) => s.key === "AZURE_OPENAI_DEPLOYMENT"),
+    ).toMatchObject({ source: "default", value: null });
+    for (const key of [
+      "AZURE_OPENAI_ENDPOINT",
+      "AZURE_OPENAI_DEPLOYMENT",
+      "AZURE_OPENAI_API_VERSION",
+    ]) {
+      vi.stubEnv(key, "");
+    }
+  });
+
+  it("resets only the key, leaving its endpoint as saved", async () => {
+    vi.stubEnv("AZURE_OPENAI_KEY", "sk-from-env");
     await call("PUT", "", {
       values: {
-        AZURE_OPENAI_ENDPOINT: "https://attacker.example.com",
-        AZURE_OPENAI_KEY: "throwaway",
+        AZURE_OPENAI_ENDPOINT: "https://ai.example.com",
+        AZURE_OPENAI_KEY: "sk-saved",
       },
     });
-    // ...then resetting the key must not pair the .env key with that endpoint.
     await call("DELETE", "/AZURE_OPENAI_KEY");
-    expect(getConfig("AZURE_OPENAI_KEY")).toBe("sk-from-env");
-    expect(getConfig("AZURE_OPENAI_ENDPOINT")).toBe(
-      "https://operator.example.com",
-    );
+    expect(getConfig("AZURE_OPENAI_KEY")).toBeUndefined();
+    expect(getConfig("AZURE_OPENAI_ENDPOINT")).toBe("https://ai.example.com");
   });
 
   it("does not fall back to the .env key when the stored one cannot be decrypted", async () => {
@@ -550,16 +564,14 @@ describe("limits", () => {
 });
 
 describe("bool settings", () => {
-  it('treats a saved "true" as unchanged from an env "1"', async () => {
-    vi.stubEnv("AZURE_OPENAI_INSECURE_TLS", "1");
+  it("treats saving the current TLS value as no change", async () => {
     await call("PUT", "", { values: { AZURE_OPENAI_KEY: "sk-bool" } });
     // Same value, so the key's target has not moved — no re-entry needed.
     const res = await call("PUT", "", {
-      values: { AZURE_OPENAI_INSECURE_TLS: "true" },
+      values: { AZURE_OPENAI_INSECURE_TLS: "false" },
     });
     expect(res.status).toBe(200);
     await call("DELETE", "/AZURE_OPENAI_KEY");
-    vi.stubEnv("AZURE_OPENAI_INSECURE_TLS", "");
   });
 });
 

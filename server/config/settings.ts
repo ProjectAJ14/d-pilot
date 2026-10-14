@@ -8,10 +8,10 @@ import { decryptSecret, encryptSecret } from "./secrets.js";
 import type { AppSettingView, SettingSource } from "../types/index.js";
 
 /**
- * Runtime configuration an admin can edit in-app. Each key is also the env var
- * that seeds it, so precedence is: `app_settings` row > `process.env` > default.
- * A deployment configured purely through `.env` keeps working unchanged — the
- * DB only wins once someone saves a value, and resetting deletes the row.
+ * Runtime configuration an admin can edit in-app. Branding and limits keys are
+ * also env vars that act as fallbacks, so precedence is: `app_settings` row >
+ * `process.env` > default; resetting deletes the row. AI settings (`group: "ai"`)
+ * skip the env step — they are configured in Settings only.
  *
  * Read through `getConfig*` at use time, never into a module-level const, or a
  * saved value would only apply after a restart.
@@ -93,8 +93,10 @@ function resolve(key: SettingKey): {
     const value = def(key).secret ? decryptSecret(stored) : stored;
     return { value: value ?? undefined, source: "db" };
   }
-  // `||`, not `??`: an empty env var has always meant "unset" here.
-  const env = process.env[key] || undefined;
+  // AI settings are Settings-only, like connections: the key and the target it
+  // is sent to never come from .env. `||`, not `??`: an empty env var is unset.
+  const env =
+    def(key).group === "ai" ? undefined : process.env[key] || undefined;
   if (env !== undefined) return { value: env, source: "env" };
   return { value: def(key).default, source: "default" };
 }
@@ -200,7 +202,7 @@ export function updateSettings(
   }
   // A stored key the admin cannot read must not be sendable to a URL they pick,
   // or over TLS they switched off — moving the key's target means typing it again.
-  // Bools compare by meaning: a saved "true" is no change from an env "1".
+  // Bools compare by meaning, so "true" is no change from a stored "1".
   const same = (k: SettingKey, v: string) =>
     def(k).kind === "bool"
       ? parseBool(v) === getConfigBool(k)
@@ -212,8 +214,7 @@ export function updateSettings(
     movesKey &&
     // Stored, not just decryptable: a key that fails today revives if the
     // key file is restored, so it guards its target all the same.
-    (getConfig("AZURE_OPENAI_KEY") ||
-      getSetting("AZURE_OPENAI_KEY") !== null) &&
+    getSetting("AZURE_OPENAI_KEY") !== null &&
     !writes.some(([k]) => k === "AZURE_OPENAI_KEY")
   ) {
     throw new Error(
@@ -233,13 +234,9 @@ const AI_KEY_TARGET: SettingKey[] = [
 ];
 
 /**
- * Drop the stored value so the env var (or default) applies again. Resetting
- * the key resets its target too: otherwise an admin could save their own
- * endpoint with a throwaway key, reset the key, and receive the `.env` one.
- * Returns the keys actually removed.
+ * Drop the stored value so the env var (or default) applies again. Returns
+ * the keys actually removed.
  */
 export function resetSetting(key: SettingKey): SettingKey[] {
-  const keys: SettingKey[] =
-    key === "AZURE_OPENAI_KEY" ? [key, ...AI_KEY_TARGET] : [key];
-  return keys.filter((k) => deleteSetting(k));
+  return deleteSetting(key) ? [key] : [];
 }
