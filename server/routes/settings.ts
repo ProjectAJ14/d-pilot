@@ -6,7 +6,11 @@ import {
   logAudit,
   saveDbConnection,
 } from "../services/sqlite-store.js";
-import { getConnection, loadConnections } from "../config/connections.js";
+import {
+  getConnection,
+  isProductionEnv,
+  loadConnections,
+} from "../config/connections.js";
 import {
   getConfigNumber,
   isSettingKey,
@@ -195,6 +199,14 @@ router.put("/connections/:id", async (req: Request, res: Response) => {
   const body = connectionFields.safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: zodError(body.error) });
+    return;
+  }
+  // Production rail: the env name is what forces PHI masking and blocks direct
+  // writes, so relabelling a production connection would lift both at once.
+  if (isProductionEnv(existing.env) && !isProductionEnv(body.data.env)) {
+    res.status(422).json({
+      error: `env: ${existing.env} is production — a production connection can't move to a non-production environment (${body.data.env}). Production PHI stays tokenized and production writes stay two-person.`,
+    });
     return;
   }
   // An omitted or empty secret keeps the stored one — the client never had it.

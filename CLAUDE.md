@@ -80,7 +80,9 @@ place. See the README's MCP section.
   _getter_, so neither can be lifted from Settings **or** by editing `app_settings` —
   `getPhiMaskedEnvs()` forces production envs into the masked list, `getWriteDirectEnvs()`
   strips them out (which is what blocks direct-execute _and_ auto-approve, since both gate on
-  it). The routes 422 with the offending env names. Mirror helper for the UI locks:
+  it). The routes 422 with the offending env names. Because the rails key off the env
+  _name_, a connection whose env is production-like can't be edited to a non-production
+  env either (`PUT /api/settings/connections/:id` 422s). Mirror helper for the UI locks:
   `isProductionEnv` in `src/utils/environments.ts`.
 - **In-app config, not env vars:** masked environments, PHI rules, write-mode toggle, and
   direct-write environments live in the SQLite `app_settings`/`phi_field_rules` tables and

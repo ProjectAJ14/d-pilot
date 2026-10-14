@@ -4021,6 +4021,10 @@ function ConnectionModal({
       (f.type === "elasticsearch" &&
         f.schema.trim() !== (connection.schema ?? "")));
 
+  // Production rail (server 422s too): relabelling a production connection to a
+  // non-production env would lift forced masking and the direct-write block.
+  const prodLocked = !isNew && isProductionEnv(connection.env);
+
   const secretPlaceholder = (set: boolean | undefined) =>
     set ? SECRET_PLACEHOLDER : "Not set";
 
@@ -4050,9 +4054,15 @@ function ConnectionModal({
             <TextInput label="Name" required {...field("name")} />
             <Autocomplete
               label="Environment"
-              description="Pick one or type a new name"
+              description={
+                prodLocked
+                  ? "Production — can only move to another production environment"
+                  : "Pick one or type a new name"
+              }
               required
-              data={environments}
+              data={
+                prodLocked ? environments.filter(isProductionEnv) : environments
+              }
               value={f.env}
               onChange={(v) => setF((p) => ({ ...p, env: v }))}
               error={errors.env}

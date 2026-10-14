@@ -384,6 +384,36 @@ describe("connections", () => {
     await call("DELETE", "/connections/docs");
   });
 
+  it("cannot move a production connection to a non-production env", async () => {
+    const prod = {
+      name: "Orders prod",
+      env: "PROD",
+      type: "postgres" as const,
+      database: "orders",
+    };
+    await call("POST", "/connections", {
+      ...prod,
+      id: "orders-prod",
+      password: "p",
+    });
+
+    // Renaming the env would lift forced masking and the direct-write block.
+    const demoted = await call("PUT", "/connections/orders-prod", {
+      ...prod,
+      env: "DEV",
+    });
+    expect(demoted.status).toBe(422);
+    expect((await demoted.json()).error).toMatch(/PROD/);
+    expect(getConnection("orders-prod")?.env).toBe("PROD");
+
+    const stillProd = await call("PUT", "/connections/orders-prod", {
+      ...prod,
+      env: "SUPER_PROD",
+    });
+    expect(stillProd.status).toBe(200);
+    await call("DELETE", "/connections/orders-prod");
+  });
+
   it("rejects a duplicate id and an invalid body", async () => {
     const dup = await call("POST", "/connections", {
       id: "dev-core",
