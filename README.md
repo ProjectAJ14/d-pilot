@@ -291,6 +291,11 @@ exists stops the whole import, and an existing connection is never overwritten. 
 > re-create connections via **Settings → Connections → Import** (paste the old JSON
 > array as-is) and re-enter the AI settings in **Settings → Azure OpenAI**. Then delete
 > those lines from `.env`.
+>
+> One change to the JSON: a MongoDB `username`/`password` must be the raw value
+> (`p@ss`, not `p%40ss`). D-Pilot now percent-encodes them itself when it builds the
+> connection string, so a value that was escaped by hand for the old `.env` would be
+> escaped twice and fail to log in. A full `uri` is used as-is, unchanged.
 
 **Secrets are encrypted at rest.** Connection passwords/URIs and `AZURE_OPENAI_KEY` are
 stored AES-256-GCM encrypted, with `SETTINGS_ENCRYPTION_KEY` or — if unset — a key
