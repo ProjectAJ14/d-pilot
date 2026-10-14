@@ -517,6 +517,7 @@ async function executePostgres(
   start: number,
   schema?: string,
 ): Promise<RawQueryResult> {
+  const cap = maxRows(); // one read per query, not per use
   const pool = await getPgPool(conn);
 
   // Set search_path to the active schema (validated + quoted) when present.
@@ -535,11 +536,11 @@ async function executePostgres(
     : result;
   const rows = queryResult.rows || [];
   const columns = queryResult.fields?.map((f: any) => f.name) || [];
-  const truncated = rows.length >= maxRows();
+  const truncated = rows.length >= cap;
 
   return {
     columns,
-    rows: rows.slice(0, maxRows()),
+    rows: rows.slice(0, cap),
     totalRows: rows.length,
     executionTimeMs: Math.round(elapsed),
     truncated,
@@ -551,17 +552,18 @@ async function executeMssql(
   sql: string,
   start: number,
 ): Promise<RawQueryResult> {
+  const cap = maxRows(); // one read per query, not per use
   const pool = await getMssqlPool(conn);
   const result = await pool.request().query(sql);
   const elapsed = performance.now() - start;
 
   const rows = result.recordset || [];
   const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
-  const truncated = rows.length >= maxRows();
+  const truncated = rows.length >= cap;
 
   return {
     columns,
-    rows: rows.slice(0, maxRows()),
+    rows: rows.slice(0, cap),
     totalRows: rows.length,
     executionTimeMs: Math.round(elapsed),
     truncated,
@@ -574,6 +576,7 @@ async function executeMongo(
   start: number,
   defaultLimit?: number | null,
 ): Promise<RawQueryResult> {
+  const cap = maxRows(); // one read per query, not per use
   // Block write operations before connecting
   const MONGO_WRITE_OPS =
     /\b(updateOne|updateMany|insertOne|insertMany|deleteOne|deleteMany|replaceOne|drop|rename|createIndex|dropIndex|forEach|bulkWrite|findOneAndUpdate|findOneAndDelete|findOneAndReplace|save|remove)\b/;
@@ -664,10 +667,8 @@ async function executeMongo(
 
   const userLimit = limitMatch ? parseInt(limitMatch[1], 10) : null;
   const effectiveDefault =
-    defaultLimit === null
-      ? maxRows()
-      : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
-  const limit = Math.min(userLimit ?? effectiveDefault, maxRows());
+    defaultLimit === null ? cap : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
+  const limit = Math.min(userLimit ?? effectiveDefault, cap);
   const sort = sortMatch ? parseMongoJson(sortMatch[1]) : undefined;
   const skip = skipMatch ? parseInt(skipMatch[1], 10) : undefined;
 
@@ -729,7 +730,7 @@ async function executeMongo(
 
   return {
     columns,
-    rows: rows.slice(0, maxRows()),
+    rows: rows.slice(0, cap),
     totalRows: rows.length,
     executionTimeMs: Math.round(elapsed),
     truncated,
@@ -774,6 +775,7 @@ async function executeElasticsearch(
   start: number,
   defaultLimit?: number | null,
 ): Promise<RawQueryResult> {
+  const cap = maxRows(); // one read per query, not per use
   const client = getEsClient(conn);
   const trimmed = sql.trim();
 
@@ -809,9 +811,9 @@ async function executeElasticsearch(
     if (!body.size && body.size !== 0) {
       const esLimit =
         defaultLimit === null
-          ? maxRows()
+          ? cap
           : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
-      body.size = Math.min(esLimit, maxRows());
+      body.size = Math.min(esLimit, cap);
     }
     const result = await client.search({ index, ...body });
     const elapsed = performance.now() - start;
@@ -843,12 +845,10 @@ async function executeElasticsearch(
   // Format: just an index name — list first N docs
   if (/^[\w\-.*]+$/.test(trimmed)) {
     const esLimit =
-      defaultLimit === null
-        ? maxRows()
-        : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
+      defaultLimit === null ? cap : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
     const result = await client.search({
       index: trimmed,
-      size: Math.min(esLimit, maxRows()),
+      size: Math.min(esLimit, cap),
       query: { match_all: {} },
     });
     const elapsed = performance.now() - start;

@@ -707,12 +707,18 @@ export function deleteAllPhiRules(includeLocked: boolean): {
 
 // --- App Settings ---
 
+// Prepared once per database handle: getSetting runs on every config read.
+const settingStmts = new WeakMap<Database.Database, Database.Statement>();
+
 export function getSetting(key: string): string | null {
   // Before initDatabase (unit tests, scripts) every setting falls back to env.
   if (!db) return null;
-  const row = db
-    .prepare("SELECT value FROM app_settings WHERE key = ?")
-    .get(key) as { value: string } | undefined;
+  let stmt = settingStmts.get(db);
+  if (!stmt) {
+    stmt = db.prepare("SELECT value FROM app_settings WHERE key = ?");
+    settingStmts.set(db, stmt);
+  }
+  const row = stmt.get(key) as { value: string } | undefined;
   return row?.value ?? null;
 }
 
