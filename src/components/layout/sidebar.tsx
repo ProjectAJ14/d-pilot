@@ -1,3 +1,10 @@
+import { sortByRecent } from "@src/utils/connection-recency";
+import {
+  filterGroups,
+  nameMatches,
+  normalizeQuery,
+  pickEnv,
+} from "@src/utils/explorer-search";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -16,11 +23,11 @@ import {
   Anchor,
 } from "@mantine/core";
 import {
-  IconChevronDown,
   IconArchive,
   IconBookmark,
   IconFileText,
   IconSearch,
+  IconX,
   IconShieldLock,
   IconTrash,
   IconTable,
@@ -94,6 +101,8 @@ export function Sidebar() {
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const connections = useStore((s) => s.connections);
   const activeConnectionId = useStore((s) => s.activeConnectionId);
+  const lastUsed = useStore((s) => s.connectionLastUsed[s.user?.id ?? ""]);
+  const markConnectionUsed = useStore((s) => s.markConnectionUsed);
   const setActiveConnection = useStore((s) => s.setActiveConnection);
   const savedQueries = useStore((s) => s.savedQueries);
   const user = useStore((s) => s.user);
@@ -113,9 +122,7 @@ export function Sidebar() {
   >("explorer");
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [expandedEnvs, setExpandedEnvs] = useState<Set<string>>(
-    new Set(["QA"]),
-  );
+  const [selectedEnv, setSelectedEnv] = useState<string | null>(null);
   const [expandedConn, setExpandedConn] = useState<string | null>(null);
   const [tables, setTables] = useState<Record<string, TableInfo[]>>({});
   const [columns, setColumns] = useState<Record<string, ColumnInfo[]>>({});
@@ -130,6 +137,17 @@ export function Sidebar() {
   const [explorerSearch, setExplorerSearch] = useState("");
   const [savedSearch, setSavedSearch] = useState("");
   const [historySearch, setHistorySearch] = useState("");
+  const searchValue =
+    activeSection === "explorer"
+      ? explorerSearch
+      : activeSection === "saved"
+        ? savedSearch
+        : historySearch;
+  const setSearch = (v: string) => {
+    if (activeSection === "explorer") setExplorerSearch(v);
+    else if (activeSection === "saved") setSavedSearch(v);
+    else setHistorySearch(v);
+  };
   const [loadingConn, setLoadingConn] = useState<string | null>(null);
   const [loadingTable, setLoadingTable] = useState<string | null>(null);
   // Right-click context menu for a table row (position + target table).
@@ -141,16 +159,25 @@ export function Sidebar() {
   } | null>(null);
 
   const envOrder = useEnvironments();
-  const grouped = groupByEnv(connections, envOrder);
+  const grouped = groupByEnv(sortByRecent(connections, lastUsed), envOrder);
 
-  const toggleEnv = (env: string) => {
-    setExpandedEnvs((prev) => {
-      const next = new Set(prev);
-      if (next.has(env)) next.delete(env);
-      else next.add(env);
-      return next;
-    });
-  };
+  // Global explorer search: matches connection names and the tables of
+  // connections already loaded (never fetches on keystroke).
+  const q = normalizeQuery(explorerSearch);
+  const loadedTables = (c: ConnectionInfo) =>
+    tables[keyFor(c.id, schemaByConnection[c.id] ?? "")] ?? [];
+  const tableMatches = (c: ConnectionInfo) =>
+    loadedTables(c).some((t) => nameMatches(t.name, q));
+  const visible = filterGroups(grouped, q, (c) =>
+    loadedTables(c).map((t) => t.name),
+  );
+
+  // One environment at a time, picked from the tab strip. Falls back to the
+  // active connection's env, then the first env, when the pick is filtered out.
+  const activeEnvOfConn = connections.find(
+    (c) => c.id === activeConnectionId,
+  )?.env;
+  const currentEnv = pickEnv(visible, selectedEnv, activeEnvOfConn);
 
   // Loads the table list for a connection/schema into the tree cache. Failures
   // are NOT cached (retry refetches); they surface as an inline alert instead.
@@ -201,6 +228,7 @@ export function Sidebar() {
 
   const selectConn = (connId: string) => {
     setActiveConnection(connId);
+    markConnectionUsed(connId);
     if (expandedConn === connId) {
       setExpandedConn(null);
       return;
@@ -498,26 +526,28 @@ export function Sidebar() {
         <TextInput
           placeholder={
             activeSection === "explorer"
-              ? "Search tables..."
+              ? "Search databases & tables..."
               : activeSection === "saved"
                 ? "Search saved queries..."
                 : "Search history..."
           }
           size="xs"
           leftSection={<IconSearch size={14} color="var(--muted)" />}
-          value={
-            activeSection === "explorer"
-              ? explorerSearch
-              : activeSection === "saved"
-                ? savedSearch
-                : historySearch
+          value={searchValue}
+          onChange={(e) => setSearch(e.currentTarget.value)}
+          rightSection={
+            searchValue ? (
+              <ActionIcon
+                size="xs"
+                variant="subtle"
+                color="gray"
+                aria-label="Clear search"
+                onClick={() => setSearch("")}
+              >
+                <IconX size={12} />
+              </ActionIcon>
+            ) : null
           }
-          onChange={(e) => {
-            const v = e.currentTarget.value;
-            if (activeSection === "explorer") setExplorerSearch(v);
-            else if (activeSection === "saved") setSavedSearch(v);
-            else setHistorySearch(v);
-          }}
           styles={{
             input: {
               background: "var(--surface)",
@@ -534,61 +564,51 @@ export function Sidebar() {
       <ScrollArea style={{ flex: 1 }} scrollbarSize={4}>
         {activeSection === "explorer" && (
           <div style={{ padding: "4px 8px" }}>
-            {Object.entries(grouped).map(([env, conns]) => (
-              <div key={env} style={{ marginBottom: 6 }}>
-                {/* Env header */}
-                <div
-                  onClick={() => toggleEnv(env)}
-                  className="dp-row"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "8px 10px",
-                    borderRadius: "var(--radius-sm)",
-                    cursor: "pointer",
-                  }}
-                >
-                  <Badge
-                    size="xs"
-                    color={envColor(env)}
-                    variant="filled"
-                    styles={{
-                      root: {
-                        textTransform: "uppercase",
-                        fontWeight: 700,
-                        fontSize: 9,
-                        letterSpacing: 0.5,
-                      },
-                    }}
+            {Object.keys(visible).length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 4,
+                  padding: "0 2px",
+                  marginBottom: 8,
+                }}
+              >
+                {Object.entries(visible).map(([env, conns]) => (
+                  <Tooltip
+                    key={env}
+                    label={`${envLabel(env)} · ${conns.length}`}
+                    openDelay={400}
                   >
-                    {env}
-                  </Badge>
-                  <Text size="xs" fw={600} style={{ flex: 1 }} c="var(--text)">
-                    {envLabel(env)}
-                  </Text>
-                  <Text
-                    size="xs"
-                    c="dimmed"
-                    ff="monospace"
-                    style={{ fontSize: 10 }}
-                  >
-                    {conns.length}
-                  </Text>
-                  <IconChevronDown
-                    size={12}
-                    color="var(--muted)"
-                    style={{
-                      transform: expandedEnvs.has(env)
-                        ? "rotate(0deg)"
-                        : "rotate(-90deg)",
-                      transition: "transform 200ms ease",
-                    }}
-                  />
-                </div>
-
-                {/* Connections in this env */}
-                {expandedEnvs.has(env) && (
+                    <Badge
+                      component="button"
+                      size="md"
+                      radius="sm"
+                      color={envColor(env)}
+                      variant={env === currentEnv ? "filled" : "light"}
+                      aria-pressed={env === currentEnv}
+                      onClick={() => setSelectedEnv(env)}
+                      style={{ cursor: "pointer" }}
+                      styles={{
+                        root: {
+                          textTransform: "uppercase",
+                          fontWeight: 700,
+                          fontSize: 10,
+                          letterSpacing: 0.5,
+                        },
+                      }}
+                    >
+                      {env}
+                    </Badge>
+                  </Tooltip>
+                ))}
+              </div>
+            )}
+            {Object.entries(visible)
+              .filter(([env]) => env === currentEnv)
+              .map(([env, conns]) => (
+                <div key={env} style={{ marginBottom: 6 }}>
+                  {/* Connections in this env */}
                   <div style={{ padding: "2px 0 2px 8px" }}>
                     {conns.map((conn) => {
                       const isActive = conn.id === activeConnectionId;
@@ -821,246 +841,265 @@ export function Sidebar() {
                             )}
 
                           {/* Tables tree */}
-                          {expandedConn === conn.id && tables[tKey] && (
-                            <div style={{ paddingLeft: 14, paddingBottom: 4 }}>
-                              {tables[tKey]
-                                .filter(
-                                  (t) =>
-                                    !explorerSearch ||
-                                    t.name
-                                      .toLowerCase()
-                                      .includes(explorerSearch.toLowerCase()),
-                                )
-                                .map((table) => {
-                                  const tableKey = keyFor(
-                                    conn.id,
-                                    sch,
-                                    table.name,
-                                  );
-                                  return (
-                                    <div key={table.name}>
-                                      <div
-                                        onClick={() =>
-                                          toggleTable(conn.id, table.name)
-                                        }
-                                        onDoubleClick={() =>
-                                          doubleClickTable(conn.id, table.name)
-                                        }
-                                        onContextMenu={(e) => {
-                                          e.preventDefault();
-                                          setTableMenu({
-                                            x: e.clientX,
-                                            y: e.clientY,
-                                            connId: conn.id,
-                                            table,
-                                          });
-                                        }}
-                                        className="dp-row"
-                                        style={{
-                                          display: "flex",
-                                          alignItems: "center",
-                                          gap: 6,
-                                          padding: "6px 10px",
-                                          borderRadius: "var(--radius-sm)",
-                                          cursor: "pointer",
-                                        }}
-                                      >
-                                        <IconTable
-                                          size={13}
-                                          color="var(--accent)"
-                                          style={{ flexShrink: 0 }}
-                                        />
-                                        <Text
-                                          size="xs"
-                                          ff="monospace"
-                                          className="dp-row-label"
-                                          style={{ flex: 1, fontSize: 11 }}
+                          {(expandedConn === conn.id ||
+                            (q && tableMatches(conn))) &&
+                            tables[tKey] && (
+                              <div
+                                style={{ paddingLeft: 14, paddingBottom: 4 }}
+                              >
+                                {tables[tKey]
+                                  .filter(
+                                    (t) =>
+                                      !q ||
+                                      nameMatches(conn.name, q) ||
+                                      nameMatches(t.name, q),
+                                  )
+                                  .map((table) => {
+                                    const tableKey = keyFor(
+                                      conn.id,
+                                      sch,
+                                      table.name,
+                                    );
+                                    return (
+                                      <div key={table.name}>
+                                        <div
+                                          onClick={() =>
+                                            toggleTable(conn.id, table.name)
+                                          }
+                                          onDoubleClick={() =>
+                                            doubleClickTable(
+                                              conn.id,
+                                              table.name,
+                                            )
+                                          }
+                                          onContextMenu={(e) => {
+                                            e.preventDefault();
+                                            setTableMenu({
+                                              x: e.clientX,
+                                              y: e.clientY,
+                                              connId: conn.id,
+                                              table,
+                                            });
+                                          }}
+                                          className="dp-row"
+                                          style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: 6,
+                                            padding: "6px 10px",
+                                            borderRadius: "var(--radius-sm)",
+                                            cursor: "pointer",
+                                          }}
                                         >
-                                          {table.name}
-                                        </Text>
-                                        {table.type === "VIEW" && (
-                                          <Badge
-                                            size="xs"
-                                            variant="light"
-                                            color="gray"
-                                            styles={{ root: { fontSize: 8 } }}
-                                          >
-                                            VIEW
-                                          </Badge>
-                                        )}
-                                        <Tooltip
-                                          label="Actions"
-                                          openDelay={400}
-                                          withArrow
-                                        >
-                                          <ActionIcon
-                                            size="xs"
-                                            variant="subtle"
-                                            color="gray"
-                                            className="dp-row-actions"
-                                            aria-label={`Actions for ${table.name}`}
-                                            data-pinned={
-                                              tableMenu?.connId === conn.id &&
-                                              tableMenu?.table.name ===
-                                                table.name
-                                                ? ""
-                                                : undefined
-                                            }
+                                          <IconTable
+                                            size={13}
+                                            color="var(--accent)"
                                             style={{ flexShrink: 0 }}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              const r =
-                                                e.currentTarget.getBoundingClientRect();
-                                              setTableMenu({
-                                                x: r.left,
-                                                y: r.bottom,
-                                                connId: conn.id,
-                                                table,
-                                              });
-                                            }}
+                                          />
+                                          <Text
+                                            size="xs"
+                                            ff="monospace"
+                                            className="dp-row-label"
+                                            style={{ flex: 1, fontSize: 11 }}
                                           >
-                                            <IconDots size={13} />
-                                          </ActionIcon>
-                                        </Tooltip>
-                                      </div>
-
-                                      {expandedTable === tableKey &&
-                                        loadingTable === tableKey && (
-                                          <div
-                                            style={{
-                                              display: "flex",
-                                              alignItems: "center",
-                                              gap: 6,
-                                              padding: "6px 24px",
-                                            }}
-                                          >
-                                            <Loader
-                                              size={10}
-                                              color="var(--accent)"
-                                            />
-                                            <Text
+                                            {table.name}
+                                          </Text>
+                                          {table.type === "VIEW" && (
+                                            <Badge
                                               size="xs"
-                                              c="dimmed"
-                                              style={{ fontSize: 10 }}
+                                              variant="light"
+                                              color="gray"
+                                              styles={{
+                                                root: { fontSize: 8 },
+                                              }}
                                             >
-                                              Loading columns...
-                                            </Text>
-                                          </div>
-                                        )}
-
-                                      {expandedTable === tableKey &&
-                                        columns[tableKey] && (
-                                          <div
-                                            style={{
-                                              marginLeft: 16,
-                                              marginBottom: 4,
-                                              paddingLeft: 10,
-                                              borderLeft:
-                                                "1px solid var(--border)",
-                                            }}
+                                              VIEW
+                                            </Badge>
+                                          )}
+                                          <Tooltip
+                                            label="Actions"
+                                            openDelay={400}
+                                            withArrow
                                           >
-                                            {columns[tableKey].map((col) => (
-                                              <div
-                                                key={col.name}
-                                                style={{
-                                                  display: "flex",
-                                                  alignItems: "center",
-                                                  gap: 6,
-                                                  padding: "4px 8px",
-                                                  fontSize: 11,
-                                                  fontFamily:
-                                                    "var(--font-mono)",
-                                                }}
+                                            <ActionIcon
+                                              size="xs"
+                                              variant="subtle"
+                                              color="gray"
+                                              className="dp-row-actions"
+                                              aria-label={`Actions for ${table.name}`}
+                                              data-pinned={
+                                                tableMenu?.connId === conn.id &&
+                                                tableMenu?.table.name ===
+                                                  table.name
+                                                  ? ""
+                                                  : undefined
+                                              }
+                                              style={{ flexShrink: 0 }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                const r =
+                                                  e.currentTarget.getBoundingClientRect();
+                                                setTableMenu({
+                                                  x: r.left,
+                                                  y: r.bottom,
+                                                  connId: conn.id,
+                                                  table,
+                                                });
+                                              }}
+                                            >
+                                              <IconDots size={13} />
+                                            </ActionIcon>
+                                          </Tooltip>
+                                        </div>
+
+                                        {expandedTable === tableKey &&
+                                          loadingTable === tableKey && (
+                                            <div
+                                              style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: 6,
+                                                padding: "6px 24px",
+                                              }}
+                                            >
+                                              <Loader
+                                                size={10}
+                                                color="var(--accent)"
+                                              />
+                                              <Text
+                                                size="xs"
+                                                c="dimmed"
+                                                style={{ fontSize: 10 }}
                                               >
-                                                {col.isPrimaryKey ? (
-                                                  <IconPK
-                                                    size={10}
-                                                    color="var(--accent)"
-                                                    style={{ flexShrink: 0 }}
-                                                  />
-                                                ) : col.isForeignKey ? (
-                                                  <FkBadge
-                                                    column={col.name}
-                                                    references={col.references}
-                                                  />
-                                                ) : (
-                                                  <IconColumns
-                                                    size={10}
-                                                    color="var(--muted)"
-                                                    style={{ flexShrink: 0 }}
-                                                  />
-                                                )}
-                                                <Text
-                                                  size="xs"
-                                                  ff="monospace"
-                                                  c={
-                                                    col.isPrimaryKey
-                                                      ? "var(--accent-text)"
-                                                      : "dimmed"
-                                                  }
+                                                Loading columns...
+                                              </Text>
+                                            </div>
+                                          )}
+
+                                        {expandedTable === tableKey &&
+                                          columns[tableKey] && (
+                                            <div
+                                              style={{
+                                                marginLeft: 16,
+                                                marginBottom: 4,
+                                                paddingLeft: 10,
+                                                borderLeft:
+                                                  "1px solid var(--border)",
+                                              }}
+                                            >
+                                              {columns[tableKey].map((col) => (
+                                                <div
+                                                  key={col.name}
                                                   style={{
-                                                    flex: 1,
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    gap: 6,
+                                                    padding: "4px 8px",
                                                     fontSize: 11,
+                                                    fontFamily:
+                                                      "var(--font-mono)",
                                                   }}
                                                 >
-                                                  {col.name}
-                                                </Text>
-                                                {col.references ? (
-                                                  <Tooltip
-                                                    label={`${col.dataType} \u2192 references ${col.references}`}
-                                                    withArrow
+                                                  {col.isPrimaryKey ? (
+                                                    <IconPK
+                                                      size={10}
+                                                      color="var(--accent)"
+                                                      style={{
+                                                        flexShrink: 0,
+                                                      }}
+                                                    />
+                                                  ) : col.isForeignKey ? (
+                                                    <FkBadge
+                                                      column={col.name}
+                                                      references={
+                                                        col.references
+                                                      }
+                                                    />
+                                                  ) : (
+                                                    <IconColumns
+                                                      size={10}
+                                                      color="var(--muted)"
+                                                      style={{
+                                                        flexShrink: 0,
+                                                      }}
+                                                    />
+                                                  )}
+                                                  <Text
+                                                    size="xs"
+                                                    ff="monospace"
+                                                    c={
+                                                      col.isPrimaryKey
+                                                        ? "var(--accent-text)"
+                                                        : "dimmed"
+                                                    }
+                                                    style={{
+                                                      flex: 1,
+                                                      fontSize: 11,
+                                                    }}
                                                   >
+                                                    {col.name}
+                                                  </Text>
+                                                  {col.references ? (
+                                                    <Tooltip
+                                                      label={`${col.dataType} \u2192 references ${col.references}`}
+                                                      withArrow
+                                                    >
+                                                      <Text
+                                                        size="xs"
+                                                        ff="monospace"
+                                                        c="dimmed"
+                                                        style={{
+                                                          fontSize: 9,
+                                                          opacity: 0.8,
+                                                          maxWidth: 110,
+                                                          overflow: "hidden",
+                                                          textOverflow:
+                                                            "ellipsis",
+                                                          whiteSpace: "nowrap",
+                                                        }}
+                                                      >
+                                                        &rarr; {col.references}
+                                                      </Text>
+                                                    </Tooltip>
+                                                  ) : (
                                                     <Text
                                                       size="xs"
-                                                      ff="monospace"
                                                       c="dimmed"
                                                       style={{
                                                         fontSize: 9,
-                                                        opacity: 0.8,
-                                                        maxWidth: 110,
-                                                        overflow: "hidden",
-                                                        textOverflow:
-                                                          "ellipsis",
-                                                        whiteSpace: "nowrap",
+                                                        opacity: 0.7,
                                                       }}
                                                     >
-                                                      &rarr; {col.references}
+                                                      {col.dataType}
                                                     </Text>
-                                                  </Tooltip>
-                                                ) : (
-                                                  <Text
-                                                    size="xs"
-                                                    c="dimmed"
-                                                    style={{
-                                                      fontSize: 9,
-                                                      opacity: 0.7,
-                                                    }}
-                                                  >
-                                                    {col.dataType}
-                                                  </Text>
-                                                )}
-                                                {col.isPhiField && (
-                                                  <IconShieldLock
-                                                    size={10}
-                                                    color="var(--token)"
-                                                  />
-                                                )}
-                                              </div>
-                                            ))}
-                                          </div>
-                                        )}
-                                    </div>
-                                  );
-                                })}
-                            </div>
-                          )}
+                                                  )}
+                                                  {col.isPhiField && (
+                                                    <IconShieldLock
+                                                      size={10}
+                                                      color="var(--token)"
+                                                    />
+                                                  )}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            )}
                         </div>
                       );
                     })}
                   </div>
-                )}
-              </div>
-            ))}
+                </div>
+              ))}
+
+            {q && Object.keys(visible).length === 0 && (
+              <Text size="xs" c="dimmed" ta="center" py="md">
+                No matching databases or tables
+              </Text>
+            )}
 
             {Object.keys(grouped).length === 0 && (
               <div style={{ padding: "24px 16px", textAlign: "center" }}>

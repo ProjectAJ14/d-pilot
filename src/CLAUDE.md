@@ -37,7 +37,7 @@ track hover in React state.
 ## State — Zustand (`store/index.ts`)
 
 Single store. Slices: `config` (public branding/PHI config), **auth** (`token`, `user`,
-`isAuthenticated`; `login`/`logout` persist the token), **connections** (`activeConnectionId`),
+`isAuthenticated`; `login`/`logout` persist the token), **connections** (`activeConnectionId`; `connectionLastUsed` — per-user explorer picks in `localStorage`, bumped only by `markConnectionUsed`, never by `setActiveConnection`, which also runs for defaults/restores),
 **tabs** (multi-tab workspace: `addTab`/`closeTab`/`updateTab`), **PHI shield**
 (`phiEnabled`, `togglePhi`), **default limit** (`defaultLimitEnabled`/`Value`), **saved
 queries**, **UI** (`sidebarOpen`, `phiPanelOpen`, `aiAssistantOpen`), **write handoff**
