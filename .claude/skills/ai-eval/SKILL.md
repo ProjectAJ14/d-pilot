@@ -38,10 +38,23 @@ or more.
    server. Never echo the key, paste it into a command line, or commit it.
 2. Baseline: the pre-change code (`main` or the commit before the change) in a
    scratch worktree, on another port (`git worktree add --detach <scratch>/baseline main`,
-   symlink `node_modules`), same env, and the same connection + AI import against it. The runner itself always comes from your branch:
+   symlink `node_modules`), same env, and the same connection + AI config. How the
+   baseline gets them depends on whether it has `/api/settings` (check with
+   `git -C <scratch>/baseline ls-files server/routes/settings.ts`):
+   - **Has `/api/settings`** (any `main` after the Settings → Connections change
+     merged): import the connection with `POST /api/settings/connections/import` and
+     save the AI config with the `PUT /api/settings` recipe above, both on its port.
+   - **Older baseline** (still reads env): it has no `/api/settings`, so the calls 404.
+     Put `DBFORGE_CONNECTIONS='[<the same connection JSON>]'` and the `AZURE_OPENAI_*`
+     lines in the env it starts with instead (an `--env-file` or exported vars — never
+     echo the key), and skip both API calls.
+
+   The runner itself always comes from your branch:
+
    ```bash
    DPILOT_PASSWORD='Verify#12345' npm run ai:eval -- --url http://localhost:3197 --runs 2 --sha main --out <scratch>/base.json
    ```
+
 3. The change, compared with the baseline:
    ```bash
    DPILOT_PASSWORD='Verify#12345' npm run ai:eval -- --runs 2 --compare <scratch>/base.json
