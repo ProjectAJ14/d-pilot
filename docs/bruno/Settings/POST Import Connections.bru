@@ -1,0 +1,53 @@
+meta {
+  name: Import Connections
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/settings/connections/import
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "dryRun": false,
+    "connections": [
+      {
+        "id": "qa-orders",
+        "name": "QA Orders",
+        "env": "QA",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "database": "orders",
+        "username": "dpilot",
+        "password": "",
+        "schema": "public"
+      },
+      {
+        "id": "qa-customers",
+        "name": "QA Customers",
+        "env": "QA",
+        "type": "mongodb",
+        "uri": "mongodb://db.example.com:27017/customers"
+      }
+    ]
+  }
+}
+
+docs {
+  Create several connections at once from `DBFORGE_CONNECTIONS`-shaped JSON. Body is always `{ connections: [...], dryRun? }` (1-200 items); each item is validated exactly like Create Connection.
+
+  All or nothing: if any item is invalid, repeats an id in the payload, or uses an id that already exists, nothing is written and the response is 400 `{ error, errors: [{ index, id, error }] }`. Create-only — an existing connection is never updated (edit it with Update Connection, which re-checks secrets). On success: 201 with the created connections (no secrets), one `CONNECTION_IMPORT` audit entry listing ids, envs and types.
+
+  `dryRun: true` validates without writing and answers 200 `{ errors }` (empty when the import would succeed). Production rails apply to imported envs as to any other.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

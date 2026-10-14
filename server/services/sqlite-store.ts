@@ -770,6 +770,20 @@ export function saveDbConnection(
   conn: ConnectionConfig,
   keep: { password?: boolean; uri?: boolean } = {},
 ): void {
+  writeDbConnection(conn, keep);
+  invalidateConnections();
+}
+
+/** Several connections in one transaction: all land, or none do. */
+export function saveDbConnections(conns: ConnectionConfig[]): void {
+  db.transaction(() => conns.forEach((c) => writeDbConnection(c)))();
+  invalidateConnections();
+}
+
+function writeDbConnection(
+  conn: ConnectionConfig,
+  keep: { password?: boolean; uri?: boolean } = {},
+): void {
   db.prepare(
     `INSERT INTO db_connections (id, name, env, type, host, port, database_name, username, password_enc, schema_name, schemas, uri_enc)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -796,7 +810,6 @@ export function saveDbConnection(
     keep.password ? 1 : 0,
     keep.uri ? 1 : 0,
   );
-  invalidateConnections();
 }
 
 export function deleteDbConnection(id: string): boolean {

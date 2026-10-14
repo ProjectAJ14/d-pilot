@@ -5,6 +5,7 @@ import {
   deleteDbConnection,
   logAudit,
   saveDbConnection,
+  saveDbConnections,
   storedConnectionSecrets,
 } from "../services/sqlite-store.js";
 import {
@@ -258,6 +259,76 @@ router.post("/connections", async (req: Request, res: Response) => {
     body.data.id,
   );
   res.status(201).json(toView(getConnection(body.data.id)!));
+});
+
+/** Most connections one import may carry. */
+const MAX_IMPORT = 200;
+const importBody = z.object({
+  connections: z.array(z.unknown()).min(1).max(MAX_IMPORT),
+  dryRun: z.boolean().optional(),
+});
+
+/**
+ * Bulk create from DBFORGE_CONNECTIONS-shaped JSON: `{ connections: [...],
+ * dryRun? }`. Each item is validated exactly like POST /connections. All or
+ * nothing — any bad item (invalid, duplicated in the payload, or an id that
+ * already exists) means 400 `{ errors: [{ index, id, error }] }` and no
+ * writes. Create-only: an existing id is an error, never an update, since an
+ * update here would skip mergeUpdate's re-enter-the-password gate. `dryRun`
+ * answers 200 `{ errors }` without writing — the client's preview.
+ */
+router.post("/connections/import", async (req: Request, res: Response) => {
+  const body = importBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({
+      error: `${zodError(body.error)} — send { connections: [...] }, 1-${MAX_IMPORT} items`,
+    });
+    return;
+  }
+  const { connections, dryRun } = body.data;
+  const valid: z.infer<typeof createBody>[] = [];
+  const errors: { index: number; id?: string; error: string }[] = [];
+  const seen = new Set<string>();
+  connections.forEach((item, index) => {
+    const parsed = createBody.safeParse(item);
+    if (!parsed.success) {
+      const rawId = (item as { id?: unknown } | null)?.id;
+      errors.push({
+        index,
+        id: typeof rawId === "string" ? rawId : undefined,
+        error: zodError(parsed.error),
+      });
+      return;
+    }
+    const { id } = parsed.data;
+    if (seen.has(id))
+      errors.push({ index, id, error: `Duplicate id ${id} in this import` });
+    else if (getConnection(id))
+      errors.push({ index, id, error: `Connection ${id} already exists` });
+    else valid.push(parsed.data);
+    seen.add(id);
+  });
+  if (dryRun) {
+    res.json({ errors });
+    return;
+  }
+  if (errors.length > 0) {
+    res.status(400).json({
+      error: `${errors.length} of ${connections.length} connection(s) invalid — nothing was imported`,
+      errors,
+    });
+    return;
+  }
+  // No await between the checks above and this write, so nothing can claim
+  // an id in between.
+  saveDbConnections(valid);
+  await Promise.all(valid.map((c) => dropConnectionState(c.id)));
+  audit(
+    req,
+    "CONNECTION_IMPORT",
+    `Imported ${valid.length} connection(s): ${valid.map((c) => `${c.id} (${c.env}, ${c.type})`).join(", ")}`,
+  );
+  res.status(201).json(valid.map((c) => toView(getConnection(c.id)!)));
 });
 
 router.put("/connections/:id", async (req: Request, res: Response) => {

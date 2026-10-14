@@ -691,3 +691,148 @@ describe("maskSecrets", () => {
     expect(masked).not.toContain(encodeURIComponent(pw));
   });
 });
+
+describe("POST /connections/import", () => {
+  const conn = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    name: `Conn ${id}`,
+    env: "QA",
+    type: "postgres",
+    host: "db.example.com",
+    port: 5432,
+    database: "orders",
+    password: "import-pw",
+    ...extra,
+  });
+  const rowCount = () =>
+    (
+      store
+        .getDb()
+        .prepare("SELECT COUNT(*) AS n FROM db_connections")
+        .get() as {
+        n: number;
+      }
+    ).n;
+  const importAudits = () =>
+    store
+      .getDb()
+      .prepare("SELECT sql FROM audit_log WHERE action = 'CONNECTION_IMPORT'")
+      .all() as { sql: string }[];
+
+  it("is admin-only", async () => {
+    const res = await call(
+      "POST",
+      "/connections/import",
+      { connections: [conn("imp-x")] },
+      false,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("writes nothing and reports every bad item when any item fails", async () => {
+    const before = rowCount();
+    const res = await call("POST", "/connections/import", {
+      connections: [
+        conn("imp-ok"),
+        conn("imp-bad", { type: "oracle" }),
+        conn("dev-core"),
+        conn("imp-dup"),
+        conn("imp-dup"),
+        "not an object",
+      ],
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.errors.map((e: any) => [e.index, e.id])).toEqual([
+      [1, "imp-bad"],
+      [2, "dev-core"],
+      [4, "imp-dup"],
+      [5, undefined],
+    ]);
+    expect(body.errors[0].error).toMatch(/^type:/);
+    expect(body.errors[1].error).toMatch(/already exists/);
+    expect(body.errors[2].error).toMatch(/[Dd]uplicate/);
+    expect(rowCount()).toBe(before);
+    expect(getConnection("imp-ok")).toBeUndefined();
+  });
+
+  it("validates without writing on a dry run", async () => {
+    const before = rowCount();
+    const ok = await call("POST", "/connections/import", {
+      connections: [conn("imp-dry")],
+      dryRun: true,
+    });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ errors: [] });
+    const bad = await call("POST", "/connections/import", {
+      connections: [conn("dev-core")],
+      dryRun: true,
+    });
+    expect(bad.status).toBe(200);
+    expect((await bad.json()).errors).toHaveLength(1);
+    expect(rowCount()).toBe(before);
+    expect(importAudits()).toHaveLength(0);
+  });
+
+  it("rejects an empty, oversized or non-array payload", async () => {
+    for (const body of [
+      { connections: [] },
+      { connections: conn("imp-x") },
+      [conn("imp-x")],
+      {
+        connections: Array.from({ length: 201 }, (_, i) => conn(`imp-${i}`)),
+      },
+    ]) {
+      const res = await call("POST", "/connections/import", body);
+      expect(res.status, JSON.stringify(body).slice(0, 40)).toBe(400);
+    }
+  });
+
+  it("creates every item, secrets encrypted, and audits ids without secrets", async () => {
+    const res = await call("POST", "/connections/import", {
+      connections: [
+        conn("imp-a"),
+        conn("imp-b", {
+          env: "SUPER_PROD",
+          type: "mongodb",
+          uri: "mongodb://u:uri-secret@db.example.com/orders",
+        }),
+      ],
+    });
+    expect(res.status).toBe(201);
+    const text = await res.text();
+    expect(text).not.toContain("import-pw");
+    expect(text).not.toContain("uri-secret");
+    const views = JSON.parse(text);
+    expect(views.map((v: any) => v.id)).toEqual(["imp-a", "imp-b"]);
+    expect(views[1]).toMatchObject({ passwordSet: true, uriSet: true });
+
+    expect(getConnection("imp-a")?.password).toBe("import-pw");
+    const row = store
+      .getDb()
+      .prepare("SELECT password_enc FROM db_connections WHERE id = ?")
+      .get("imp-a") as { password_enc: string };
+    expect(row.password_enc).toMatch(/^enc:v1:/);
+
+    // The production rail applies to an imported production-like env too.
+    expect(getEnvironments()).toContain("SUPER_PROD");
+    expect(store.getPhiMaskedEnvs()).toContain("SUPER_PROD");
+
+    const audits = importAudits();
+    expect(audits).toHaveLength(1);
+    expect(audits[0].sql).toContain("imp-a (QA, postgres)");
+    expect(audits[0].sql).toContain("imp-b (SUPER_PROD, mongodb)");
+    expect(audits[0].sql).not.toContain("import-pw");
+    expect(audits[0].sql).not.toContain("uri-secret");
+  });
+
+  it("never updates an existing connection", async () => {
+    const res = await call("POST", "/connections/import", {
+      connections: [conn("imp-a", { host: "elsewhere.example.com" })],
+    });
+    expect(res.status).toBe(400);
+    expect(getConnection("imp-a")?.host).toBe("db.example.com");
+    await call("DELETE", "/connections/imp-a");
+    await call("DELETE", "/connections/imp-b");
+  });
+});

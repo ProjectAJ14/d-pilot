@@ -273,6 +273,13 @@ connections and `DBFORGE_CONNECTIONS` has some, they are copied into it. From th
 Connections** and changes to the env var are ignored — add, edit or remove them in-app.
 You can leave the variable unset and create every connection in Settings instead.
 
+**Bulk import.** **Settings → Connections → Import** takes the same JSON as
+`DBFORGE_CONNECTIONS` (an array, or a single connection object) and previews each
+row before anything is saved. It is all-or-nothing and create-only: an invalid item,
+a repeated id or an id that already exists stops the whole import, and an existing
+connection is never overwritten. API: `POST /api/settings/connections/import` with
+`{ "connections": [...] }` (up to 200).
+
 **Secrets are encrypted at rest.** Connection passwords/URIs and `AZURE_OPENAI_KEY` are
 stored AES-256-GCM encrypted, with `SETTINGS_ENCRYPTION_KEY` or — if unset — a key
 generated once into `DATA_DIR/settings.key`. Settings never shows a stored secret back,

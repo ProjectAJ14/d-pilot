@@ -61,22 +61,22 @@ name rather than one baked in at build time. In production `express.static` also
 
 ## Routes (`routes/`) — all under `/api`
 
-| Mount             | File                | Notes                                                                                                                                  |
-| ----------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `/query`          | `query.ts`          | `POST /execute` (read-only), `GET /history`                                                                                            |
-| `/connections`    | `connections.ts`    | list / `writable` / `grouped` / `:id/test`                                                                                             |
-| `/schema`         | `schema.ts`         | `:connectionId` full / schemas / tables / columns                                                                                      |
-| `/saved-queries`  | `saved-queries.ts`  | CRUD; shared-by-default; `GET /:id` backs share links                                                                                  |
-| `/artifacts`      | `artifacts.ts`      | CRUD; shared-by-default; `GET /:id` backs share links. `parseBlocks` is the only gate on document shape                                |
-| `/phi-config`     | `phi-config.ts`     | masked-envs, `POST /unmask` (audited), rule CRUD (admin), CSV `GET /export` / `POST /import` + `DELETE /` bulk delete (admin, audited) |
-| `/audit`          | `audit.ts`          | log + archive read, manual archive (admin)                                                                                             |
-| `/export`         | `export.ts`         | `POST /csv`, `POST /json` (masking enforced + audited)                                                                                 |
-| `/users`          | `users.ts`          | user CRUD + reset-password (admin)                                                                                                     |
-| `/azure-ai`       | `azure-ai.ts`       | `test`, `generate-query`, `settings` (admin), `schema-cache/clear` (admin), `chat-log` (admin)                                         |
-| `/analytics`      | `analytics.ts`      | admin usage dashboard                                                                                                                  |
-| `/write-requests` | `write-requests.ts` | write lifecycle + policy + AI review/suggest                                                                                           |
-| `/settings`       | `settings.ts`       | admin runtime config: settings list/update/reset, connection CRUD + pre-save `POST /connections/test` (secrets write-only, audited)    |
-| `/mcp`            | `mcp.ts`            | **read-only MCP endpoint for AI agents — mounted _before_ `authMiddleware`** (HTTP Basic, not Bearer)                                  |
+| Mount             | File                | Notes                                                                                                                                                                           |
+| ----------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/query`          | `query.ts`          | `POST /execute` (read-only), `GET /history`                                                                                                                                     |
+| `/connections`    | `connections.ts`    | list / `writable` / `grouped` / `:id/test`                                                                                                                                      |
+| `/schema`         | `schema.ts`         | `:connectionId` full / schemas / tables / columns                                                                                                                               |
+| `/saved-queries`  | `saved-queries.ts`  | CRUD; shared-by-default; `GET /:id` backs share links                                                                                                                           |
+| `/artifacts`      | `artifacts.ts`      | CRUD; shared-by-default; `GET /:id` backs share links. `parseBlocks` is the only gate on document shape                                                                         |
+| `/phi-config`     | `phi-config.ts`     | masked-envs, `POST /unmask` (audited), rule CRUD (admin), CSV `GET /export` / `POST /import` + `DELETE /` bulk delete (admin, audited)                                          |
+| `/audit`          | `audit.ts`          | log + archive read, manual archive (admin)                                                                                                                                      |
+| `/export`         | `export.ts`         | `POST /csv`, `POST /json` (masking enforced + audited)                                                                                                                          |
+| `/users`          | `users.ts`          | user CRUD + reset-password (admin)                                                                                                                                              |
+| `/azure-ai`       | `azure-ai.ts`       | `test`, `generate-query`, `settings` (admin), `schema-cache/clear` (admin), `chat-log` (admin)                                                                                  |
+| `/analytics`      | `analytics.ts`      | admin usage dashboard                                                                                                                                                           |
+| `/write-requests` | `write-requests.ts` | write lifecycle + policy + AI review/suggest                                                                                                                                    |
+| `/settings`       | `settings.ts`       | admin runtime config: settings list/update/reset, connection CRUD + pre-save `POST /connections/test` + all-or-nothing `POST /connections/import` (secrets write-only, audited) |
+| `/mcp`            | `mcp.ts`            | **read-only MCP endpoint for AI agents — mounted _before_ `authMiddleware`** (HTTP Basic, not Bearer)                                                                           |
 
 ## Services (`services/`)
 
