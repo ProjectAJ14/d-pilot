@@ -193,7 +193,7 @@ check (author, direct-write, approve) then uses. Drafts are bound when saved; su
 whose connection moved 409s ("revise it"). Any route that awaits SQL validation re-reads the
 connection afterwards (`connectionIfUnchanged`) and 409s if it changed, and
 `runDirectExecution` runs only on the target bound right before it. Existing pending requests
-are bound to their connection as of the upgrade (the migration backfills them); one whose
+and drafts are bound to their connection as of the upgrade (the migration backfills them); one whose
 connection was already gone, or now sits in another env, has no target and never runs.
 
 Every request carries a paired verify **SELECT** and the **WRITE**.

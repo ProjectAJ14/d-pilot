@@ -242,9 +242,10 @@ export function initDatabase(): void {
   invalidateConnections();
 
   // The connection target a request was submitted against (connectionTarget).
-  // Existing pending requests are bound to their connection as of the upgrade;
-  // one whose connection is already gone, or now in another env, gets none,
-  // so it can never run.
+  // Existing pending requests and drafts are bound to their connection as of
+  // the upgrade (a draft is checked on submit); one whose connection is
+  // already gone, or now in another env, gets none, so it can never run — a
+  // draft like that can still be revised, which re-binds it.
   if (!wrColNames.has("target_fingerprint")) {
     db.exec("ALTER TABLE write_requests ADD COLUMN target_fingerprint TEXT");
     const conns = new Map(
@@ -252,7 +253,7 @@ export function initDatabase(): void {
     );
     const pending = db
       .prepare(
-        "SELECT id, connection_id, env FROM write_requests WHERE status = 'PENDING'",
+        "SELECT id, connection_id, env FROM write_requests WHERE status IN ('PENDING', 'DRAFT')",
       )
       .all() as { id: string; connection_id: string; env: string }[];
     for (const row of pending) {

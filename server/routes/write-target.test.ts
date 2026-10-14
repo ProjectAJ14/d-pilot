@@ -185,6 +185,29 @@ describe("approving a write bound to its connection target", () => {
     store.saveDbConnection(qa);
   });
 
+  it("binds drafts saved before the upgrade too, so they can still be submitted", async () => {
+    const draftBody = {
+      title: "Old draft",
+      connectionId: "qa-core",
+      selectSql: "SELECT * FROM orders WHERE id = 1",
+      writeSql: "UPDATE orders SET status = 'placed' WHERE id = 1",
+      draft: true,
+    };
+    const ok = (await call("author", "", draftBody)).body.id;
+    const moved = (await call("author", "", draftBody)).body.id;
+    store
+      .getDb()
+      .exec("ALTER TABLE write_requests DROP COLUMN target_fingerprint");
+    store.initDatabase();
+    const submitted = await call("author", `/${ok}/submit`);
+    expect(submitted.status).toBe(200);
+    expect(submitted.body.status).toBe("PENDING");
+    // Edited after the upgrade: the draft is bound, so this is caught.
+    store.saveDbConnection({ ...qa, host: "db-b.example.com", password: "pw" });
+    expect((await call("author", `/${moved}/submit`)).status).toBe(409);
+    store.saveDbConnection(qa);
+  });
+
   it("never runs a pre-upgrade request whose connection was already gone", async () => {
     const id = await submit();
     store.deleteDbConnection("qa-core");
