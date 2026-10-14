@@ -3,13 +3,9 @@
  * clipboard, DataGrip-style. Pure and UI-agnostic (mirrors `schema-metadata.ts`):
  * every function takes plain `{ columns, rows }` and returns a string.
  *
- * The set of formats offered in the UI is **deployment-configurable** via the
- * `COPY_FORMATS` env var (a JSON array of `CopyFormat`), served through
- * `/api/config`. A format either references a `builtin` structural formatter
- * (CSV/TSV/JSON/Markdown/SQL INSERT) or carries a separator `template` (the
- * DataGrip-style custom extractors). `DEFAULT_COPY_FORMATS` below is the fallback
- * when nothing is configured — keep it in sync with the server copy in
- * `server/config/copy-formats.ts`.
+ * The formats offered in the UI are `DEFAULT_COPY_FORMATS` below. A format either
+ * references a `builtin` structural formatter (CSV/TSV/JSON/Markdown/SQL INSERT)
+ * or carries a separator `template` (DataGrip-style extractors).
  *
  * PHI note: these run over `QueryResult.rows`, which the server has already
  * masked. A masked column yields its token, never the underlying value — copying
@@ -28,11 +24,7 @@ export interface ExtractInput {
   tableName?: string;
 }
 
-/**
- * Fallback catalogue used when `COPY_FORMATS` is unset (or the server is older
- * than this client). Order here is the order the menu renders. Keep in sync with
- * `DEFAULT_COPY_FORMATS` in `server/config/copy-formats.ts`.
- */
+/** The "Copy as" catalogue. Order here is the order the menu renders. */
 export const DEFAULT_COPY_FORMATS: CopyFormat[] = [
   {
     id: "csv",

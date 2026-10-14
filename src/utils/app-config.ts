@@ -1,6 +1,5 @@
 import { useStore } from "../store";
 import { api } from "./api-client";
-import { DEFAULT_COPY_FORMATS } from "./data-extractors";
 
 /**
  * (Re)load the public `/api/config` into the store and apply the branding that
@@ -9,13 +8,7 @@ import { DEFAULT_COPY_FORMATS } from "./data-extractors";
  */
 export async function loadAppConfig(): Promise<void> {
   const cfg = await api.getConfig();
-  // An older server may not send copyFormats — fall back to code defaults.
-  useStore.getState().setConfig({
-    ...cfg,
-    copyFormats: cfg.copyFormats?.length
-      ? cfg.copyFormats
-      : DEFAULT_COPY_FORMATS,
-  });
+  useStore.getState().setConfig(cfg);
   if (cfg.faviconUrl) {
     let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
     if (!link) {

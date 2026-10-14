@@ -65,17 +65,18 @@ ModuleRegistry.registerModules([
   ClipboardModule,
 ]);
 
-/** Group the configured formats by their `group`, preserving first-seen order. */
-function groupFormats(formats: CopyFormat[]): [string, CopyFormat[]][] {
+/** The built-in formats by their `group`, preserving first-seen order. */
+const groupedFormats: [string, CopyFormat[]][] = (() => {
   const groups = new Map<string, CopyFormat[]>();
-  for (const f of formats) {
+  for (const f of DEFAULT_COPY_FORMATS) {
     const key = f.group ?? "Other";
     const bucket = groups.get(key);
     if (bucket) bucket.push(f);
     else groups.set(key, [f]);
   }
   return [...groups.entries()];
-}
+})();
+const columnFormats = DEFAULT_COPY_FORMATS.filter((f) => f.columnMenu);
 
 /**
  * AG Grid renders into its own CSS-variable namespace and does NOT inherit the
@@ -206,20 +207,6 @@ function FkHeader(props: {
 export function ResultsGrid({ tab, onViewModeChange }: Props) {
   const phiEnabled = useStore((s) => s.phiEnabled);
   const updateTab = useStore((s) => s.updateTab);
-  // Deployment-configured "Copy as" formats (COPY_FORMATS env), with a code
-  // fallback so the menu always renders even before /api/config answers.
-  const configuredFormats = useStore((s) => s.config.copyFormats);
-  const copyFormats = configuredFormats?.length
-    ? configuredFormats
-    : DEFAULT_COPY_FORMATS;
-  const groupedFormats = useMemo(
-    () => groupFormats(copyFormats),
-    [copyFormats],
-  );
-  const columnFormats = useMemo(
-    () => copyFormats.filter((f) => f.columnMenu),
-    [copyFormats],
-  );
   const viewMode = tab.viewMode ?? "table";
   const gridWrapperRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<AgGridReact>(null);

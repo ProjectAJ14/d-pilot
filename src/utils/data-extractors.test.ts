@@ -95,57 +95,20 @@ describe("default template formats reproduce the shared-chat formats", () => {
   });
 });
 
-describe("custom (COPY_FORMATS-style) templates", () => {
-  it("leaves the first column bare when quoteFirstColumn is false", () => {
-    const custom: CopyFormat = {
-      id: "x",
-      label: "custom",
-      template: {
-        columnSeparator: " ",
-        rowSeparator: ",",
-        quote: "double",
-        quoteFirstColumn: false,
-      },
-    };
-    expect(renderCopyFormat(custom, twoCol)).toBe(
-      '1560 "Custom Proband Sequence Analysis",2625 "Collagen, Type I, \\"Alpha\\""',
-    );
-  });
-
-  it("honours a comma-columns / space-rows spec with a header", () => {
-    const custom: CopyFormat = {
-      id: "x",
-      label: "custom",
-      template: { columnSeparator: ",", rowSeparator: " ", header: true },
-    };
-    expect(renderCopyFormat(custom, twoCol)).toBe(
-      'test_code,test_name 1560,Custom Proband Sequence Analysis 2625,Collagen, Type I, "Alpha"',
-    );
-  });
-
-  it("applies prefix, suffix and nullText", () => {
-    const custom: CopyFormat = {
-      id: "x",
-      label: "custom",
-      template: {
-        columnSeparator: ",",
-        rowSeparator: ",",
-        quote: "single",
-        nullText: "NULL",
-        prefix: "IN (",
-        suffix: ")",
-      },
-    };
-    expect(
-      renderCopyFormat(custom, {
-        columns: ["a"],
-        rows: [{ a: 1 }, { a: null }],
-      }),
-    ).toBe("IN ('1','NULL')");
-  });
-});
-
 describe("edge cases", () => {
+  it("offers the eight built-in formats", () => {
+    expect(DEFAULT_COPY_FORMATS.map((f) => f.id)).toEqual([
+      "csv",
+      "tsv",
+      "json",
+      "markdown",
+      "sql-insert",
+      "comma",
+      "single-quoted",
+      "double-quoted",
+    ]);
+  });
+
   it("returns a string for every default format on an empty result set", () => {
     for (const f of DEFAULT_COPY_FORMATS) {
       expect(typeof renderCopyFormat(f, { columns: ["a"], rows: [] })).toBe(

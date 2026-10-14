@@ -9,9 +9,8 @@ export type MaskingType = "FULL" | "PARTIAL" | "HASH" | "REDACT";
 export type ResultViewMode = "table" | "json";
 
 // --- Results "Copy as" formats ------------------------------------------------
-// Deployment-configurable via the COPY_FORMATS env var, with code defaults. See
-// server/config/copy-formats.ts (loader + defaults) and
-// src/utils/data-extractors.ts (the renderer). Mirrored in server/types.
+// The built-in catalogue and its renderer live in src/utils/data-extractors.ts.
+// Client-only: the server never sees these.
 
 /** How a template extractor quotes each cell. */
 export type CopyQuote = "none" | "single" | "double";

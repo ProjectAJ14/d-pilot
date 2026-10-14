@@ -88,7 +88,6 @@ number is ignored with a warning.
 | `QUERY_TIMEOUT_MS`       | `90000`                 | Query timeout in milliseconds.                                                                     |
 | `MCP_MAX_ROWS`           | `1000`                  | Default rows per AI-agent query on `/api/mcp`; agents may ask for more per call, up to `MAX_ROWS`. |
 | `SCHEMA_CACHE_TTL_HOURS` | `24`                    | How long a connection's introspected schema is cached. `0` disables it.                            |
-| `COPY_FORMATS`           | built-in formats        | Results "Copy as" formats. See [below](#copy_formats).                                             |
 
 ### `APP_BASE_URL`
 
@@ -104,36 +103,3 @@ spliced together by hand.
 Caches each connection's introspected schema, used by autocomplete and AI query
 generation. Schema rarely changes, and caching avoids re-introspecting the database
 on every request.
-
-### `COPY_FORMATS`
-
-A JSON array of the formats offered in the results grid's **Copy as** menu and the
-per-column right-click menu. The default is the built-in list (CSV, TSV, JSON,
-Markdown, SQL INSERT, comma, single-quoted and double-quoted), shown in full in
-**Settings → Branding & Limits** so you can start from it.
-
-Each entry has:
-
-- `id`, `label`, and optionally `group` and `example`.
-- `columnMenu` (optional): also show it on the per-column menu.
-- Either `builtin` (`"csv"`, `"tsv"`, `"json"`, `"markdown"` or `"sql-insert"`) or a
-  `template`:
-
-  ```json
-  {
-    "columnSeparator": ",",
-    "rowSeparator": ",",
-    "quote": "none | single | double",
-    "quoteFirstColumn": false,
-    "nullText": "NULL",
-    "header": false,
-    "prefix": "",
-    "suffix": ""
-  }
-  ```
-
-Example, an SQL `IN (...)` list with single-quoted values:
-
-```bash
-COPY_FORMATS='[{"id":"in-clause","label":"SQL IN","group":"List / SQL","columnMenu":true,"template":{"columnSeparator":",","rowSeparator":",","quote":"single","prefix":"IN (","suffix":")"}}]'
-```

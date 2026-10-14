@@ -3354,7 +3354,7 @@ const SETTING_GROUP_LABELS: Record<SettingGroup, string> = {
 /** Labels and input kinds for the keys server/config/settings.ts defines. */
 const SETTING_META: Record<
   string,
-  { label: string; hint?: string; kind?: "bool" | "int" | "number" | "json" }
+  { label: string; hint?: string; kind?: "bool" | "int" | "number" }
 > = {
   AZURE_OPENAI_ENDPOINT: {
     label: "Endpoint",
@@ -3395,11 +3395,6 @@ const SETTING_META: Record<
   SCHEMA_CACHE_TTL_HOURS: {
     label: "Schema cache TTL (hours)",
     kind: "number",
-  },
-  COPY_FORMATS: {
-    label: "Copy formats",
-    hint: 'JSON array of results "Copy as" formats',
-    kind: "json",
   },
   JWT_EXPIRES_IN: { label: "Session length", hint: 'e.g. "24h" or "7d"' },
 };
@@ -3598,19 +3593,6 @@ function RuntimeSettingsForm({ groups }: { groups: SettingGroup[] }) {
             onChange={(e) =>
               set(s.key, e.currentTarget.checked ? "true" : "false")
             }
-          />
-        );
-      case "json":
-        return (
-          <Textarea
-            {...common}
-            value={draft[s.key] ?? ""}
-            onChange={(e) => set(s.key, e.currentTarget.value)}
-            placeholder="Built-in formats"
-            autosize
-            minRows={3}
-            maxRows={14}
-            styles={{ input: { fontFamily: "var(--font-mono)" } }}
           />
         );
       default:

@@ -5,7 +5,6 @@ import {
   setSetting,
 } from "../services/sqlite-store.js";
 import { decryptSecret, encryptSecret } from "./secrets.js";
-import { DEFAULT_COPY_FORMATS } from "./copy-formats.js";
 import type { AppSettingView, SettingSource } from "../types/index.js";
 
 /**
@@ -21,7 +20,7 @@ import type { AppSettingView, SettingSource } from "../types/index.js";
  * they are needed before the DB exists or are baked into the client build.
  */
 
-type Kind = "string" | "url" | "int" | "number" | "bool" | "json" | "duration";
+type Kind = "string" | "url" | "int" | "number" | "bool" | "duration";
 
 interface SettingDef {
   group: "ai" | "branding" | "limits";
@@ -94,15 +93,6 @@ export const SETTINGS = {
     kind: "number",
     default: "24",
     max: 8760, // a year
-  },
-  COPY_FORMATS: {
-    group: "limits",
-    kind: "json",
-    // A getter, read at use time: copy-formats.ts imports this module too, so
-    // touching DEFAULT_COPY_FORMATS while SETTINGS is built could hit it early.
-    get default() {
-      return JSON.stringify(DEFAULT_COPY_FORMATS, null, 2);
-    },
   },
   JWT_EXPIRES_IN: { group: "limits", kind: "duration", default: "24h" },
 } satisfies Record<string, SettingDef>;
@@ -232,13 +222,6 @@ const VALIDATORS: Record<Kind, z.ZodType<string>> = {
     .string()
     .refine((v) => v.trim() !== "" && Number(v) >= 0, "must be a number ≥ 0"),
   bool: z.string().regex(/^(true|false)$/, "must be true or false"),
-  json: z.string().refine((v) => {
-    try {
-      return Array.isArray(JSON.parse(v));
-    } catch {
-      return false;
-    }
-  }, "must be a JSON array"),
   duration: z.string().refine(isDuration, 'must be a duration like "24h"'),
 };
 

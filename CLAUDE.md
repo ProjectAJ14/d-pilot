@@ -144,7 +144,7 @@ Copy `.env.example` → `.env`. **Bootstrap (env only):** `JWT_SECRET`, `PORT` (
 ceilings `MAX_ROWS_LIMIT`/`MCP_MAX_ROWS_LIMIT`/`QUERY_TIMEOUT_MS_LIMIT`/
 `SCHEMA_CACHE_TTL_HOURS_LIMIT` (can only lower the built-in cap). **Fallbacks, overridden in
 Settings (db > env > default):** `MAX_ROWS` (10000), `QUERY_TIMEOUT_MS` (90000),
-`MCP_MAX_ROWS` (1000), `SCHEMA_CACHE_TTL_HOURS` (24), `COPY_FORMATS`, `JWT_EXPIRES_IN`,
+`MCP_MAX_ROWS` (1000), `SCHEMA_CACHE_TTL_HOURS` (24), `JWT_EXPIRES_IN`,
 `APP_NAME`/`LOGO_URL`/`LIGHT_LOGO_URL`/`FAVICON_URL`/`APP_BASE_URL` (branding),
 `EMAIL_DOMAIN`. **Settings only (no env var):** connections and `AZURE_OPENAI_*`. Full
 reference in `README.md`.

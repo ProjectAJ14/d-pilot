@@ -918,17 +918,29 @@ describe("operator ceilings (*_LIMIT)", () => {
 });
 
 describe("fallback defaults", () => {
-  it("shows the built-in copy formats and favicon as real defaults", async () => {
-    vi.stubEnv("COPY_FORMATS", "");
+  it("shows the built-in favicon as a real default", async () => {
     vi.stubEnv("FAVICON_URL", "");
     const list = await (await call("GET")).json();
-    const copy = list.find((s: any) => s.key === "COPY_FORMATS");
-    expect(copy.source).toBe("default");
-    expect(JSON.parse(copy.value).map((f: any) => f.id)).toContain("csv");
     expect(list.find((s: any) => s.key === "FAVICON_URL")).toMatchObject({
       value: "/favicon-32.png",
       source: "default",
     });
+  });
+});
+
+describe("COPY_FORMATS is gone", () => {
+  it("is not a setting, and a stale saved row is ignored", async () => {
+    // Saved while it was still editable in Settings.
+    store.setSetting(
+      "COPY_FORMATS",
+      JSON.stringify([{ id: "stale", label: "Stale", builtin: "csv" }]),
+    );
+    const list = await (await call("GET")).json();
+    expect(list.some((s: any) => s.key === "COPY_FORMATS")).toBe(false);
+
+    const res = await call("PUT", "", { values: { COPY_FORMATS: "[]" } });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/Unknown setting: COPY_FORMATS/);
   });
 });
 

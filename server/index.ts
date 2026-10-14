@@ -15,7 +15,6 @@ import {
 import { initDatabase, getPhiMaskedEnvs } from "./services/sqlite-store.js";
 import { getEnvironments } from "./config/connections.js";
 import { BASE_PATH, BASE_URL, withBase } from "./config/base-path.js";
-import { loadCopyFormats } from "./config/copy-formats.js";
 import { getConfig } from "./config/settings.js";
 import settingsRoutes from "./routes/settings.js";
 import queryRoutes from "./routes/query.js";
@@ -80,8 +79,6 @@ router.get("/api/config", (_req, res) => {
     // The deployment's environments, derived from its connections. The
     // client renders its env pickers from this — never a hardcoded list.
     environments: getEnvironments(),
-    // Results "Copy as" formats — from the COPY_FORMATS setting, else code defaults.
-    copyFormats: loadCopyFormats(),
   });
 });
 

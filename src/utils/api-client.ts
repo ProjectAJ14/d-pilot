@@ -7,7 +7,6 @@ import type {
   WriteRequest,
   WriteAiReview,
   QueryResult,
-  CopyFormat,
   AppSettingView,
   ConnectionAdminView,
 } from "../types";
@@ -114,7 +113,6 @@ export const api = {
       loginSubtitle: string;
       phiMaskedEnvironments: string[];
       environments: string[];
-      copyFormats?: CopyFormat[];
     }>,
 
   // Auth
