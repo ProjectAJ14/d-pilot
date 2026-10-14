@@ -51,7 +51,7 @@ interface AppState {
   connections: ConnectionInfo[];
   activeConnectionId: string | null;
   setConnections: (connections: ConnectionInfo[]) => void;
-  setActiveConnection: (id: string) => void;
+  setActiveConnection: (id: string | null) => void;
 
   // Selected schema per connection — single source of truth shared by the
   // sidebar explorer and the editor-toolbar schema dropdowns. Tabs on the
@@ -251,7 +251,23 @@ export const useStore = create<AppState>((set, get) => ({
   // Connections
   connections: [],
   activeConnectionId: initialActiveConnectionId,
-  setConnections: (connections) => set({ connections }),
+  // The server's list: a tab still on a connection that is gone (deleted in
+  // Settings) is detached from it, rather than querying a dead id.
+  setConnections: (connections) => {
+    const ids = new Set(connections.map((c) => c.id));
+    const gone = (id: string | null) => id !== null && !ids.has(id);
+    set((s) => ({
+      connections,
+      tabs: s.tabs.some((t) => gone(t.connectionId))
+        ? s.tabs.map((t) =>
+            gone(t.connectionId)
+              ? { ...t, connectionId: null, schema: undefined }
+              : t,
+          )
+        : s.tabs,
+    }));
+    persistAfterSet();
+  },
   setActiveConnection: (id) => {
     set({ activeConnectionId: id });
     const { activeTabId, tabs, schemaByConnection } = get();
@@ -260,7 +276,11 @@ export const useStore = create<AppState>((set, get) => ({
       // the editor's default-seeding fills it in).
       tabs: tabs.map((t) =>
         t.id === activeTabId
-          ? { ...t, connectionId: id, schema: schemaByConnection[id] }
+          ? {
+              ...t,
+              connectionId: id,
+              schema: id ? schemaByConnection[id] : undefined,
+            }
           : t,
       ),
     });

@@ -44,7 +44,6 @@ export async function loadConnections(): Promise<void> {
   const { setConnections, activeConnectionId, setActiveConnection } =
     useStore.getState();
   setConnections(conns);
-  if (conns.length === 0) useStore.setState({ activeConnectionId: null });
-  else if (!conns.some((c) => c.id === activeConnectionId))
-    setActiveConnection(conns[0].id);
+  if (!conns.some((c) => c.id === activeConnectionId))
+    setActiveConnection(conns[0]?.id ?? null);
 }

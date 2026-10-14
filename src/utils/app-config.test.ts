@@ -6,9 +6,10 @@ vi.mock("./api-client", () => ({
 }));
 
 // The store reads persisted tabs at import; give it an empty storage.
+const saved = vi.hoisted(() => ({ items: {} as Record<string, string> }));
 vi.stubGlobal("localStorage", {
   getItem: () => null,
-  setItem: () => {},
+  setItem: (k: string, v: string) => (saved.items[k] = v),
   removeItem: () => {},
 });
 vi.stubGlobal("window", { addEventListener: () => {} });
@@ -37,11 +38,23 @@ describe("loadConnections", () => {
     expect(useStore.getState().activeConnectionId).toBe("dev-core");
   });
 
-  it("clears the active connection once the last one is deleted", async () => {
+  it("clears the active connection, and tabs on it, once the last one is deleted", async () => {
+    vi.useFakeTimers();
     h.conns = [{ id: "dev-core" }];
     await loadConnections();
+    useStore.getState().addTab("dev-core");
     h.conns = [];
     await loadConnections();
-    expect(useStore.getState().activeConnectionId).toBeNull();
+    const s = useStore.getState();
+    expect(s.activeConnectionId).toBeNull();
+    expect(s.tabs.map((t) => t.connectionId)).toEqual(s.tabs.map(() => null));
+    // ...and that is what a reload restores.
+    await vi.advanceTimersByTimeAsync(1000);
+    const persisted = JSON.parse(Object.values(saved.items).at(-1)!);
+    expect(persisted.activeConnectionId).toBeNull();
+    expect(
+      persisted.tabs.every((t: { connectionId: unknown }) => !t.connectionId),
+    ).toBe(true);
+    vi.useRealTimers();
   });
 });
