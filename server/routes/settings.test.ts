@@ -509,3 +509,17 @@ describe("limits", () => {
     await call("DELETE", "/QUERY_TIMEOUT_MS");
   });
 });
+
+describe("bool settings", () => {
+  it('treats a saved "true" as unchanged from an env "1"', async () => {
+    vi.stubEnv("AZURE_OPENAI_INSECURE_TLS", "1");
+    await call("PUT", "", { values: { AZURE_OPENAI_KEY: "sk-bool" } });
+    // Same value, so the key's target has not moved — no re-entry needed.
+    const res = await call("PUT", "", {
+      values: { AZURE_OPENAI_INSECURE_TLS: "true" },
+    });
+    expect(res.status).toBe(200);
+    await call("DELETE", "/AZURE_OPENAI_KEY");
+    vi.stubEnv("AZURE_OPENAI_INSECURE_TLS", "");
+  });
+});

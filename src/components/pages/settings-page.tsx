@@ -90,6 +90,7 @@ import type {
 import type { ConnectionInput } from "../../utils/api-client";
 import { loadAppConfig, loadConnections } from "../../utils/app-config";
 import { BASE_PATH } from "../../utils/base-path";
+import { settingBool } from "../../utils/setting-bool";
 
 // ── PHI Field Icons ──
 const FIELD_ICONS: Record<string, string> = {
@@ -3461,7 +3462,12 @@ function RuntimeSettingsForm({ groups }: { groups: SettingGroup[] }) {
   useEffect(load, []);
 
   const visible = (settings ?? []).filter((s) => groups.includes(s.group));
-  const dirty = visible.filter((s) => draft[s.key] !== initialValue(s));
+  // Bools compare by meaning, so re-ticking an env "1" is not an edit.
+  const edited = (s: AppSettingView) =>
+    SETTING_META[s.key]?.kind === "bool"
+      ? settingBool(draft[s.key]) !== settingBool(initialValue(s))
+      : draft[s.key] !== initialValue(s);
+  const dirty = visible.filter(edited);
 
   const showError = (err: any) => {
     const msg: string = err?.message ?? String(err);
@@ -3552,10 +3558,7 @@ function RuntimeSettingsForm({ groups }: { groups: SettingGroup[] }) {
         !!target &&
         !!s.set &&
         !draft[s.key] &&
-        visible.some(
-          (v) =>
-            target.keys.includes(v.key) && draft[v.key] !== initialValue(v),
-        );
+        visible.some((v) => target.keys.includes(v.key) && edited(v));
       return (
         <PasswordInput
           {...common}
@@ -3577,7 +3580,7 @@ function RuntimeSettingsForm({ groups }: { groups: SettingGroup[] }) {
         return (
           <Checkbox
             {...common}
-            checked={draft[s.key] === "true"}
+            checked={settingBool(draft[s.key])}
             onChange={(e) =>
               set(s.key, e.currentTarget.checked ? "true" : "false")
             }

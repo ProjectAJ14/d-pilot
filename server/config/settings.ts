@@ -109,8 +109,10 @@ export function getConfigNumber(key: SettingKey): number {
   return Number.isFinite(n) ? n : Number(def(key).default);
 }
 
+const parseBool = (v: string | undefined) => /^(1|true|yes|on)$/i.test(v ?? "");
+
 export function getConfigBool(key: SettingKey): boolean {
-  return /^(1|true|yes|on)$/i.test(getConfig(key) ?? "");
+  return parseBool(getConfig(key));
 }
 
 /** Every setting for the admin UI. Secrets report only whether they are set. */
@@ -190,8 +192,13 @@ export function updateSettings(
   }
   // A stored key the admin cannot read must not be sendable to a URL they pick,
   // or over TLS they switched off — moving the key's target means typing it again.
+  // Bools compare by meaning: a saved "true" is no change from an env "1".
+  const same = (k: SettingKey, v: string) =>
+    def(k).kind === "bool"
+      ? parseBool(v) === getConfigBool(k)
+      : v === (getConfig(k) ?? "");
   const movesKey = writes.some(
-    ([k, v]) => AI_KEY_TARGET.includes(k) && v !== (getConfig(k) ?? ""),
+    ([k, v]) => AI_KEY_TARGET.includes(k) && !same(k, v),
   );
   if (
     movesKey &&
