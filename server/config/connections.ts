@@ -43,6 +43,30 @@ export function getEnvironments(): string[] {
 }
 
 /**
+ * An edited env list, as it should be saved over `current`. Valid entries are
+ * envs that exist now, plus ones `current` already holds. Every env in
+ * `current` that has no connection right now is kept: no picker can show it,
+ * so leaving it out is not a removal — dropping it would strip a capability
+ * (or a masked env) for good just because its connection was being re-created.
+ * Returns null when `sent` is not a list of valid entries.
+ */
+export function mergeEnvEdit(
+  sent: unknown,
+  current: string[],
+): string[] | null {
+  const known = getEnvironments();
+  if (
+    !Array.isArray(sent) ||
+    !sent.every(
+      (e) =>
+        typeof e === "string" && (known.includes(e) || current.includes(e)),
+    )
+  )
+    return null;
+  return [...new Set([...sent, ...current.filter((e) => !known.includes(e))])];
+}
+
+/**
  * Whether an environment counts as production for the PHI safety rail. Any name
  * containing "prod" qualifies — `PROD`, `SUPER_PROD`, `PREPROD`, `PRODUCTION` —
  * so a deployment can't sidestep mandatory tokenization by naming a production

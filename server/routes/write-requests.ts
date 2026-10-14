@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import {
   getConnection,
   getEnvironments,
+  mergeEnvEdit,
   isProductionEnv,
 } from "../config/connections.js";
 import {
@@ -382,15 +383,16 @@ router.get("/policy", (_req: Request, res: Response) => {
 });
 
 router.put("/policy", requireAdmin, (req: Request, res: Response) => {
-  const { writeModeEnabled, directEnvs } = req.body as {
+  const { writeModeEnabled, directEnvs: sentDirect } = req.body as {
     writeModeEnabled?: boolean;
     directEnvs?: string[];
   };
   if (typeof writeModeEnabled === "boolean") {
     setSetting("write_mode_enabled", writeModeEnabled ? "true" : "false");
   }
-  if (Array.isArray(directEnvs)) {
-    if (!directEnvs.every((e) => getEnvironments().includes(e))) {
+  if (Array.isArray(sentDirect)) {
+    const directEnvs = mergeEnvEdit(sentDirect, getWriteDirectEnvs());
+    if (!directEnvs) {
       res.status(400).json({ error: "Invalid environment in directEnvs" });
       return;
     }
