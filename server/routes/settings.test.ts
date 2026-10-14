@@ -426,6 +426,26 @@ describe("connections", () => {
     await call("DELETE", "/connections/orders-prod");
   });
 
+  it("audits a field that was cleared, not just ones that were set", async () => {
+    const base = {
+      name: "Audited",
+      env: "DEV",
+      type: "postgres" as const,
+      host: "db.example.com",
+    };
+    await call("POST", "/connections", {
+      ...base,
+      id: "audited",
+      database: "app_core",
+      schema: "public",
+    });
+    // database and schema left out: they are cleared.
+    expect((await call("PUT", "/connections/audited", base)).status).toBe(200);
+    const [entry] = store.getAuditLog({ limit: 1 });
+    expect(entry.sql).toBe("Updated connection audited: database, schema");
+    await call("DELETE", "/connections/audited");
+  });
+
   it("clears a stored password or URI on request, without re-entry", async () => {
     const pg = {
       name: "Clearable",

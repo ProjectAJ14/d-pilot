@@ -361,8 +361,13 @@ router.put("/connections/:id", async (req: Request, res: Response) => {
     return;
   }
   const { next, keep } = merged;
-  const changed = (Object.keys(next) as (keyof ConnectionConfig)[]).filter(
-    (k) => JSON.stringify(next[k]) !== JSON.stringify(existing[k]),
+  // Both sides' keys: a field the update clears is absent from `next`.
+  const changed = [
+    ...new Set([...Object.keys(existing), ...Object.keys(next)]),
+  ].filter(
+    (k) =>
+      JSON.stringify(next[k as keyof ConnectionConfig]) !==
+      JSON.stringify(existing[k as keyof ConnectionConfig]),
   );
   saveDbConnection(next, keep);
   dropConnectionState(id);
