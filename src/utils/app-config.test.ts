@@ -14,7 +14,17 @@ vi.stubGlobal("localStorage", {
 vi.stubGlobal("window", { addEventListener: () => {} });
 
 const { useStore } = await import("../store");
-const { loadConnections } = await import("./app-config");
+const { loadConnections, tabTitle } = await import("./app-config");
+
+describe("tabTitle", () => {
+  it("adds the tagline when there is one", () => {
+    expect(tabTitle("D-Pilot", "SQL explorer")).toBe("D-Pilot — SQL explorer");
+  });
+  it("is the bare app name when the tagline is empty", () => {
+    expect(tabTitle("D-Pilot", "")).toBe("D-Pilot");
+    expect(tabTitle("D-Pilot", undefined)).toBe("D-Pilot");
+  });
+});
 
 describe("loadConnections", () => {
   it("keeps the active connection while it exists, else picks the first", async () => {

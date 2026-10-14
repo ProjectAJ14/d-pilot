@@ -1,6 +1,10 @@
 import { useStore } from "../store";
 import { api } from "./api-client";
 
+/** The browser tab title: the app name, plus the login tagline when set. */
+export const tabTitle = (appName: string, tagline?: string | null): string =>
+  tagline ? `${appName} — ${tagline}` : appName;
+
 /**
  * (Re)load the public `/api/config` into the store and apply the branding that
  * lives outside React (favicon, iOS home-screen title). Called on boot and again
@@ -20,9 +24,7 @@ export async function loadAppConfig(): Promise<void> {
   }
   // The tab title follows the branding; index.html's static title is only
   // the first-paint fallback. The iOS name below stays the bare app name.
-  document.title = cfg.loginTagline
-    ? `${cfg.appName} — ${cfg.loginTagline}`
-    : cfg.appName;
+  document.title = tabTitle(cfg.appName, cfg.loginTagline);
   // iOS takes the home-screen name from this tag rather than the
   // manifest, so branding has to be applied to it at runtime too.
   if (cfg.appName) {
