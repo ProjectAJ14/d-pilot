@@ -268,8 +268,8 @@ AZURE_OPENAI_MODEL=gpt-4o           # optional, informational
 # AZURE_OPENAI_INSECURE_TLS=true    # only for TLS-inspecting corporate proxies
 ```
 
-**Connections are imported once.** On the first start with an empty app database,
-`DBFORGE_CONNECTIONS` is copied into it. From then on connections live in **Settings →
+**Connections are imported once.** On the first start where the app database has no
+connections and `DBFORGE_CONNECTIONS` has some, they are copied into it. From then on connections live in **Settings →
 Connections** and changes to the env var are ignored — add, edit or remove them in-app.
 You can leave the variable unset and create every connection in Settings instead.
 
@@ -279,9 +279,16 @@ generated once into `DATA_DIR/settings.key`. Settings never shows a stored secre
 and a kept password cannot be redirected: editing a connection keeps it only when the
 change is limited to name, env or schemas — anything else (host, port, username,
 database, …) needs it typed again, as does changing the AI endpoint or TLS setting.
+A stored password or URI can be removed with **Clear** in the connection editor.
 **Back up `settings.key` along with the database, but store it separately** (anyone
 holding both can decrypt the secrets). Lose it and the app still starts, but every
 stored secret must be re-entered in Settings.
+
+**One process per data directory.** D-Pilot runs as a single Node process. Saving a
+connection or a setting invalidates pools and caches only in the process that handled
+the save, so several processes or replicas sharing one `DATA_DIR` would keep serving
+stale connections and limits — that deployment shape is unsupported. Scale up the one
+instance instead.
 
 > **Note:** PHI masking and the write workflow are configured **in-app** too — masked
 > environments, PHI rules, write-mode toggle, and direct-write environments are stored
