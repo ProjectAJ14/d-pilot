@@ -111,8 +111,20 @@ export function listSettings(): AppSettingView[] {
 }
 
 // ms-style durations, as jsonwebtoken's `expiresIn` accepts them ("24h", "7 days").
+// The unit is required: jsonwebtoken reads a bare "3600" as milliseconds, which
+// would expire every token on issue. Zero is rejected for the same reason.
 const DURATION =
-  /^\d+(\.\d+)?\s*(ms|msecs?|milliseconds?|s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?|d|days?|w|weeks?|y|yrs?|years?)?$/i;
+  /^\d+(\.\d+)?\s*(ms|msecs?|milliseconds?|s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?|d|days?|w|weeks?|y|yrs?|years?)$/i;
+const isDuration = (v: string) => DURATION.test(v) && parseFloat(v) > 0;
+
+/**
+ * Token lifetime for signing. A value stored or set in env before the
+ * validator tightened falls back to the default rather than locking out.
+ */
+export function jwtExpiresIn(): string {
+  const v = getConfig("JWT_EXPIRES_IN") ?? "";
+  return isDuration(v) ? v : SETTINGS.JWT_EXPIRES_IN.default;
+}
 
 const VALIDATORS: Record<Kind, z.ZodType<string>> = {
   string: z.string().max(2000),
@@ -132,7 +144,7 @@ const VALIDATORS: Record<Kind, z.ZodType<string>> = {
       return false;
     }
   }, "must be a JSON array"),
-  duration: z.string().regex(DURATION, 'must be a duration like "24h"'),
+  duration: z.string().refine(isDuration, 'must be a duration like "24h"'),
 };
 
 /**

@@ -30,7 +30,8 @@ vi.stubEnv(
 );
 
 const store = await import("../services/sqlite-store.js");
-const { getConfig } = await import("../config/settings.js");
+const settings = await import("../config/settings.js");
+const { getConfig } = settings;
 const { getEnvironments, getConnection } =
   await import("../config/connections.js");
 const { applyDefaultLimit } = await import("../services/query-executor.js");
@@ -398,5 +399,25 @@ describe("connections", () => {
       type: "oracle",
     });
     expect(bad.status).toBe(400);
+  });
+});
+
+describe("JWT_EXPIRES_IN", () => {
+  it("rejects a unitless or zero duration, which would lock everyone out", async () => {
+    for (const bad of ["3600", "0h", "0"]) {
+      const res = await call("PUT", "", { values: { JWT_EXPIRES_IN: bad } });
+      expect(res.status).toBe(400);
+    }
+    expect(rawSetting("JWT_EXPIRES_IN")).toBeUndefined();
+    const ok = await call("PUT", "", { values: { JWT_EXPIRES_IN: "7 days" } });
+    expect(ok.status).toBe(200);
+    expect(settings.jwtExpiresIn()).toBe("7 days");
+    await call("DELETE", "/JWT_EXPIRES_IN");
+  });
+
+  it("signs with the default when an already-stored value is unusable", () => {
+    store.setSetting("JWT_EXPIRES_IN", "3600");
+    expect(settings.jwtExpiresIn()).toBe("24h");
+    store.deleteSetting("JWT_EXPIRES_IN");
   });
 });

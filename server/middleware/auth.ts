@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import type { AuthUser, ConnectionConfig } from "../types/index.js";
 import { getDb, archiveIfDue } from "../services/sqlite-store.js";
 import { getConnection, getEnvironments } from "../config/connections.js";
-import { getConfig } from "../config/settings.js";
+import { getConfig, jwtExpiresIn } from "../config/settings.js";
 
 // Extend Express Request to include user
 declare global {
@@ -217,7 +217,7 @@ export function handleLogin(req: Request, res: Response): void {
   };
 
   const token = jwt.sign(payload, JWT_SECRET, {
-    expiresIn: getConfig("JWT_EXPIRES_IN"),
+    expiresIn: jwtExpiresIn(),
   } as jwt.SignOptions);
 
   res.json({ token, user: profile });

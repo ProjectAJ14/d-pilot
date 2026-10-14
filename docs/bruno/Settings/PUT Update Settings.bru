@@ -25,7 +25,7 @@ body:json {
 }
 
 docs {
-  Save one or more settings; they apply without a restart. Each value is validated by kind (whole number, URL, boolean, JSON array, duration…) — the first invalid one is a 400 and nothing is written. An empty secret keeps the stored one. Changing `AZURE_OPENAI_ENDPOINT` or `AZURE_OPENAI_INSECURE_TLS` while a key is stored requires `AZURE_OPENAI_KEY` in the same request (400 otherwise), so the key cannot be redirected. Changing `QUERY_TIMEOUT_MS` closes all pools; changing `SCHEMA_CACHE_TTL_HOURS` clears the schema cache. Audited as `SETTINGS_UPDATE` (key names only). Returns the same list as List Settings.
+  Save one or more settings; they apply without a restart. Each value is validated by kind (whole number, URL, boolean, JSON array, duration with a required unit and a value above zero, e.g. `24h`…) — the first invalid one is a 400 and nothing is written. An empty secret keeps the stored one. Changing `AZURE_OPENAI_ENDPOINT` or `AZURE_OPENAI_INSECURE_TLS` while a key is stored requires `AZURE_OPENAI_KEY` in the same request (400 otherwise), so the key cannot be redirected. Changing `QUERY_TIMEOUT_MS` closes all pools; changing `SCHEMA_CACHE_TTL_HOURS` clears the schema cache. Audited as `SETTINGS_UPDATE` (key names only). Returns the same list as List Settings.
 
   Requires a valid Bearer JWT ({{token}}).
   **Admin only.**
