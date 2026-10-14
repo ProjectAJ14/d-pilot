@@ -1,3 +1,9 @@
+import {
+  loadLastUsed,
+  saveLastUsed,
+  touch,
+  type LastUsedByUser,
+} from "@src/utils/connection-recency";
 import { create } from "zustand";
 import type { Artifact, ConnectionInfo, QueryTab, SavedQuery } from "../types";
 import {
@@ -52,6 +58,10 @@ interface AppState {
   activeConnectionId: string | null;
   setConnections: (connections: ConnectionInfo[]) => void;
   setActiveConnection: (id: string | null) => void;
+  // Per-user "last picked in the explorer" times; only a deliberate pick counts
+  // (setActiveConnection also runs for defaults and restores).
+  connectionLastUsed: LastUsedByUser;
+  markConnectionUsed: (id: string) => void;
 
   // Selected schema per connection — single source of truth shared by the
   // sidebar explorer and the editor-toolbar schema dropdowns. Tabs on the
@@ -271,6 +281,14 @@ export const useStore = create<AppState>((set, get) => ({
         : s.tabs,
     }));
     persistAfterSet();
+  },
+  connectionLastUsed: loadLastUsed(),
+  markConnectionUsed: (id) => {
+    const { user, connectionLastUsed } = get();
+    if (!user) return;
+    const next = touch(connectionLastUsed, user.id, id, Date.now());
+    set({ connectionLastUsed: next });
+    saveLastUsed(next);
   },
   setActiveConnection: (id) => {
     set({ activeConnectionId: id });
