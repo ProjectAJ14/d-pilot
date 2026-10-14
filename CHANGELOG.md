@@ -5,6 +5,93 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [2.0.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.31.0...v2.0.0) (2026-10-14)
+
+
+* feat(connections)!: stop reading DBFORGE_CONNECTIONS ([0e065a2](https://github.com/ProjectAJ14/d-pilot/commit/0e065a25c7e2dcfaef9b1dbd92ae72b59454ee92))
+* feat(settings)!: stop reading AI settings from .env ([a4d3ddd](https://github.com/ProjectAJ14/d-pilot/commit/a4d3ddde8c52cbb56331cd92f78df5df2cff75d3))
+
+
+### Bug Fixes
+
+* **connections:** don't block a disconnect on a running pg query ([008476b](https://github.com/ProjectAJ14/d-pilot/commit/008476bed8590e7f04fc55cfea6bc11baf914800))
+* **connections:** don't close a retired client under a running write ([c3b20d8](https://github.com/ProjectAJ14/d-pilot/commit/c3b20d8a8476fb935d4c2e8111427e2d7d21c4ea))
+* **connections:** don't retry the Settings Elasticsearch test ping ([130c2d1](https://github.com/ProjectAJ14/d-pilot/commit/130c2d1eb3211361035578ac117f4ffdb055af97))
+* **connections:** force-close on an explicit disconnect again ([08d01d2](https://github.com/ProjectAJ14/d-pilot/commit/08d01d2f13a9266b861e036a6ea277fb8bbf9c26))
+* **connections:** hold a retired client per client, not per connection ([b42c1f6](https://github.com/ProjectAJ14/d-pilot/commit/b42c1f65ab6214cf0000eba862daed9e4778b327))
+* **connections:** never reject from an explicit disconnect ([68790e5](https://github.com/ProjectAJ14/d-pilot/commit/68790e5e76e265649051529305d2862983899fb0))
+* **connections:** retire an edited connection's pool in the background ([1204edb](https://github.com/ProjectAJ14/d-pilot/commit/1204edbffe07928fff688886dfed95d30e16af6d))
+* **envs:** keep saved envs that have no connection right now ([7597adb](https://github.com/ProjectAJ14/d-pilot/commit/7597adb252535a61403419a044defe880805b2c4))
+* **envs:** let admins revoke envs that have no connection ([23cee32](https://github.com/ProjectAJ14/d-pilot/commit/23cee329c061bc557d838da32635c2b06d98eed6))
+* **schema:** keep an introspection that raced a cache clear out of the cache ([2f9681e](https://github.com/ProjectAJ14/d-pilot/commit/2f9681e168b47e73d0d12e50cc69fab6fd10efd6))
+* **secrets:** create the key file atomically and log each bad secret once ([35b3f94](https://github.com/ProjectAJ14/d-pilot/commit/35b3f94fc47c891fdb086d4001638974de944422))
+* **secrets:** create the key file where hard links are unsupported ([9d5b489](https://github.com/ProjectAJ14/d-pilot/commit/9d5b4898809800e8acecf5da16b3494bef89ad6a))
+* **secrets:** make the no-hard-link key file fallback atomic ([02a8d4e](https://github.com/ProjectAJ14/d-pilot/commit/02a8d4e6877f1feec7cbf100dd714ff8f2b526ea))
+* **settings:** accept only paths or http(s) URLs for logos and favicon ([f094cb2](https://github.com/ProjectAJ14/d-pilot/commit/f094cb2d32a45fc41ebf1464ec83d0df17175b80))
+* **settings:** audit connection fields an update cleared ([3a530a9](https://github.com/ProjectAJ14/d-pilot/commit/3a530a9485fc02fd510644611ca0446bebd278ac))
+* **settings:** cap numeric limits at a sane maximum ([4968fb6](https://github.com/ProjectAJ14/d-pilot/commit/4968fb696b382f79513ba2ae6650a71c6c65cc30))
+* **settings:** close remaining secret-redirect paths ([cf2df37](https://github.com/ProjectAJ14/d-pilot/commit/cf2df37c2232df7489fea7be3daa47ddbb8e286f))
+* **settings:** fall back to the default for out-of-range numbers ([91fb2da](https://github.com/ProjectAJ14/d-pilot/commit/91fb2da205c707766e108ddf1d9fb22ec78be0af))
+* **settings:** gate kept passwords on a safe-field allowlist ([63f5cb8](https://github.com/ProjectAJ14/d-pilot/commit/63f5cb81b8f9361839a0a426a838ec8aedd6bc0e))
+* **settings:** guard the AI key target while a key is stored ([94e3963](https://github.com/ProjectAJ14/d-pilot/commit/94e3963ecdbe5f258383cf67c537f7803fda42c9))
+* **settings:** hide driver errors when a test used stored secrets ([275aeee](https://github.com/ProjectAJ14/d-pilot/commit/275aeee68101dbb109d9a9be7b6fb6706c7fd2dd))
+* **settings:** keep an undecryptable connection secret intact ([04381d3](https://github.com/ProjectAJ14/d-pilot/commit/04381d336d0428b446a291ee26b9d001507c424c))
+* **settings:** keep an undecryptable secret unset ([b86de39](https://github.com/ProjectAJ14/d-pilot/commit/b86de396fa3720698c03bde0a8c169e2621be91b))
+* **settings:** keep production connections in a production env ([fdce6d3](https://github.com/ProjectAJ14/d-pilot/commit/fdce6d3f752a9415466402e3a114b89cfe0c7775))
+* **settings:** let an admin clear a stored password or URI ([b395014](https://github.com/ProjectAJ14/d-pilot/commit/b395014820b2f1e7829856c96e601f2707d9af53))
+* **settings:** mask secrets in the logged connection-test error ([f39d9ee](https://github.com/ProjectAJ14/d-pilot/commit/f39d9ee45ea895eb23a4af2280894a9e84a3959a))
+* **settings:** read bool settings the same way in UI and server ([39b94e4](https://github.com/ProjectAJ14/d-pilot/commit/39b94e44d0364049ac6fad32f3e56ad4bcb9b0e0))
+* **settings:** reject backslashes in logo and favicon URLs ([1f4f086](https://github.com/ProjectAJ14/d-pilot/commit/1f4f086b8af7199235145bbe0544e09d8c1a5f2f))
+* **settings:** reject whitespace and control characters in asset URLs ([cdd11a6](https://github.com/ProjectAJ14/d-pilot/commit/cdd11a66a8c4fadde7a100256d93d23fa712761f))
+* **settings:** report a stored but undecryptable AI key as set ([02a85c6](https://github.com/ProjectAJ14/d-pilot/commit/02a85c6e00270c305438246979c2404ced04dcad))
+* **settings:** require a unit and a positive JWT_EXPIRES_IN ([03a741f](https://github.com/ProjectAJ14/d-pilot/commit/03a741fc2f7c93635b02ada265d717da240a8ec2))
+* **settings:** require secret re-entry when its target changes ([b6f77f6](https://github.com/ProjectAJ14/d-pilot/commit/b6f77f6949f5af91db57b2a69929c086f6b55fa6))
+* **settings:** retire pools without awaiting on a timeout change ([63a0c8d](https://github.com/ProjectAJ14/d-pilot/commit/63a0c8d415869b2cf19105813d3f21e97b173b00))
+* **settings:** seed connections once DBFORGE_CONNECTIONS has some ([114698a](https://github.com/ProjectAJ14/d-pilot/commit/114698a15aee3991300fd81e31a8fa769a92b912))
+* **settings:** show a limit's clamped value in Settings ([6e46656](https://github.com/ProjectAJ14/d-pilot/commit/6e4665668df8dcce81f6eff3f02dfb18465c12ea))
+* **settings:** show copy formats and favicon defaults ([e66dc5f](https://github.com/ProjectAJ14/d-pilot/commit/e66dc5f5f368199883f1952921dc44dfa1cc2794))
+* **ui:** align connection form fields ([8f4423c](https://github.com/ProjectAJ14/d-pilot/commit/8f4423cd65aa624b271d0a1160f8b4ca307bf482))
+* **ui:** clear the active connection when the last one is deleted ([5d9ca55](https://github.com/ProjectAJ14/d-pilot/commit/5d9ca551f9ef06ddda57fcd55f0dbe78eb80b0f2))
+* **ui:** detach tabs from deleted connections through the store ([deb7e9a](https://github.com/ProjectAJ14/d-pilot/commit/deb7e9a97a350dc23a6a69237f35176760f0829f))
+* **ui:** forget the remembered schema of a deleted connection ([d9a5cb3](https://github.com/ProjectAJ14/d-pilot/commit/d9a5cb3fe49f1bf4b42263f61b3727e857df073f))
+* **ui:** keep a saved orphan env pickable until the user edit is saved ([ddf55f2](https://github.com/ProjectAJ14/d-pilot/commit/ddf55f2bc02d429ba3a48a353469f41f02cc3db9))
+* **write:** bind drafts saved before the upgrade to their connection ([13b0293](https://github.com/ProjectAJ14/d-pilot/commit/13b0293c4a450bb233f4facc3ad26532134105ef))
+* **write:** bind the default schema and quote it ([f2f2d68](https://github.com/ProjectAJ14/d-pilot/commit/f2f2d683a8bb191d9630a5792a8db2159d9c744c))
+* **write:** keep a request's env and target in step with its connection ([4b426a7](https://github.com/ProjectAJ14/d-pilot/commit/4b426a72392652bd288c45e73a573168a9261455))
+
+
+### Features
+
+* **settings:** admin screens for connections, branding, limits and AI ([e3ad766](https://github.com/ProjectAJ14/d-pilot/commit/e3ad766027004286113d1e9329c23962816e7696))
+* **settings:** configure the login page text ([2711674](https://github.com/ProjectAJ14/d-pilot/commit/271167462f6ee34f38c7daa57ae0b1c1f00c3f68))
+* **settings:** import connections from JSON ([6f4f48e](https://github.com/ProjectAJ14/d-pilot/commit/6f4f48e821e53ab463858a56123a809b649674af))
+* **settings:** import connections from JSON in the UI ([18c5a56](https://github.com/ProjectAJ14/d-pilot/commit/18c5a56f29f54e41183142f375f7ee85e705c2c0))
+* **settings:** operator ceilings for limits ([8a78fef](https://github.com/ProjectAJ14/d-pilot/commit/8a78fefa7e9b1d5ecb8dbdb074b1067d7526b9c8))
+* **settings:** store runtime config in the app database ([3b7e275](https://github.com/ProjectAJ14/d-pilot/commit/3b7e2759559fcea3f49405885e484945baa39235))
+* **settings:** tab title follows the app name ([f2b99f6](https://github.com/ProjectAJ14/d-pilot/commit/f2b99f659c56d01132e7a3d1cb79eccbf5a7889d))
+* **settings:** test a connection before saving it ([0911cc5](https://github.com/ProjectAJ14/d-pilot/commit/0911cc591113f42bfe6295a8c510964c57ff51cb))
+* **settings:** test connections before importing them ([e5dca1a](https://github.com/ProjectAJ14/d-pilot/commit/e5dca1af052a21f7127f4dd68a3e5bae9e116539))
+* **ui:** hide the footer on the login screen ([47492da](https://github.com/ProjectAJ14/d-pilot/commit/47492da2dcd6ce3bd7123e4d3df1e989006cda63))
+* **write:** bind a write request to its connection target ([e700d05](https://github.com/ProjectAJ14/d-pilot/commit/e700d05a5befc6783a574f56fb813ea86e2fe7d6))
+
+
+### Performance Improvements
+
+* **settings:** prepare getSetting once and read MAX_ROWS once per query ([0a0a0a2](https://github.com/ProjectAJ14/d-pilot/commit/0a0a0a2088a51889fb722bcfc005b037c27110ec))
+* **settings:** read every connection's secret flags in one query ([769a1df](https://github.com/ProjectAJ14/d-pilot/commit/769a1dfd10397cda9e5f9e27cef5865ce49d8fc6))
+
+
+### BREAKING CHANGES
+
+* AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_KEY,
+AZURE_OPENAI_DEPLOYMENT, AZURE_OPENAI_MODEL, AZURE_OPENAI_API_VERSION and
+AZURE_OPENAI_INSECURE_TLS are no longer read from the environment. Values
+already saved in Settings keep working; values that only lived in .env must
+be re-entered under Settings -> Azure OpenAI.
+* DBFORGE_CONNECTIONS is no longer read. An install that already
+imported it keeps its connections. A fresh install must add them in Settings ->
+Connections, or paste the old JSON array into Settings -> Connections -> Import.
+
 # [1.31.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.30.0...v1.31.0) (2026-10-14)
 
 
