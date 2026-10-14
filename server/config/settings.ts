@@ -5,6 +5,7 @@ import {
   setSetting,
 } from "../services/sqlite-store.js";
 import { decryptSecret, encryptSecret } from "./secrets.js";
+import { DEFAULT_COPY_FORMATS } from "./copy-formats.js";
 import type { AppSettingView, SettingSource } from "../types/index.js";
 
 /**
@@ -49,7 +50,12 @@ export const SETTINGS = {
   APP_NAME: { group: "branding", kind: "string", default: "D-Pilot" },
   LOGO_URL: { group: "branding", kind: "string" },
   LIGHT_LOGO_URL: { group: "branding", kind: "string" },
-  FAVICON_URL: { group: "branding", kind: "string" },
+  // The icon index.html ships with.
+  FAVICON_URL: {
+    group: "branding",
+    kind: "string",
+    default: "/favicon-32.png",
+  },
   EMAIL_DOMAIN: { group: "branding", kind: "string" },
   APP_BASE_URL: { group: "branding", kind: "url" },
 
@@ -73,7 +79,15 @@ export const SETTINGS = {
     default: "24",
     max: 8760, // a year
   },
-  COPY_FORMATS: { group: "limits", kind: "json" },
+  COPY_FORMATS: {
+    group: "limits",
+    kind: "json",
+    // A getter, read at use time: copy-formats.ts imports this module too, so
+    // touching DEFAULT_COPY_FORMATS while SETTINGS is built could hit it early.
+    get default() {
+      return JSON.stringify(DEFAULT_COPY_FORMATS, null, 2);
+    },
+  },
   JWT_EXPIRES_IN: { group: "limits", kind: "duration", default: "24h" },
 } satisfies Record<string, SettingDef>;
 

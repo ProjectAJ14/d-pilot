@@ -916,3 +916,18 @@ describe("operator ceilings (*_LIMIT)", () => {
     vi.stubEnv("SCHEMA_CACHE_TTL_HOURS_LIMIT", "");
   });
 });
+
+describe("fallback defaults", () => {
+  it("shows the built-in copy formats and favicon as real defaults", async () => {
+    vi.stubEnv("COPY_FORMATS", "");
+    vi.stubEnv("FAVICON_URL", "");
+    const list = await (await call("GET")).json();
+    const copy = list.find((s: any) => s.key === "COPY_FORMATS");
+    expect(copy.source).toBe("default");
+    expect(JSON.parse(copy.value).map((f: any) => f.id)).toContain("csv");
+    expect(list.find((s: any) => s.key === "FAVICON_URL")).toMatchObject({
+      value: "/favicon-32.png",
+      source: "default",
+    });
+  });
+});

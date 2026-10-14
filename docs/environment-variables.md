@@ -73,20 +73,20 @@ number is ignored with a warning.
 
 ## Fallbacks (overridable in Settings)
 
-| Variable                 | Default          | Purpose                                                                                            |
-| ------------------------ | ---------------- | -------------------------------------------------------------------------------------------------- |
-| `APP_NAME`               | `D-Pilot`        | Name in the header, page title and installed-app manifest.                                         |
-| `LOGO_URL`               | —                | Header logo for dark mode: a path under `public/` or an external URL. Empty = text-only header.    |
-| `LIGHT_LOGO_URL`         | —                | Header logo for light mode.                                                                        |
-| `FAVICON_URL`            | —                | Browser tab icon.                                                                                  |
-| `EMAIL_DOMAIN`           | —                | Domain for the seeded admin and for validating new users' emails.                                  |
-| `APP_BASE_URL`           | unset            | Public origin. See [below](#app_base_url).                                                         |
-| `JWT_EXPIRES_IN`         | `24h`            | Session length for new logins. Needs a unit: `24h`, `7d`, `90m`.                                   |
-| `MAX_ROWS`               | `10000`          | Row cap applied to queries without their own limit.                                                |
-| `QUERY_TIMEOUT_MS`       | `90000`          | Query timeout in milliseconds.                                                                     |
-| `MCP_MAX_ROWS`           | `1000`           | Default rows per AI-agent query on `/api/mcp`; agents may ask for more per call, up to `MAX_ROWS`. |
-| `SCHEMA_CACHE_TTL_HOURS` | `24`             | How long a connection's introspected schema is cached. `0` disables it.                            |
-| `COPY_FORMATS`           | built-in formats | Results "Copy as" formats. See [below](#copy_formats).                                             |
+| Variable                 | Default           | Purpose                                                                                            |
+| ------------------------ | ----------------- | -------------------------------------------------------------------------------------------------- |
+| `APP_NAME`               | `D-Pilot`         | Name in the header, page title and installed-app manifest.                                         |
+| `LOGO_URL`               | unset             | Header logo for dark mode: a path under `public/` or an external URL. Unset = text-only header.    |
+| `LIGHT_LOGO_URL`         | `LOGO_URL`        | Header logo for light mode.                                                                        |
+| `FAVICON_URL`            | `/favicon-32.png` | Browser tab icon.                                                                                  |
+| `EMAIL_DOMAIN`           | unset             | Domain for the seeded admin and for new users' emails; unset accepts any domain.                   |
+| `APP_BASE_URL`           | unset             | Public origin; unset gives relative links. See [below](#app_base_url).                             |
+| `JWT_EXPIRES_IN`         | `24h`             | Session length for new logins. Needs a unit: `24h`, `7d`, `90m`.                                   |
+| `MAX_ROWS`               | `10000`           | Row cap applied to queries without their own limit.                                                |
+| `QUERY_TIMEOUT_MS`       | `90000`           | Query timeout in milliseconds.                                                                     |
+| `MCP_MAX_ROWS`           | `1000`            | Default rows per AI-agent query on `/api/mcp`; agents may ask for more per call, up to `MAX_ROWS`. |
+| `SCHEMA_CACHE_TTL_HOURS` | `24`              | How long a connection's introspected schema is cached. `0` disables it.                            |
+| `COPY_FORMATS`           | built-in formats  | Results "Copy as" formats. See [below](#copy_formats).                                             |
 
 ### `APP_BASE_URL`
 
@@ -106,8 +106,9 @@ on every request.
 ### `COPY_FORMATS`
 
 A JSON array of the formats offered in the results grid's **Copy as** menu and the
-per-column right-click menu. Leave it unset for the built-ins: CSV, TSV, JSON,
-Markdown, SQL INSERT, comma, single-quoted and double-quoted.
+per-column right-click menu. The default is the built-in list (CSV, TSV, JSON,
+Markdown, SQL INSERT, comma, single-quoted and double-quoted), shown in full in
+**Settings → Branding & Limits** so you can start from it.
 
 Each entry has:
 
