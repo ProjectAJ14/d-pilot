@@ -14,7 +14,8 @@ description: How to launch and drive D-Pilot locally to verify changes end-to-en
 
 ## Login / API auth
 
-- Admin user is `admin@$EMAIL_DOMAIN` with password `$DEFAULT_ADMIN_PASSWORD` (both in `.env`).
+- Admin user is `admin@$EMAIL_DOMAIN` (`admin@example.com` when unset) with password
+  `$DEFAULT_ADMIN_PASSWORD` (both in `.env`).
 - Get a JWT: `POST /api/auth/login` with `{"username","password"}` → `{token}`; pass as
   `Authorization: Bearer <token>` to everything else.
 
@@ -34,39 +35,50 @@ values (`status ... values: draft | placed | ...`) from `pg_stats`, which is emp
 until a table is analyzed. If you change seed data by hand, re-run `ANALYZE` as the
 tables' owner (a non-owner role is silently skipped with a warning).
 
-Then:
+Then start the stack. Connections are not read from env any more, so they go in
+through the API once the server is up:
 
 ```bash
 SCRATCH=$(mktemp -d)
 PORT=3199 DATA_DIR=$SCRATCH/data JWT_SECRET=local-verify-secret-0123456789abcdef \
 EMAIL_DOMAIN=example.com DEFAULT_ADMIN_PASSWORD='Verify#12345' \
-DBFORGE_CONNECTIONS='[{"id":"local-pg","name":"Local Postgres","env":"DEV","type":"postgres","host":"localhost","port":5432,"database":"dpilot_local","username":"<role>","password":"","schema":"app_core"}]' \
 npx tsx server/index.ts
 PORT=3199 VITE_PORT=3198 npx vite   # client on :3198 proxying to :3199
+
+# Log in and import the local Postgres connection
+TOKEN=$(curl -s -X POST localhost:3199/api/auth/login -H 'content-type: application/json' \
+  -d '{"username":"admin@example.com","password":"Verify#12345"}' | jq -r .token)
+curl -s -X POST localhost:3199/api/settings/connections/import \
+  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"connections":[{"id":"local-pg","name":"Local Postgres","env":"DEV","type":"postgres","host":"localhost","port":5432,"database":"dpilot_local","username":"<role>","password":"","schema":"app_core"}]}'
 ```
 
 Log in as `admin@example.com` / `Verify#12345`. The admin is seeded into the empty
-scratch DB, so nothing is shared with your day-to-day instance. Kill both processes and
-delete `$SCRATCH` when done.
+scratch DB, so nothing is shared with your day-to-day instance. (Settings →
+Connections → Import in the UI takes the same array.) Kill both processes and delete
+`$SCRATCH` when done.
 
 ## Simulating unreachable databases (VPN-off / connection-failure paths)
 
-Don't edit `.env`. Launch a second isolated stack with connections overridden on the
-command line (command-line env wins over dotenv):
+Don't edit `.env`. Use the isolated stack above and import a connection that cannot
+resolve instead of (or as well as) the local one:
 
 ```bash
-PORT=3199 DBFORGE_CONNECTIONS='[{"id":"bad-pg","name":"Bad PG","type":"postgres","env":"QA","host":"nonexistent-host.invalid","port":5432,"database":"foo","username":"u","password":"p","schema":"public"}]' npx tsx server/index.ts
-PORT=3199 VITE_PORT=3198 npx vite   # client on :3198 proxying to :3199
+curl -s -X POST localhost:3199/api/settings/connections/import \
+  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"connections":[{"id":"bad-pg","name":"Bad PG","type":"postgres","env":"QA","host":"nonexistent-host.invalid","port":5432,"database":"foo","username":"u","password":"p","schema":"public"}]}'
 ```
 
 Gotchas:
 
 - The connection JSON field is **`env`** (e.g. `"QA"`), not `environment` — the sidebar
-  groups by `conn.env` and silently shows "No connections configured" if it's missing.
+  groups by `conn.env` and shows "No connections configured" if none are set.
 - `host: "nonexistent-host.invalid"` fails fast (DNS); MongoDB takes ~10s
   (serverSelectionTimeoutMS) — useful for observing loading states.
-- Without `DATA_DIR`, both stacks share `data/dbpilot.sqlite` (same admin login, but
-  also the same settings and audit log) — prefer the isolated recipe above.
+- Without `DATA_DIR`, the stack shares `data/dbpilot.sqlite` (same admin login, but
+  also the same connections, settings and audit log) — prefer the isolated recipe above.
+- Operator ceilings: start the server with e.g. `MAX_ROWS_LIMIT=500` to check the
+  Settings max and the 400 on a higher value.
 
 ## Driving the UI
 

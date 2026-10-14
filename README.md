@@ -194,7 +194,7 @@ hands to anyone sharing the origin.
 
 ## Configuration
 
-Configuration comes in two kinds. Copy `.env.example` to `.env`; it is laid out the
+Configuration comes in three kinds. Copy `.env.example` to `.env`; it is laid out the
 same way.
 
 **Bootstrap — env only.** Needed before the app database exists or baked into the
@@ -216,31 +216,28 @@ DEFAULT_ADMIN_PASSWORD=<strong-password>
 # Encrypts secrets stored in the app database. Unset = a key generated into DATA_DIR/settings.key
 # SETTINGS_ENCRYPTION_KEY=<any-long-random-string>
 # HTTPS_PROXY=http://proxy.example:8080   # outbound proxy for the Azure OpenAI call
+
+# Operator ceilings — can only LOWER a limit's built-in cap (shown here)
+# MAX_ROWS_LIMIT=1000000
+# MCP_MAX_ROWS_LIMIT=1000000
+# QUERY_TIMEOUT_MS_LIMIT=2147483647
+# SCHEMA_CACHE_TTL_HOURS_LIMIT=8760
 ```
 
-**Initial values — editable later in Settings.** Admins change these in **Settings →
-Connections / Branding & Limits / Azure OpenAI** without a restart. Precedence is
-**saved in Settings > `.env` > built-in default**: `.env` only seeds them, and once a
-value is saved in Settings, editing `.env` no longer changes it. **Reset** drops the
-saved value so `.env` (or the default) applies again.
+**Operator ceilings.** A `*_LIMIT` caps what an admin may save for that limit in
+Settings: a higher value is refused ("MAX_ROWS must be ≤ 500 (set by the server
+operator)"), and Settings shows the max next to the field. Lowering a ceiling below a
+value already saved (or set in `.env`, or the default) clamps it — nothing breaks. A
+ceiling above the built-in cap, zero, negative or not a number is ignored with a
+warning.
+
+**Initial values / fallbacks — overridden by Settings.** Branding and limits. Admins
+change these in **Settings → Branding & Limits** without a restart. Precedence is
+**saved in Settings > `.env` > built-in default**; once a value is saved in Settings,
+editing `.env` no longer changes it. **Reset** drops the saved value so `.env` (or the
+default) applies again.
 
 ```env
-# Database connections — JSON array, imported ONCE (see below)
-DBFORGE_CONNECTIONS='[
-  {
-    "id": "qa-pg",
-    "name": "QA PostgreSQL",
-    "env": "QA",
-    "type": "postgres",
-    "host": "your-db-host",
-    "port": 5432,
-    "database": "your_database",
-    "username": "your_user",
-    "password": "your_password",
-    "schema": "public"
-  }
-]'
-
 # Branding
 APP_NAME="Your App Name"
 LOGO_URL=/logo/your-logo.svg              # dark-ink mark, shown on the light theme (empty = text-only)
@@ -258,27 +255,42 @@ SCHEMA_CACHE_TTL_HOURS=24 # schema cache (autocomplete + AI); hours, 0 disables
 # Results "Copy as" formats (optional; JSON array). Unset = built-in defaults
 # (CSV, TSV, JSON, Markdown, SQL INSERT, comma, single-quoted, double-quoted).
 # COPY_FORMATS='[{"id":"in-clause","label":"SQL IN","group":"List / SQL","columnMenu":true,"template":{"columnSeparator":",","rowSeparator":",","quote":"single","prefix":"IN (","suffix":")"}}]'
-
-# AI assistant — Azure OpenAI (optional; endpoints return 503 if unset)
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
-AZURE_OPENAI_KEY=<your-key>
-AZURE_OPENAI_DEPLOYMENT=<your-deployment-name>
-AZURE_OPENAI_MODEL=gpt-4o           # optional, informational
-# AZURE_OPENAI_API_VERSION=2024-08-01-preview
-# AZURE_OPENAI_INSECURE_TLS=true    # only for TLS-inspecting corporate proxies
 ```
 
-**Connections are imported once.** On the first start where the app database has no
-connections and `DBFORGE_CONNECTIONS` has some, they are copied into it. From then on connections live in **Settings →
-Connections** and changes to the env var are ignored — add, edit or remove them in-app.
-You can leave the variable unset and create every connection in Settings instead.
+**Settings only — no env var.** Database connections (**Settings → Connections**) and
+the AI assistant (**Settings → Azure OpenAI**: endpoint, key, deployment, model, API
+version, TLS) live in the app database and are never read from `.env`. A fresh install
+starts with no connections; the first admin adds them.
 
-**Bulk import.** **Settings → Connections → Import** takes the same JSON as
-`DBFORGE_CONNECTIONS` (an array, or a single connection object) and previews each
-row before anything is saved. It is all-or-nothing and create-only: an invalid item,
-a repeated id or an id that already exists stops the whole import, and an existing
-connection is never overwritten. API: `POST /api/settings/connections/import` with
-`{ "connections": [...] }` (up to 200).
+**Bulk import.** **Settings → Connections → Import** takes a JSON array of connections
+(or a single connection object) and previews each row before anything is saved. It is
+all-or-nothing and create-only: an invalid item, a repeated id or an id that already
+exists stops the whole import, and an existing connection is never overwritten. API:
+`POST /api/settings/connections/import` with `{ "connections": [...] }` (up to 200):
+
+```json
+[
+  {
+    "id": "qa-pg",
+    "name": "QA PostgreSQL",
+    "env": "QA",
+    "type": "postgres",
+    "host": "your-db-host",
+    "port": 5432,
+    "database": "your_database",
+    "username": "your_user",
+    "password": "your_password",
+    "schema": "public"
+  }
+]
+```
+
+> **Upgrading from an `.env`-configured install:** `DBFORGE_CONNECTIONS` and the
+> `AZURE_OPENAI_*` variables are no longer read. Connections and AI settings an earlier
+> version already imported or saved are kept. Anything that only lived in `.env`:
+> re-create connections via **Settings → Connections → Import** (paste the old JSON
+> array as-is) and re-enter the AI settings in **Settings → Azure OpenAI**. Then delete
+> those lines from `.env`.
 
 **Secrets are encrypted at rest.** Connection passwords/URIs and `AZURE_OPENAI_KEY` are
 stored AES-256-GCM encrypted, with `SETTINGS_ENCRYPTION_KEY` or — if unset — a key
@@ -312,8 +324,8 @@ instance instead.
 
 ### Access model
 
-Access is **capability-based and scoped per environment** (`DEV`, `QA`, `UAT`, `STG`, `PROD`
-by default — see [Custom environments](#custom-environments)).
+Access is **capability-based and scoped per environment** (typically `DEV`, `QA`, `UAT`,
+`STG`, `PROD` — whatever envs your connections use; see [Custom environments](#custom-environments)).
 Each user has an `isAdmin` flag plus four capability lists, managed from **Settings → User Management**:
 
 | Capability                            | Grants                                                |
@@ -331,7 +343,7 @@ on every environment whose name contains "prod" — see [Custom environments](#c
 
 The environment list is **not** hardcoded — it is derived from the `env` values of the
 configured connections. Adding a connection with a new `env` (in **Settings →
-Connections**, or in `DBFORGE_CONNECTIONS` before the first start) is all it takes:
+Connections**) is all it takes:
 
 ```jsonc
 { "id": "sp-pg", "name": "Super Prod PostgreSQL", "env": "SUPER_PROD", "type": "postgres", … }
@@ -512,10 +524,10 @@ HMR). Verify PWA behavior against a production build — `npm run build && npm s
 ## First-Run Behavior
 
 - SQLite database created at `data/dbpilot.sqlite` (WAL mode)
-- Default admin user seeded: `admin@<EMAIL_DOMAIN>` with `DEFAULT_ADMIN_PASSWORD`, granted all capabilities on all environments
+- Default admin user seeded: `admin@<EMAIL_DOMAIN>` (`admin@example.com` when `EMAIL_DOMAIN` is unset) with `DEFAULT_ADMIN_PASSWORD`; as an admin it has every capability on every environment
 - Default PHI masking rules seeded (name / DOB / phone / email / address / ZIP patterns, PARTIAL masking)
 - Default app settings seeded: PHI masked on `PROD`, write mode enabled, direct-write on `DEV`
-- `DBFORGE_CONNECTIONS` imported into the app database (once — later edits to it are ignored)
+- No connections — log in as the admin and add them in **Settings → Connections** (or **Import** a JSON array)
 - Unless `SETTINGS_ENCRYPTION_KEY` is set, a secrets key generated at `data/settings.key`
 
 ---
@@ -700,11 +712,11 @@ has to be re-entered in Settings.
 
 ## Troubleshooting
 
-| Issue                        | Fix                                                                                        |
-| ---------------------------- | ------------------------------------------------------------------------------------------ |
-| `EADDRINUSE` on startup      | Another process is using the port. `lsof -i :3101` to find it                              |
-| Database connection errors   | Verify the server can reach DB hosts: `telnet <host> <port>`                               |
-| AI assistant returns 503     | Fill in **Settings → Azure OpenAI** (or the `AZURE_OPENAI_*` seeds), then **Test Connect** |
-| Logo not showing             | Check file exists at `public/logo/` and `LOGO_URL` matches the path                        |
-| Forgot admin password        | Delete `data/dbpilot.sqlite` and restart — re-seeds from `.env`                            |
-| Permission denied on `data/` | `chown -R www-data:www-data /opt/d-pilot/data`                                             |
+| Issue                        | Fix                                                                 |
+| ---------------------------- | ------------------------------------------------------------------- |
+| `EADDRINUSE` on startup      | Another process is using the port. `lsof -i :3101` to find it       |
+| Database connection errors   | Verify the server can reach DB hosts: `telnet <host> <port>`        |
+| AI assistant returns 503     | Fill in **Settings → Azure OpenAI**, then **Test Connect**          |
+| Logo not showing             | Check file exists at `public/logo/` and `LOGO_URL` matches the path |
+| Forgot admin password        | Delete `data/dbpilot.sqlite` and restart — re-seeds from `.env`     |
+| Permission denied on `data/` | `chown -R www-data:www-data /opt/d-pilot/data`                      |

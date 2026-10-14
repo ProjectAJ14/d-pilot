@@ -1,6 +1,7 @@
 # Local Postgres for experimenting with the write / migration workflow.
-# Isolated from any production target DB — the .env.dev DBFORGE_CONNECTIONS
-# points only here. Start with:  npm run dev:db   (stop: npm run dev:db:down)
+# Isolated from any production target DB: point the dev stack's connection at it
+# in Settings → Connections (localhost:5433, dpilot_dev, user/password dpilot).
+# Start with:  npm run dev:db   (stop: npm run dev:db:down)
 #
 # Host port 5433 (not 5432) so it never clashes with a Postgres you already run.
 services:

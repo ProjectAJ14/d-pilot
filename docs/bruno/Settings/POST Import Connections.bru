@@ -42,7 +42,7 @@ body:json {
 }
 
 docs {
-  Create several connections at once from `DBFORGE_CONNECTIONS`-shaped JSON. Body is always `{ connections: [...], dryRun? }` (1-200 items); each item is validated exactly like Create Connection.
+  Create several connections at once from a JSON array of connections (an old `DBFORGE_CONNECTIONS` value works as-is). Body is always `{ connections: [...], dryRun? }` (1-200 items); each item is validated exactly like Create Connection.
 
   All or nothing: if any item is invalid, repeats an id in the payload, or uses an id that already exists, nothing is written and the response is 400 `{ error, errors: [{ index, id, error }] }`. Create-only — an existing connection is never updated (edit it with Update Connection, which re-checks secrets). On success: 201 with the created connections (no secrets), one `CONNECTION_IMPORT` audit entry listing ids, envs and types.
 

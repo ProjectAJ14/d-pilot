@@ -14,12 +14,12 @@ docs {
   Non-sensitive front-end config (app name, logos, PHI-masked environments).
 
   `environments` lists the environments this deployment has, ordered least → most
-  sensitive. It is derived from `DBFORGE_CONNECTIONS`, so it is also the set of
+  sensitive. It is derived from the configured connections (empty when there are none), so it is also the set of
   values every other endpoint accepts for an environment (capability lists,
   masked-envs, direct-write envs) — the client renders its pickers from it.
 
   `copyFormats` lists the results "Copy as" formats (CSV/JSON/SQL-IN/etc.) the
-  client offers. It comes from the `COPY_FORMATS` env var (a JSON array of
+  client offers. It comes from the `COPY_FORMATS` setting (Settings, else `.env`) (a JSON array of
   `CopyFormat`), or code defaults when unset.
 
   **Public** — no auth.

@@ -52,8 +52,8 @@ place. See the README's MCP section.
   employer, or internal-project name (or internal schema/table names) in code, tests,
   docs, commit messages, or `CHANGELOG.md`. The product name is **D-Pilot**; anything
   company- or deployment-specific (app name, logos, email domain, DB connections) comes
-  from runtime config — admin Settings, seeded from `.env` (`APP_NAME`, `LOGO_URL`,
-  `EMAIL_DOMAIN`, `DBFORGE_CONNECTIONS`, …). Where
+  from runtime config — admin Settings (connections, AI), with `.env` fallbacks for
+  branding (`APP_NAME`, `LOGO_URL`, `EMAIL_DOMAIN`, …). Where
   code needs a hardcoded fallback, use the neutral `D-Pilot` / `d-pilot`. Test fixtures
   must use generic names (`app_core`, `orders`, `customers`), never real internal ones.
 - **Capability-based access, scoped per environment** (`DEV`/`QA`/`UAT`/`STG`/`PROD` in a
@@ -64,7 +64,8 @@ place. See the README's MCP section.
   `server/middleware/auth.ts`).
 - **The environment list is runtime config, never a literal.** `getEnvironments()`
   (`server/config/connections.ts`) derives it from the `env` values of the configured
-  connections (`db_connections`) and is the single source of truth; the client gets it from
+  connections (`db_connections` only — no connections, no environments) and is the single
+  source of truth; the client gets it from
   `/api/config` → `environments` and reads it via `useEnvironments()`
   (`src/utils/environments.ts`, which also owns env colors/labels). `Environment` is
   therefore `string`, not a union. **Never reintroduce a hardcoded
@@ -86,9 +87,11 @@ place. See the README's MCP section.
   `isProductionEnv` in `src/utils/environments.ts`.
 - **In-app config, not env vars:** masked environments, PHI rules, write-mode toggle, and
   direct-write environments live in the SQLite `app_settings`/`phi_field_rules` tables and
-  are edited in Settings — not in `.env`. Connections, AI, branding and limits are
-  admin-editable too (`/api/settings`): `.env` only seeds them (precedence db > env >
-  default; connections are imported once). See `server/CLAUDE.md`. (Legacy
+  are edited in Settings — not in `.env`. Connections and AI (`AZURE_OPENAI_*`) are
+  Settings-only (`db_connections` / `app_settings`, never read from env). Branding and
+  limits are admin-editable too (`/api/settings`), with `.env` as a fallback (precedence
+  db > env > default) and limits capped by the operator's `*_LIMIT` ceilings. See
+  `server/CLAUDE.md`. (Legacy
   `PHI_ALWAYS_MASKED` / `PHI_ADMIN_CAN_UNMASK` env vars are no longer read.)
 - **The service worker must never cache `/api`.** D-Pilot installs as a PWA
   (`vite.pwa.config.ts`), and Cache Storage is unencrypted on disk and outlives a logout —
@@ -137,10 +140,13 @@ place. See the README's MCP section.
 Copy `.env.example` → `.env`. **Bootstrap (env only):** `JWT_SECRET`, `PORT` (3101),
 `VITE_PORT` (3100), `BASE_PATH` (unset = domain root; see the sub-path rule above),
 `DATA_DIR` (`data`), `SETTINGS_ENCRYPTION_KEY` (else `DATA_DIR/settings.key`),
-`DEFAULT_ADMIN_PASSWORD` (first-run admin seed). **Seeds, editable in Settings (db > env >
-default):** `DBFORGE_CONNECTIONS` (imported once, then ignored), `MAX_ROWS` (10000),
-`QUERY_TIMEOUT_MS` (90000), `SCHEMA_CACHE_TTL_HOURS` (24), `AZURE_OPENAI_*` (optional AI),
-`APP_NAME`/`LOGO_URL`/`LIGHT_LOGO_URL`/`FAVICON_URL` (branding), `EMAIL_DOMAIN`. Full
+`DEFAULT_ADMIN_PASSWORD` (first-run admin seed), `HTTP(S)_PROXY`, and the operator
+ceilings `MAX_ROWS_LIMIT`/`MCP_MAX_ROWS_LIMIT`/`QUERY_TIMEOUT_MS_LIMIT`/
+`SCHEMA_CACHE_TTL_HOURS_LIMIT` (can only lower the built-in cap). **Fallbacks, overridden in
+Settings (db > env > default):** `MAX_ROWS` (10000), `QUERY_TIMEOUT_MS` (90000),
+`MCP_MAX_ROWS` (1000), `SCHEMA_CACHE_TTL_HOURS` (24), `COPY_FORMATS`, `JWT_EXPIRES_IN`,
+`APP_NAME`/`LOGO_URL`/`LIGHT_LOGO_URL`/`FAVICON_URL`/`APP_BASE_URL` (branding),
+`EMAIL_DOMAIN`. **Settings only (no env var):** connections and `AZURE_OPENAI_*`. Full
 reference in `README.md`.
 
 ## Conventions

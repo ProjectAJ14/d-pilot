@@ -24,16 +24,21 @@ or more.
 ## How
 
 1. Start an isolated stack against local Postgres — the recipe is in the `verify`
-   skill ("Isolated stack against a local Postgres"). Add the AI config by exporting
-   only the `AZURE_OPENAI_*` lines (plus proxy vars, if any) from whatever local env
-   file holds them, without printing or copying the file:
+   skill ("Isolated stack against a local Postgres"). AI config is Settings-only (not
+   read from env), so save it through the API: build the body from only the
+   `AZURE_OPENAI_*` lines of whatever local env file holds them, without printing it
+   (`$TOKEN` is the admin JWT from the verify recipe):
    ```bash
-   while IFS= read -r l; do export "$l"; done < <(grep -E '^AZURE_OPENAI_[A-Z_]*=' <env-file>)
+   grep -E '^AZURE_OPENAI_[A-Z_]*=' <env-file> \
+     | jq -Rn '{values: ([inputs | capture("^(?<k>[^=]+)=(?<v>.*)$") | {(.k): (.v | ltrimstr("\"") | rtrimstr("\""))}] | add)}' \
+     | curl -s -o /dev/null -w '%{http_code}\n' -X PUT localhost:3199/api/settings \
+         -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' -d @-
    ```
-   Never echo the key, paste it into a command line, or commit it.
+   Proxy vars (`HTTPS_PROXY`), if any, are still env: export them before starting the
+   server. Never echo the key, paste it into a command line, or commit it.
 2. Baseline: the pre-change code (`main` or the commit before the change) in a
    scratch worktree, on another port (`git worktree add --detach <scratch>/baseline main`,
-   symlink `node_modules`), same env. The runner itself always comes from your branch:
+   symlink `node_modules`), same env, and the same connection + AI import against it. The runner itself always comes from your branch:
    ```bash
    DPILOT_PASSWORD='Verify#12345' npm run ai:eval -- --url http://localhost:3197 --runs 2 --sha main --out <scratch>/base.json
    ```

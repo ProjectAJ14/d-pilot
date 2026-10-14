@@ -50,7 +50,8 @@ submission/rejection when write mode is off.
   capability (write/approve/unmask) check that _in addition_.
 - `initAuthTables` creates/migrates the `users` table, backfills capability columns, does
   the one-time **`role` → capabilities** migration (then drops `role`), and seeds the
-  default admin (`admin@$EMAIL_DOMAIN`) when the table is empty.
+  default admin (`admin@$EMAIL_DOMAIN`, `admin@example.com` when unset) when the table is
+  empty.
 - The middleware keeps backward-compat for pre-capability JWTs (derives from the old
   `role` claim) so live sessions survive a deploy.
 
@@ -124,14 +125,19 @@ name rather than one baked in at build time. In production `express.static` also
   (`getWriteDirectEnvs`), AI column values (`getAiColumnValuesEnabled`).
 - **Runtime config** (`config/settings.ts`) — AI, branding and limits keys (`MAX_ROWS`,
   `AZURE_OPENAI_*`, `APP_NAME`, …) stored in `app_settings` under their env-var name.
-  Precedence **db > `process.env` > built-in default**; read via `getConfig*` at use time,
-  never into a module-level const. Bootstrap vars (PORT, DATA_DIR, BASE_PATH, JWT_SECRET,
-  DEFAULT_ADMIN_PASSWORD, proxies) stay env-only.
-- **Connections** (`db_connections`) — the source of truth once the DB is up.
-  `DBFORGE_CONNECTIONS` is imported **once** (marker `connections_seeded`, set only once the
-  table has a connection, so an env var added after an empty first run still seeds); later
-  edits to the env var are ignored. Before `initDatabase` (unit tests) `loadConnections` reads the
-  env var directly. The store invalidates the connection cache on every write.
+  Branding and limits: precedence **db > `process.env` > built-in default**. AI
+  (`group: "ai"`): **db > default** — never read from env, like connections. Read via
+  `getConfig*` at use time, never into a module-level const. Bootstrap vars (PORT,
+  DATA_DIR, BASE_PATH, JWT_SECRET, DEFAULT_ADMIN_PASSWORD, proxies) stay env-only.
+- **Operator ceilings** — a numeric setting's built-in `max` can be lowered (never raised)
+  by `<KEY>_LIMIT` in env (`settingMax`; invalid or above the cap → warning, built-in
+  cap). `updateSettings` 400s above it; `getConfigNumber` clamps the saved/env/default
+  value to it; `listSettings` reports it as `max`. All in `settings.ts` — callers just use
+  `getConfigNumber`.
+- **Connections** (`db_connections`) — the only source; managed in Settings →
+  Connections (or `POST /api/settings/connections/import`). `DBFORGE_CONNECTIONS` is not
+  read (a startup warning if set). Before `initDatabase` there are none. The store
+  invalidates the connection cache on every write.
 - **Secrets** (connection password/URI, `AZURE_OPENAI_KEY`) are AES-256-GCM encrypted
   (`config/secrets.ts`) with `SETTINGS_ENCRYPTION_KEY`, else a key generated once into
   `DATA_DIR/settings.key` (0600). The key never goes in SQLite; losing it loses the secrets.

@@ -11,7 +11,7 @@ delete {
 }
 
 docs {
-  Delete the saved value so `.env` (or the built-in default) applies again. The path segment is the setting key (e.g. `MAX_ROWS`); unknown keys 404. Resetting `AZURE_OPENAI_KEY` also resets `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_INSECURE_TLS`, so a `.env` key only ever goes to the `.env` endpoint. Audited as `SETTINGS_RESET`. Returns the same list as List Settings.
+  Delete the saved value so `.env` (or the built-in default) applies again. The path segment is the setting key (e.g. `MAX_ROWS`); unknown keys 404. AI settings (`AZURE_OPENAI_*`) have no `.env` fallback, so resetting one returns it to the built-in default (unset for the key, endpoint and deployment). Audited as `SETTINGS_RESET`. Returns the same list as List Settings.
 
   Requires a valid Bearer JWT ({{token}}).
   **Admin only.**
