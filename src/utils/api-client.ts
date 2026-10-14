@@ -110,6 +110,8 @@ export const api = {
       lightLogoUrl: string | null;
       faviconUrl: string | null;
       emailDomain: string | null;
+      loginTagline: string;
+      loginSubtitle: string;
       phiMaskedEnvironments: string[];
       environments: string[];
       copyFormats?: CopyFormat[];

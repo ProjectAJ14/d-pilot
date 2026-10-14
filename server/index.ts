@@ -73,6 +73,9 @@ router.get("/api/config", (_req, res) => {
     lightLogoUrl: withBase(BASE_PATH, getConfig("LIGHT_LOGO_URL")),
     faviconUrl: withBase(BASE_PATH, getConfig("FAVICON_URL")),
     emailDomain: getConfig("EMAIL_DOMAIN") || null,
+    // The login page renders before auth, hence public. "" hides the line.
+    loginTagline: getConfig("LOGIN_TAGLINE") ?? "",
+    loginSubtitle: getConfig("LOGIN_SUBTITLE") ?? "",
     phiMaskedEnvironments: getPhiMaskedEnvs(),
     // The deployment's environments, derived from its connections. The
     // client renders its env pickers from this — never a hardcoded list.

@@ -3377,6 +3377,14 @@ const SETTING_META: Record<
   },
   FAVICON_URL: { label: "Favicon URL" },
   EMAIL_DOMAIN: { label: "Email domain" },
+  LOGIN_TAGLINE: {
+    label: "Login tagline",
+    hint: "Under the app name on the login page; empty hides it",
+  },
+  LOGIN_SUBTITLE: {
+    label: "Login subtitle",
+    hint: "e.g. a compliance note; empty hides it",
+  },
   APP_BASE_URL: {
     label: "Public base URL",
     hint: "Used in links the server builds",

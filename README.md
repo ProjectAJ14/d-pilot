@@ -243,6 +243,8 @@ APP_NAME="Your App Name"
 LOGO_URL=/logo/your-logo.svg              # dark-ink mark, shown on the light theme (empty = text-only)
 LIGHT_LOGO_URL=/logo/your-logo-light.svg  # light-ink mark, shown on the dark theme and the login panel
 FAVICON_URL=/logo/favicon.svg         # optional
+# LOGIN_TAGLINE="Internal query tool"     # login-page lines under the app name;
+# LOGIN_SUBTITLE="HIPAA · PHI tokenized"  # save one empty in Settings to hide it
 EMAIL_DOMAIN=yourcompany.com          # enforced on user creation, used for the default admin seed
 # APP_BASE_URL=https://d-pilot.internal   # origin for artifact links in MCP output
 

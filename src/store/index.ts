@@ -34,6 +34,9 @@ interface AppConfig {
   lightLogoUrl: string | null;
   faviconUrl: string | null;
   emailDomain: string | null;
+  /** The two lines under the app name on the login page; "" hides one. */
+  loginTagline: string;
+  loginSubtitle: string;
   phiMaskedEnvironments: string[];
   /** Environments this deployment has, least → most sensitive (from the server). */
   environments: string[];
@@ -228,6 +231,9 @@ export const useStore = create<AppState>((set, get) => ({
     lightLogoUrl: null,
     faviconUrl: null,
     emailDomain: null,
+    // Server defaults, shown until /api/config answers.
+    loginTagline: "Internal query tool",
+    loginSubtitle: "HIPAA · PHI tokenized",
     phiMaskedEnvironments: ["PROD"],
     // Empty until /api/config answers — an env picker must never offer an
     // environment this deployment may not have.

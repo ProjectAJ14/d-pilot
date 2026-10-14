@@ -33,6 +33,8 @@ interface SettingDef {
    * with `<KEY>_LIMIT` in .env (see `settingMax`), never raise it.
    */
   max?: number;
+  /** Longest string the Settings form may save (the kind's own cap otherwise). */
+  maxLength?: number;
 }
 
 export const SETTINGS = {
@@ -48,6 +50,20 @@ export const SETTINGS = {
   AZURE_OPENAI_INSECURE_TLS: { group: "ai", kind: "bool", default: "false" },
 
   APP_NAME: { group: "branding", kind: "string", default: "D-Pilot" },
+  // The two lines under the app name on the login page. A saved "" hides the
+  // line; an empty env var counts as unset, like every other key.
+  LOGIN_TAGLINE: {
+    group: "branding",
+    kind: "string",
+    default: "Internal query tool",
+    maxLength: 80,
+  },
+  LOGIN_SUBTITLE: {
+    group: "branding",
+    kind: "string",
+    default: "HIPAA · PHI tokenized",
+    maxLength: 80,
+  },
   LOGO_URL: { group: "branding", kind: "string" },
   LIGHT_LOGO_URL: { group: "branding", kind: "string" },
   // The icon index.html ships with.
@@ -242,6 +258,10 @@ export function updateSettings(
     const parsed = VALIDATORS[def(key).kind].safeParse(value);
     if (!parsed.success) {
       throw new Error(`${key} ${parsed.error.issues[0]?.message ?? "invalid"}`);
+    }
+    const maxLength = def(key).maxLength;
+    if (maxLength !== undefined && value.length > maxLength) {
+      throw new Error(`${key} must be at most ${maxLength} characters`);
     }
     const max = settingMax(key);
     if (max !== undefined && Number(value) > max) {

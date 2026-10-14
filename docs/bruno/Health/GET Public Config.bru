@@ -13,6 +13,10 @@ get {
 docs {
   Non-sensitive front-end config (app name, logos, PHI-masked environments).
 
+  `loginTagline` / `loginSubtitle` are the two lines under the app name on the
+  login page (`LOGIN_TAGLINE` / `LOGIN_SUBTITLE`: Settings, else `.env`, else the
+  built-in text). An empty string means the admin hid that line.
+
   `environments` lists the environments this deployment has, ordered least → most
   sensitive. It is derived from the configured connections (empty when there are none), so it is also the set of
   values every other endpoint accepts for an environment (capability lists,

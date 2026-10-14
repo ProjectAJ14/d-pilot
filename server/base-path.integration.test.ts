@@ -61,6 +61,9 @@ async function boot(basePath: string): Promise<Booted> {
       LOGO_URL: "/logo.svg",
       // Somebody else's CDN — must come back untouched.
       FAVICON_URL: "https://cdn.example/favicon.png",
+      // .env fallback for the login text; LOGIN_SUBTITLE keeps its default.
+      LOGIN_TAGLINE: "Env tagline",
+      LOGIN_SUBTITLE: "",
       DEFAULT_ADMIN_PASSWORD,
       JWT_SECRET: "integration-test-secret",
     },
@@ -169,5 +172,11 @@ describe.each([
     const config = await fetch(url("/api/config")).then((r) => r.json());
     expect(config.logoUrl).toBe(`${basePath}/logo.svg`);
     expect(config.faviconUrl).toBe("https://cdn.example/favicon.png");
+  });
+
+  it("serves the login page text without auth", async () => {
+    const config = await fetch(url("/api/config")).then((r) => r.json());
+    expect(config.loginTagline).toBe("Env tagline");
+    expect(config.loginSubtitle).toBe("HIPAA · PHI tokenized");
   });
 });

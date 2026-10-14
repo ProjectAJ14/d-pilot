@@ -931,3 +931,51 @@ describe("fallback defaults", () => {
     });
   });
 });
+
+describe("login page text", () => {
+  const entry = async (key: string) =>
+    (await (await call("GET")).json()).find((s: any) => s.key === key);
+
+  it("lists both lines as branding with their defaults", async () => {
+    expect(await entry("LOGIN_TAGLINE")).toMatchObject({
+      group: "branding",
+      value: "Internal query tool",
+      source: "default",
+    });
+    expect(await entry("LOGIN_SUBTITLE")).toMatchObject({
+      group: "branding",
+      value: "HIPAA · PHI tokenized",
+      source: "default",
+    });
+  });
+
+  it("takes .env, then a saved value, and an empty save hides the line", async () => {
+    vi.stubEnv("LOGIN_TAGLINE", "Env tagline");
+    expect(await entry("LOGIN_TAGLINE")).toMatchObject({
+      value: "Env tagline",
+      source: "env",
+    });
+    await call("PUT", "", {
+      values: { LOGIN_TAGLINE: "Saved tagline", LOGIN_SUBTITLE: "" },
+    });
+    expect(getConfig("LOGIN_TAGLINE")).toBe("Saved tagline");
+    // "" is a saved value, not "unset": the line is hidden, Reset restores it.
+    expect(await entry("LOGIN_SUBTITLE")).toMatchObject({
+      value: "",
+      source: "db",
+    });
+    await call("DELETE", "/LOGIN_SUBTITLE");
+    expect(getConfig("LOGIN_SUBTITLE")).toBe("HIPAA · PHI tokenized");
+    await call("DELETE", "/LOGIN_TAGLINE");
+    expect(getConfig("LOGIN_TAGLINE")).toBe("Env tagline");
+    vi.stubEnv("LOGIN_TAGLINE", "");
+  });
+
+  it("rejects a line longer than 80 characters", async () => {
+    const res = await call("PUT", "", {
+      values: { LOGIN_TAGLINE: "x".repeat(81) },
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/LOGIN_TAGLINE/);
+  });
+});
