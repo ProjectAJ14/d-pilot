@@ -218,22 +218,13 @@ function quoteCell(text: string, quote: CopyTemplate["quote"]): string {
 
 function renderTemplate(spec: CopyTemplate, input: ExtractInput): string {
   const { columns, rows } = input;
-  const nullText = spec.nullText ?? "";
-
-  const renderRow = (row: ExtractRow) =>
-    columns
-      .map((c, i) => {
-        // A `code "description"` style format leaves the first column bare.
-        const quote =
-          i === 0 && spec.quoteFirstColumn === false ? "none" : spec.quote;
-        return quoteCell(toText(row[c], nullText), quote);
-      })
-      .join(spec.columnSeparator);
-
-  const lines = rows.map(renderRow);
-  if (spec.header) lines.unshift(columns.join(spec.columnSeparator));
-
-  return `${spec.prefix ?? ""}${lines.join(spec.rowSeparator)}${spec.suffix ?? ""}`;
+  return rows
+    .map((row) =>
+      columns
+        .map((c) => quoteCell(toText(row[c]), spec.quote))
+        .join(spec.columnSeparator),
+    )
+    .join(spec.rowSeparator);
 }
 
 // ---------------------------------------------------------------------------

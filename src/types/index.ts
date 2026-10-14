@@ -23,14 +23,6 @@ export interface CopyTemplate {
   columnSeparator: string;
   rowSeparator: string;
   quote?: CopyQuote;
-  /** When false, the first column is emitted bare (e.g. `code "description"`). */
-  quoteFirstColumn?: boolean;
-  /** Text emitted for null/undefined cells (default ""). */
-  nullText?: string;
-  /** Prepend a row of column names. */
-  header?: boolean;
-  prefix?: string;
-  suffix?: string;
 }
 
 /**
