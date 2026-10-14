@@ -781,6 +781,21 @@ export function storedConnectionSecrets(id: string): {
   return { password: !!row?.password, uri: !!row?.uri };
 }
 
+/** storedConnectionSecrets for every connection, in one query. */
+export function allStoredConnectionSecrets(): Map<
+  string,
+  { password: boolean; uri: boolean }
+> {
+  const rows = db
+    .prepare(
+      "SELECT id, password_enc IS NOT NULL AS password, uri_enc IS NOT NULL AS uri FROM db_connections",
+    )
+    .all() as { id: string; password: number; uri: number }[];
+  return new Map(
+    rows.map((r) => [r.id, { password: !!r.password, uri: !!r.uri }]),
+  );
+}
+
 /**
  * Insert or replace a connection; password and URI are encrypted at rest.
  * `keep` leaves an existing row's stored ciphertext as it is — including one

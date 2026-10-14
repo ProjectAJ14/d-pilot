@@ -7,6 +7,7 @@ import {
   saveDbConnection,
   saveDbConnections,
   storedConnectionSecrets,
+  allStoredConnectionSecrets,
 } from "../services/sqlite-store.js";
 import {
   getConnection,
@@ -116,14 +117,22 @@ router.delete("/:key", async (req: Request, res: Response) => {
 
 // --- Connections ---
 
-// "Set" means stored, not decryptable — see storedConnectionSecrets.
-const toView = ({
-  password: _password,
-  uri: _uri,
-  ...rest
-}: ConnectionConfig): ConnectionAdminView => {
-  const stored = storedConnectionSecrets(rest.id);
-  return { ...rest, passwordSet: stored.password, uriSet: stored.uri };
+// "Set" means stored, not decryptable — see storedConnectionSecrets. A list
+// passes every connection's flags, read in one query.
+const toView = (
+  { password: _password, uri: _uri, ...rest }: ConnectionConfig,
+  stored = storedConnectionSecrets(rest.id),
+): ConnectionAdminView => ({
+  ...rest,
+  passwordSet: stored.password,
+  uriSet: stored.uri,
+});
+
+const toViews = (conns: ConnectionConfig[]): ConnectionAdminView[] => {
+  const stored = allStoredConnectionSecrets();
+  return conns.map((c) =>
+    toView(c, stored.get(c.id) ?? { password: false, uri: false }),
+  );
 };
 
 const optionalText = z.string().trim().max(2000).optional();
@@ -239,7 +248,7 @@ function mergeUpdate(
 }
 
 router.get("/connections", (_req: Request, res: Response) => {
-  res.json(loadConnections().map(toView));
+  res.json(toViews(loadConnections()));
 });
 
 router.post("/connections", async (req: Request, res: Response) => {
@@ -332,7 +341,7 @@ router.post("/connections/import", async (req: Request, res: Response) => {
     "CONNECTION_IMPORT",
     `Imported ${valid.length} connection(s): ${valid.map((c) => `${c.id} (${c.env}, ${c.type})`).join(", ")}`,
   );
-  res.status(201).json(valid.map((c) => toView(getConnection(c.id)!)));
+  res.status(201).json(toViews(valid.map((c) => getConnection(c.id)!)));
 });
 
 router.put("/connections/:id", async (req: Request, res: Response) => {
