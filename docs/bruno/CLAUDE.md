@@ -25,22 +25,23 @@ docs/bruno/
 
 Folders map 1:1 to the route mounts in `server/index.ts`:
 
-| Folder         | Backend source                                                  |
-| -------------- | --------------------------------------------------------------- |
-| Health         | `server/index.ts` (`/api/health`, `/api/config`)                |
-| Auth           | `server/index.ts` + `server/middleware/auth.ts` (`/api/auth/*`) |
-| Query          | `server/routes/query.ts` (`/api/query`)                         |
-| Connections    | `server/routes/connections.ts`                                  |
-| Schema         | `server/routes/schema.ts`                                       |
-| Saved Queries  | `server/routes/saved-queries.ts`                                |
-| PHI Config     | `server/routes/phi-config.ts`                                   |
-| Audit          | `server/routes/audit.ts`                                        |
-| Export         | `server/routes/export.ts`                                       |
-| Users          | `server/routes/users.ts`                                        |
-| Azure AI       | `server/routes/azure-ai.ts`                                     |
-| Analytics      | `server/routes/analytics.ts`                                    |
-| Write Requests | `server/routes/write-requests.ts`                               |
-| MCP            | `server/routes/mcp.ts` (read-only agent endpoint)               |
+| Folder         | Backend source                                                   |
+| -------------- | ---------------------------------------------------------------- |
+| Health         | `server/index.ts` (`/api/health`, `/api/config`)                 |
+| Auth           | `server/index.ts` + `server/middleware/auth.ts` (`/api/auth/*`)  |
+| Query          | `server/routes/query.ts` (`/api/query`)                          |
+| Connections    | `server/routes/connections.ts`                                   |
+| Schema         | `server/routes/schema.ts`                                        |
+| Saved Queries  | `server/routes/saved-queries.ts`                                 |
+| PHI Config     | `server/routes/phi-config.ts`                                    |
+| Audit          | `server/routes/audit.ts`                                         |
+| Export         | `server/routes/export.ts`                                        |
+| Users          | `server/routes/users.ts`                                         |
+| Azure AI       | `server/routes/azure-ai.ts`                                      |
+| Analytics      | `server/routes/analytics.ts`                                     |
+| Write Requests | `server/routes/write-requests.ts`                                |
+| MCP            | `server/routes/mcp.ts` (read-only agent endpoint)                |
+| Settings       | `server/routes/settings.ts` (admin runtime config + connections) |
 
 ## File-naming system
 

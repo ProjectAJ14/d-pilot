@@ -3,8 +3,15 @@ import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
 import { DEFAULT_PHI_RULES } from "../config/phi-defaults.js";
-import { getProductionEnvs, isProductionEnv } from "../config/connections.js";
+import {
+  getProductionEnvs,
+  invalidateConnections,
+  isProductionEnv,
+  parseEnvConnections,
+} from "../config/connections.js";
+import { decryptSecret, encryptSecret } from "../config/secrets.js";
 import type {
+  ConnectionConfig,
   Artifact,
   ArtifactBlock,
   SavedQuery,
@@ -88,6 +95,23 @@ export function initDatabase(): void {
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS db_connections (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      env TEXT NOT NULL,
+      type TEXT NOT NULL,
+      host TEXT,
+      port INTEGER,
+      database_name TEXT,
+      username TEXT,
+      password_enc TEXT,
+      schema_name TEXT,
+      schemas TEXT,
+      uri_enc TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -203,6 +227,8 @@ export function initDatabase(): void {
     );
   }
 
+  seedConnections();
+
   // Seed default masked environments setting
   const existing = db
     .prepare("SELECT key FROM app_settings WHERE key = 'phi_masked_envs'")
@@ -240,6 +266,28 @@ export function initDatabase(): void {
   }
 
   seedPhiRules();
+}
+
+/**
+ * One-time import of `DBFORGE_CONNECTIONS` into `db_connections`. After that
+ * the table is the source of truth and the env var is ignored — an admin who
+ * deletes every connection gets an empty list, not the env ones back. An
+ * unparseable env var is not marked as imported, so fixing it still seeds.
+ */
+function seedConnections(): void {
+  invalidateConnections();
+  if (getSetting("connections_seeded") !== null) return;
+  const seed = parseEnvConnections();
+  if (!seed) return;
+  db.transaction(() => {
+    for (const conn of seed) saveDbConnection(conn);
+    setSetting("connections_seeded", new Date().toISOString());
+  })();
+  if (seed.length > 0) {
+    console.log(
+      `Imported ${seed.length} connection(s) from DBFORGE_CONNECTIONS`,
+    );
+  }
 }
 
 function seedPhiRules(): void {
@@ -645,6 +693,8 @@ export function deleteAllPhiRules(includeLocked: boolean): {
 // --- App Settings ---
 
 export function getSetting(key: string): string | null {
+  // Before initDatabase (unit tests, scripts) every setting falls back to env.
+  if (!db) return null;
   const row = db
     .prepare("SELECT value FROM app_settings WHERE key = ?")
     .get(key) as { value: string } | undefined;
@@ -656,6 +706,75 @@ export function setSetting(key: string, value: string): void {
     `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
   ).run(key, value);
+}
+
+export function deleteSetting(key: string): boolean {
+  return (
+    db.prepare("DELETE FROM app_settings WHERE key = ?").run(key).changes > 0
+  );
+}
+
+// --- Target-database connections ---
+
+/** Stored connections with secrets decrypted; null before initDatabase. */
+export function listDbConnections(): ConnectionConfig[] | null {
+  if (!db) return null;
+  const rows = db
+    .prepare("SELECT * FROM db_connections ORDER BY created_at, id")
+    .all() as any[];
+  return rows.map((r) => {
+    const conn: ConnectionConfig = {
+      id: r.id,
+      name: r.name,
+      env: r.env,
+      type: r.type,
+    };
+    if (r.host != null) conn.host = r.host;
+    if (r.port != null) conn.port = r.port;
+    if (r.database_name != null) conn.database = r.database_name;
+    if (r.username != null) conn.username = r.username;
+    if (r.schema_name != null) conn.schema = r.schema_name;
+    if (r.schemas != null) conn.schemas = JSON.parse(r.schemas);
+    const password = r.password_enc ? decryptSecret(r.password_enc) : null;
+    if (password != null) conn.password = password;
+    const uri = r.uri_enc ? decryptSecret(r.uri_enc) : null;
+    if (uri != null) conn.uri = uri;
+    return conn;
+  });
+}
+
+/** Insert or replace a connection; password and URI are encrypted at rest. */
+export function saveDbConnection(conn: ConnectionConfig): void {
+  db.prepare(
+    `INSERT INTO db_connections (id, name, env, type, host, port, database_name, username, password_enc, schema_name, schemas, uri_enc)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET name = excluded.name, env = excluded.env, type = excluded.type,
+       host = excluded.host, port = excluded.port, database_name = excluded.database_name,
+       username = excluded.username, password_enc = excluded.password_enc,
+       schema_name = excluded.schema_name, schemas = excluded.schemas, uri_enc = excluded.uri_enc,
+       updated_at = datetime('now')`,
+  ).run(
+    conn.id,
+    conn.name,
+    conn.env,
+    conn.type,
+    conn.host ?? null,
+    conn.port ?? null,
+    conn.database ?? null,
+    conn.username ?? null,
+    conn.password ? encryptSecret(conn.password) : null,
+    conn.schema ?? null,
+    conn.schemas ? JSON.stringify(conn.schemas) : null,
+    conn.uri ? encryptSecret(conn.uri) : null,
+  );
+  invalidateConnections();
+}
+
+export function deleteDbConnection(id: string): boolean {
+  const deleted =
+    db.prepare("DELETE FROM db_connections WHERE id = ?").run(id).changes > 0;
+  invalidateConnections();
+  return deleted;
 }
 
 export function getPhiMaskedEnvs(): Environment[] {

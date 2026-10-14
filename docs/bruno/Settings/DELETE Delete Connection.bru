@@ -1,0 +1,18 @@
+meta {
+  name: Delete Connection
+  type: http
+  seq: 7
+}
+
+delete {
+  url: {{baseUrl}}/api/settings/connections/{{connectionId}}
+  body: none
+  auth: inherit
+}
+
+docs {
+  Remove a connection, close its pool and clear its cached schema. Saved queries and write requests that reference it keep their history. Audited as `CONNECTION_DELETE`.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

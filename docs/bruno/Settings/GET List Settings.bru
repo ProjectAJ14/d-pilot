@@ -1,0 +1,18 @@
+meta {
+  name: List Settings
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/settings
+  body: none
+  auth: inherit
+}
+
+docs {
+  Every runtime setting (AI, branding, limits) with its effective value and `source`: `db` (saved in Settings), `env` (from `.env`) or `default` (built-in). Precedence is db > env > default. Secrets (`AZURE_OPENAI_KEY`) return `set: true|false`, never a value.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

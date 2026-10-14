@@ -83,7 +83,9 @@ place. See the README's MCP section.
   `isProductionEnv` in `src/utils/environments.ts`.
 - **In-app config, not env vars:** masked environments, PHI rules, write-mode toggle, and
   direct-write environments live in the SQLite `app_settings`/`phi_field_rules` tables and
-  are edited in Settings — not in `.env`. (Legacy `PHI_ALWAYS_MASKED` / `PHI_ADMIN_CAN_UNMASK`
+  are edited in Settings — not in `.env`. Connections, AI, branding and limits are
+  admin-editable too (`/api/settings`): `.env` only seeds them (precedence db > env >
+  default; connections are imported once). See `server/CLAUDE.md`. (Legacy `PHI_ALWAYS_MASKED` / `PHI_ADMIN_CAN_UNMASK`
   env vars are no longer read.)
 - **The service worker must never cache `/api`.** D-Pilot installs as a PWA
   (`vite.pwa.config.ts`), and Cache Storage is unencrypted on disk and outlives a logout —

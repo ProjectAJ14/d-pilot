@@ -75,6 +75,7 @@ name rather than one baked in at build time. In production `express.static` also
 | `/azure-ai`       | `azure-ai.ts`       | `test`, `generate-query`, `settings` (admin), `schema-cache/clear` (admin), `chat-log` (admin)                                         |
 | `/analytics`      | `analytics.ts`      | admin usage dashboard                                                                                                                  |
 | `/write-requests` | `write-requests.ts` | write lifecycle + policy + AI review/suggest                                                                                           |
+| `/settings`       | `settings.ts`       | admin runtime config: settings list/update/reset, connection CRUD (secrets write-only, audited)                                        |
 | `/mcp`            | `mcp.ts`            | **read-only MCP endpoint for AI agents — mounted _before_ `authMiddleware`** (HTTP Basic, not Bearer)                                  |
 
 ## Services (`services/`)
@@ -121,6 +122,18 @@ name rather than one baked in at build time. In production `express.static` also
 - **Settings** (`app_settings`) — PHI masked envs (`getPhiMaskedEnvs`, PROD always
   included), write-mode toggle (`getWriteModeEnabled`), direct-write envs
   (`getWriteDirectEnvs`), AI column values (`getAiColumnValuesEnabled`).
+- **Runtime config** (`config/settings.ts`) — AI, branding and limits keys (`MAX_ROWS`,
+  `AZURE_OPENAI_*`, `APP_NAME`, …) stored in `app_settings` under their env-var name.
+  Precedence **db > `process.env` > built-in default**; read via `getConfig*` at use time,
+  never into a module-level const. Bootstrap vars (PORT, DATA_DIR, BASE_PATH, JWT_SECRET,
+  DEFAULT_ADMIN_PASSWORD, proxies) stay env-only.
+- **Connections** (`db_connections`) — the source of truth once the DB is up.
+  `DBFORGE_CONNECTIONS` is imported **once** (marker `connections_seeded`); later edits to
+  the env var are ignored. Before `initDatabase` (unit tests) `loadConnections` reads the
+  env var directly. The store invalidates the connection cache on every write.
+- **Secrets** (connection password/URI, `AZURE_OPENAI_KEY`) are AES-256-GCM encrypted
+  (`config/secrets.ts`) with `SETTINGS_ENCRYPTION_KEY`, else a key generated once into
+  `DATA_DIR/settings.key` (0600). The key never goes in SQLite; losing it loses the secrets.
 - **Audit** — `logAudit`/`getAuditLog` capture every query, error, export, PHI unmask (and
   denial), and write-lifecycle event. `getAnalytics`/`getWriteAnalytics` power the admin
   dashboard.

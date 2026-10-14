@@ -70,6 +70,39 @@ export interface ConnectionInfo {
   schema?: string;
 }
 
+// --- Admin settings (/api/settings) -------------------------------------------
+// Mirrored in server/types/index.ts — keep the two in sync.
+
+/** Where a setting's effective value comes from: Settings, `.env`, or code. */
+export type SettingSource = "db" | "env" | "default";
+
+export interface AppSettingView {
+  key: string;
+  group: "ai" | "branding" | "limits";
+  secret: boolean;
+  source: SettingSource;
+  /** Effective value; absent for secrets, which never leave the server. */
+  value?: string | null;
+  /** Secrets only: whether a value is configured. */
+  set?: boolean;
+}
+
+/** A connection as the admin API returns it — credentials replaced by flags. */
+export interface ConnectionAdminView {
+  id: string;
+  name: string;
+  env: Environment;
+  type: DatabaseType;
+  host?: string;
+  port?: number;
+  database?: string;
+  username?: string;
+  schema?: string;
+  schemas?: string[];
+  passwordSet: boolean;
+  uriSet: boolean;
+}
+
 export interface QueryColumn {
   name: string;
   type: string;

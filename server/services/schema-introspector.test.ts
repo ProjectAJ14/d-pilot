@@ -21,6 +21,7 @@ const ruleMock = vi.mocked(findMatchingRule);
 const h = vi.hoisted(() => ({ valuesOn: true, sql: [] as string[] }));
 vi.mock("./sqlite-store.js", () => ({
   getAiColumnValuesEnabled: () => h.valuesOn,
+  getSetting: () => null,
 }));
 vi.mock("pg", () => ({
   default: {

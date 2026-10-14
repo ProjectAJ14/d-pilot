@@ -1,0 +1,18 @@
+meta {
+  name: List Connections
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/settings/connections
+  body: none
+  auth: inherit
+}
+
+docs {
+  Every configured target-database connection, for editing. Credentials are replaced by `passwordSet` / `uriSet` flags. Connections live in the app database; `DBFORGE_CONNECTIONS` only seeds it on first run.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

@@ -1,26 +1,39 @@
 import type { ConnectionConfig } from "../types/index.js";
+import { listDbConnections } from "../services/sqlite-store.js";
 
 let cachedConnections: ConnectionConfig[] | null = null;
 
-export function loadConnections(): ConnectionConfig[] {
-  if (cachedConnections) return cachedConnections;
-
+/**
+ * `DBFORGE_CONNECTIONS` parsed — the first-run seed for the `db_connections`
+ * table (see `seedConnections` in sqlite-store). Unset → []; unparseable → null.
+ */
+export function parseEnvConnections(): ConnectionConfig[] | null {
   const raw = process.env.DBFORGE_CONNECTIONS;
-  if (!raw) {
-    console.warn(
-      "DBFORGE_CONNECTIONS not set, no database connections available",
-    );
-    return [];
-  }
-
+  if (!raw) return [];
   try {
-    cachedConnections = JSON.parse(raw) as ConnectionConfig[];
-    console.log(`Loaded ${cachedConnections.length} database connections`);
-    return cachedConnections;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) throw new Error("not a JSON array");
+    return parsed as ConnectionConfig[];
   } catch (err) {
     console.error("Failed to parse DBFORGE_CONNECTIONS:", err);
-    return [];
+    return null;
   }
+}
+
+/**
+ * The target-database connections. Once the app DB is up they come from its
+ * `db_connections` table (admin-editable, seeded once from the env var); before
+ * that — unit tests, scripts — straight from `DBFORGE_CONNECTIONS`.
+ */
+export function loadConnections(): ConnectionConfig[] {
+  if (cachedConnections) return cachedConnections;
+  cachedConnections = listDbConnections() ?? parseEnvConnections() ?? [];
+  return cachedConnections;
+}
+
+/** Drop the memoized list; the store calls this on every connection write. */
+export function invalidateConnections(): void {
+  cachedConnections = null;
 }
 
 export function getConnection(id: string): ConnectionConfig | undefined {
@@ -32,7 +45,7 @@ const KNOWN_ENV_ORDER = ["DEV", "QA", "UAT", "STG", "PROD"];
 
 /**
  * The environments this deployment actually has, ordered least → most sensitive.
- * Derived from `DBFORGE_CONNECTIONS`, so adding a connection with a new `env`
+ * Derived from the configured connections, so adding a connection with a new `env`
  * (e.g. `SUPER_PROD`) is all it takes to make that environment appear in the
  * capability pickers, PHI settings, write policy and the connection tree.
  *

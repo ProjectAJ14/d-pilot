@@ -10,6 +10,7 @@ import type {
 import { findMatchingRule } from "./phi-masking.js";
 import { getAiColumnValuesEnabled } from "./sqlite-store.js";
 import { scanSql } from "./sql-scan.js";
+import { getConfigNumber } from "../config/settings.js";
 
 /** The default schema for a connection when none is explicitly selected. */
 export function defaultSchema(conn: ConnectionConfig): string {
@@ -582,7 +583,7 @@ const schemaCache = new Map<string, SchemaCacheRecord>();
 const schemaInflight = new Map<string, Promise<FullSchema>>();
 
 function getSchemaCacheTtlMs(): number {
-  const hours = parseFloat(process.env.SCHEMA_CACHE_TTL_HOURS ?? "24");
+  const hours = getConfigNumber("SCHEMA_CACHE_TTL_HOURS");
   return Number.isFinite(hours) && hours >= 0
     ? hours * 3_600_000
     : 24 * 3_600_000;

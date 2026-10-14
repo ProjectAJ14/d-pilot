@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { requireAdmin } from "../middleware/auth.js";
 import { getDb } from "../services/sqlite-store.js";
 import { getEnvironments } from "../config/connections.js";
+import { getConfig } from "../config/settings.js";
 
 const router = Router();
 
@@ -72,7 +73,7 @@ router.post("/", (req: Request, res: Response) => {
     return;
   }
 
-  const domain = process.env.EMAIL_DOMAIN;
+  const domain = getConfig("EMAIL_DOMAIN");
   if (domain) {
     if (!email.endsWith(`@${domain}`)) {
       res.status(400).json({ error: `Email must be a @${domain} address` });

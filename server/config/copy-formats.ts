@@ -1,4 +1,5 @@
 import type { CopyFormat } from "../types/index.js";
+import { getConfig } from "./settings.js";
 
 /**
  * Fallback "Copy as" formats served when `COPY_FORMATS` is unset. Keep in sync
@@ -81,6 +82,7 @@ function isValidFormat(f: unknown): f is CopyFormat {
 }
 
 let cached: CopyFormat[] | null = null;
+let cachedRaw: string | undefined;
 
 /**
  * The deployment's "Copy as" formats. Parsed from `COPY_FORMATS` (a JSON array
@@ -88,9 +90,10 @@ let cached: CopyFormat[] | null = null;
  * we fall back to `DEFAULT_COPY_FORMATS` so the menu is never empty.
  */
 export function loadCopyFormats(): CopyFormat[] {
-  if (cached) return cached;
-
-  const raw = process.env.COPY_FORMATS;
+  const raw = getConfig("COPY_FORMATS");
+  // Re-parse only when the setting changed (e.g. edited in Settings).
+  if (cached && raw === cachedRaw) return cached;
+  cachedRaw = raw;
   if (!raw) {
     cached = DEFAULT_COPY_FORMATS;
     return cached;

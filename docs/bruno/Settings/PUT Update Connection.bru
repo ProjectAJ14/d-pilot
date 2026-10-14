@@ -1,0 +1,36 @@
+meta {
+  name: Update Connection
+  type: http
+  seq: 6
+}
+
+put {
+  url: {{baseUrl}}/api/settings/connections/{{connectionId}}
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "QA PostgreSQL",
+    "env": "QA",
+    "type": "postgres",
+    "host": "localhost",
+    "port": 5432,
+    "database": "app_core",
+    "username": "dpilot",
+    "password": "",
+    "schema": "public"
+  }
+}
+
+docs {
+  Replace a connection's definition (the id is fixed). An omitted or empty `password` / `uri` keeps the stored one. Closes the connection's pool and clears its cached schema so the next use reconnects with the new settings. Audited as `CONNECTION_UPDATE` with the changed field names only.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

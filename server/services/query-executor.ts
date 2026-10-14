@@ -6,9 +6,12 @@ import { Client as EsClient } from "@elastic/elasticsearch";
 import type { ConnectionConfig } from "../types/index.js";
 import { CONNECTION_ERROR_PATTERN } from "./connection-errors.js";
 import { scanSql } from "./sql-scan.js";
+import { getConfigNumber } from "../config/settings.js";
 
-const MAX_ROWS = parseInt(process.env.MAX_ROWS || "10000", 10);
-const QUERY_TIMEOUT = parseInt(process.env.QUERY_TIMEOUT_MS || "90000", 10);
+// Read per use so an admin's change applies without a restart. A pool keeps the
+// timeout it was created with; the settings route closes pools when it changes.
+const maxRows = () => getConfigNumber("MAX_ROWS");
+const queryTimeout = () => getConfigNumber("QUERY_TIMEOUT_MS");
 
 // Connection pools
 const pgPools = new Map<string, pg.Pool>();
@@ -312,7 +315,7 @@ export function applyDefaultLimit(
   // null = user explicitly disabled auto-limit
   if (defaultLimit === null) return trimmed;
 
-  const limit = Math.min(defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT, MAX_ROWS);
+  const limit = Math.min(defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT, maxRows());
   return `${trimmed} LIMIT ${limit}`;
 }
 
@@ -330,7 +333,7 @@ export async function getPgPool(conn: ConnectionConfig): Promise<pg.Pool> {
     max: 5,
     idleTimeoutMillis: 60000,
     connectionTimeoutMillis: 10000,
-    statement_timeout: QUERY_TIMEOUT,
+    statement_timeout: queryTimeout(),
   });
 
   pgPools.set(conn.id, pool);
@@ -354,7 +357,7 @@ export async function getMssqlPool(
       encrypt: false,
       trustServerCertificate: true,
     },
-    requestTimeout: QUERY_TIMEOUT,
+    requestTimeout: queryTimeout(),
     connectionTimeout: 10000,
     pool: { max: 5, min: 0, idleTimeoutMillis: 60000 },
   });
@@ -376,7 +379,7 @@ export async function getMongoClient(
     `mongodb://${conn.username}:${conn.password}@${conn.host}:${conn.port || 27017}/${conn.database}`;
   const client = new MongoClient(uri, {
     serverSelectionTimeoutMS: 10000,
-    socketTimeoutMS: QUERY_TIMEOUT,
+    socketTimeoutMS: queryTimeout(),
     // Match the pg/mssql pools: small cap, drop idle sockets. Without these the
     // driver defaults to maxPoolSize 100 and holds sockets indefinitely.
     maxPoolSize: 5,
@@ -464,7 +467,7 @@ export function applyDefaultLimitMssql(
   // null = user explicitly disabled auto-limit
   if (defaultLimit === null) return trimmed;
 
-  const limit = Math.min(defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT, MAX_ROWS);
+  const limit = Math.min(defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT, maxRows());
   // Insert TOP after SELECT
   return trimmed.replace(/^(\s*SELECT)\b/i, `$1 TOP ${limit}`);
 }
@@ -493,11 +496,11 @@ async function executePostgres(
     : result;
   const rows = queryResult.rows || [];
   const columns = queryResult.fields?.map((f: any) => f.name) || [];
-  const truncated = rows.length >= MAX_ROWS;
+  const truncated = rows.length >= maxRows();
 
   return {
     columns,
-    rows: rows.slice(0, MAX_ROWS),
+    rows: rows.slice(0, maxRows()),
     totalRows: rows.length,
     executionTimeMs: Math.round(elapsed),
     truncated,
@@ -515,11 +518,11 @@ async function executeMssql(
 
   const rows = result.recordset || [];
   const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
-  const truncated = rows.length >= MAX_ROWS;
+  const truncated = rows.length >= maxRows();
 
   return {
     columns,
-    rows: rows.slice(0, MAX_ROWS),
+    rows: rows.slice(0, maxRows()),
     totalRows: rows.length,
     executionTimeMs: Math.round(elapsed),
     truncated,
@@ -623,9 +626,9 @@ async function executeMongo(
   const userLimit = limitMatch ? parseInt(limitMatch[1], 10) : null;
   const effectiveDefault =
     defaultLimit === null
-      ? MAX_ROWS
+      ? maxRows()
       : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
-  const limit = Math.min(userLimit ?? effectiveDefault, MAX_ROWS);
+  const limit = Math.min(userLimit ?? effectiveDefault, maxRows());
   const sort = sortMatch ? parseMongoJson(sortMatch[1]) : undefined;
   const skip = skipMatch ? parseInt(skipMatch[1], 10) : undefined;
 
@@ -687,7 +690,7 @@ async function executeMongo(
 
   return {
     columns,
-    rows: rows.slice(0, MAX_ROWS),
+    rows: rows.slice(0, maxRows()),
     totalRows: rows.length,
     executionTimeMs: Math.round(elapsed),
     truncated,
@@ -711,7 +714,7 @@ export function getEsClient(conn: ConnectionConfig): EsClient {
         ? { username: conn.username, password: conn.password }
         : undefined,
     tls: { rejectUnauthorized: false },
-    requestTimeout: QUERY_TIMEOUT,
+    requestTimeout: queryTimeout(),
   });
 
   esClients.set(conn.id, client);
@@ -759,9 +762,9 @@ async function executeElasticsearch(
     if (!body.size && body.size !== 0) {
       const esLimit =
         defaultLimit === null
-          ? MAX_ROWS
+          ? maxRows()
           : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
-      body.size = Math.min(esLimit, MAX_ROWS);
+      body.size = Math.min(esLimit, maxRows());
     }
     const result = await client.search({ index, ...body });
     const elapsed = performance.now() - start;
@@ -794,11 +797,11 @@ async function executeElasticsearch(
   if (/^[\w\-.*]+$/.test(trimmed)) {
     const esLimit =
       defaultLimit === null
-        ? MAX_ROWS
+        ? maxRows()
         : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
     const result = await client.search({
       index: trimmed,
-      size: Math.min(esLimit, MAX_ROWS),
+      size: Math.min(esLimit, maxRows()),
       query: { match_all: {} },
     });
     const elapsed = performance.now() - start;

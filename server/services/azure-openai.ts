@@ -15,6 +15,7 @@ import {
   fetch as undiciFetch,
   type Dispatcher,
 } from "undici";
+import { getConfig, getConfigBool } from "../config/settings.js";
 
 export interface AzureConfig {
   endpoint: string;
@@ -29,12 +30,13 @@ export interface AzureConfig {
 // re-signed certificates Node doesn't trust (UNABLE_TO_GET_ISSUER_CERT_LOCALLY).
 // Mirrors the existing relaxed-TLS handling for Elasticsearch/MSSQL connections.
 let cachedDispatcher: Dispatcher | null | undefined;
+let cachedInsecure: boolean | undefined;
 function getAzureDispatcher(): Dispatcher | undefined {
-  if (cachedDispatcher !== undefined) return cachedDispatcher ?? undefined;
-
-  const insecure = /^(1|true|yes|on)$/i.test(
-    process.env.AZURE_OPENAI_INSECURE_TLS || "",
-  );
+  // The TLS flag is an admin setting; rebuild the dispatcher when it changes.
+  const insecure = getConfigBool("AZURE_OPENAI_INSECURE_TLS");
+  if (cachedDispatcher !== undefined && insecure === cachedInsecure)
+    return cachedDispatcher ?? undefined;
+  cachedInsecure = insecure;
   const proxy =
     process.env.HTTPS_PROXY ||
     process.env.https_proxy ||
@@ -78,14 +80,14 @@ export interface AzureChatResult {
   usage?: AzureChatUsage;
 }
 
-/** Reads Azure OpenAI config from env, reporting any missing required vars. */
+/** Reads Azure OpenAI config (Settings, else env), reporting any missing required keys. */
 export function getAzureConfig(): {
   config: AzureConfig | null;
   missing: string[];
 } {
-  const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
-  const apiKey = process.env.AZURE_OPENAI_KEY;
-  const deployment = process.env.AZURE_OPENAI_DEPLOYMENT;
+  const endpoint = getConfig("AZURE_OPENAI_ENDPOINT");
+  const apiKey = getConfig("AZURE_OPENAI_KEY");
+  const deployment = getConfig("AZURE_OPENAI_DEPLOYMENT");
 
   const missing: string[] = [];
   if (!endpoint) missing.push("AZURE_OPENAI_ENDPOINT");
@@ -99,8 +101,8 @@ export function getAzureConfig(): {
       endpoint: endpoint!,
       apiKey: apiKey!,
       deployment: deployment!,
-      model: process.env.AZURE_OPENAI_MODEL,
-      apiVersion: process.env.AZURE_OPENAI_API_VERSION || "2024-08-01-preview",
+      model: getConfig("AZURE_OPENAI_MODEL") || undefined,
+      apiVersion: getConfig("AZURE_OPENAI_API_VERSION") || "2024-08-01-preview",
     },
     missing: [],
   };
