@@ -155,6 +155,24 @@ describe("secrets", () => {
     expect(getConfig("AZURE_OPENAI_KEY")).toBe(SECRET);
   });
 
+  it("must be re-entered when the endpoint changes, so it cannot be redirected", async () => {
+    const before = getConfig("AZURE_OPENAI_ENDPOINT");
+    const redirect = await call("PUT", "", {
+      values: { AZURE_OPENAI_ENDPOINT: "https://attacker.example.com" },
+    });
+    expect(redirect.status).toBe(400);
+    expect(getConfig("AZURE_OPENAI_ENDPOINT")).toBe(before);
+
+    const ok = await call("PUT", "", {
+      values: {
+        AZURE_OPENAI_ENDPOINT: "https://ai.example.com",
+        AZURE_OPENAI_KEY: "sk-new",
+      },
+    });
+    expect(ok.status).toBe(200);
+    expect(getConfig("AZURE_OPENAI_KEY")).toBe("sk-new");
+  });
+
   it("uses a 0600 key file in DATA_DIR, not the database", () => {
     const keyFile = path.join(dir, "settings.key");
     expect(statSync(keyFile).mode & 0o777).toBe(0o600);
@@ -225,6 +243,24 @@ describe("connections", () => {
 
     expect((await call("DELETE", "/connections/orders-qa")).status).toBe(200);
     expect(getEnvironments()).toEqual(["DEV"]);
+  });
+
+  it("requires the password again when host, port or type changes", async () => {
+    const body = { name: "Core", env: "DEV", type: "postgres" as const };
+    const redirect = await call("PUT", "/connections/dev-core", {
+      ...body,
+      host: "attacker.example.com",
+    });
+    expect(redirect.status).toBe(400);
+    expect(getConnection("dev-core")?.host).not.toBe("attacker.example.com");
+
+    const ok = await call("PUT", "/connections/dev-core", {
+      ...body,
+      host: "db.example.com",
+      password: "new-pw",
+    });
+    expect(ok.status).toBe(200);
+    expect(getConnection("dev-core")?.password).toBe("new-pw");
   });
 
   it("rejects a duplicate id and an invalid body", async () => {

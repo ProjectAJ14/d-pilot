@@ -152,6 +152,19 @@ export function updateSettings(
     }
     writes.push([key, value]);
   }
+  // A stored key the admin cannot read must not be sendable to a URL they pick,
+  // so moving the endpoint means typing the key again.
+  const endpoint = writes.find(([k]) => k === "AZURE_OPENAI_ENDPOINT")?.[1];
+  if (
+    endpoint !== undefined &&
+    endpoint !== (getConfig("AZURE_OPENAI_ENDPOINT") ?? "") &&
+    getConfig("AZURE_OPENAI_KEY") &&
+    !writes.some(([k]) => k === "AZURE_OPENAI_KEY")
+  ) {
+    throw new Error(
+      "AZURE_OPENAI_KEY must be re-entered when the endpoint changes",
+    );
+  }
   for (const [key, value] of writes) {
     setSetting(key, def(key).secret ? encryptSecret(value) : value);
   }

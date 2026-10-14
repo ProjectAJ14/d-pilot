@@ -29,7 +29,7 @@ body:json {
 }
 
 docs {
-  Replace a connection's definition (the id is fixed). An omitted or empty `password` / `uri` keeps the stored one. Closes the connection's pool and clears its cached schema so the next use reconnects with the new settings. Audited as `CONNECTION_UPDATE` with the changed field names only.
+  Replace a connection's definition (the id is fixed). An omitted or empty `password` / `uri` keeps the stored one — except when `host`, `port` or `type` changes, which is a 400 unless `password` is sent again, so a stored password can never be redirected to a new host. Closes the connection's pool and clears its cached schema so the next use reconnects with the new settings. Audited as `CONNECTION_UPDATE` with the changed field names only.
 
   Requires a valid Bearer JWT ({{token}}).
   **Admin only.**

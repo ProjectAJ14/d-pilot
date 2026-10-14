@@ -189,6 +189,20 @@ router.put("/connections/:id", async (req: Request, res: Response) => {
     res.status(400).json({ error: zodError(body.error) });
     return;
   }
+  // A kept password must not follow the connection to a host the admin picks —
+  // that would hand them a secret the API never shows.
+  const target = (c: { type: string; host?: string; port?: number }) =>
+    JSON.stringify([c.type, c.host ?? "", c.port ?? null]);
+  if (
+    existing.password &&
+    !body.data.password &&
+    target(body.data) !== target(existing)
+  ) {
+    res.status(400).json({
+      error: "Re-enter the password when changing host, port or type",
+    });
+    return;
+  }
   // An omitted or empty secret keeps the stored one — the client never had it.
   const next: ConnectionConfig = {
     ...body.data,
