@@ -20,7 +20,7 @@ import type { AppSettingView, SettingSource } from "../types/index.js";
  * they are needed before the DB exists or are baked into the client build.
  */
 
-type Kind = "string" | "url" | "int" | "number" | "bool" | "duration";
+type Kind = "string" | "url" | "asset" | "int" | "number" | "bool" | "duration";
 
 interface SettingDef {
   group: "ai" | "branding" | "limits";
@@ -63,12 +63,12 @@ export const SETTINGS = {
     default: "HIPAA · PHI tokenized",
     maxLength: 80,
   },
-  LOGO_URL: { group: "branding", kind: "string" },
-  LIGHT_LOGO_URL: { group: "branding", kind: "string" },
+  LOGO_URL: { group: "branding", kind: "asset" },
+  LIGHT_LOGO_URL: { group: "branding", kind: "asset" },
   // The icon index.html ships with.
   FAVICON_URL: {
     group: "branding",
-    kind: "string",
+    kind: "asset",
     default: "/favicon-32.png",
   },
   EMAIL_DOMAIN: { group: "branding", kind: "string" },
@@ -220,6 +220,18 @@ export function jwtExpiresIn(): string {
 const VALIDATORS: Record<Kind, z.ZodType<string>> = {
   string: z.string().max(2000),
   url: z.union([z.literal(""), z.url().max(2000)]),
+  // An image the browser loads: a path on this server, or an http(s) URL.
+  // Not protocol-relative ("//host"), which is another origin in disguise.
+  asset: z
+    .string()
+    .max(2000)
+    .refine(
+      (v) =>
+        v === "" ||
+        /^\/(?!\/)/.test(v) ||
+        z.url({ protocol: /^https?$/ }).safeParse(v).success,
+      'must be empty, a path starting with "/", or an http(s) URL',
+    ),
   int: z
     .string()
     .regex(/^\d+$/, "must be a whole number")

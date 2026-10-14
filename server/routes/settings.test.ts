@@ -1013,3 +1013,27 @@ describe("login page text", () => {
     expect((await res.json()).error).toMatch(/LOGIN_TAGLINE/);
   });
 });
+
+describe("logo and favicon URLs", () => {
+  it("accept empty, a root-relative path or an http(s) URL — nothing else", async () => {
+    for (const key of ["LOGO_URL", "LIGHT_LOGO_URL", "FAVICON_URL"]) {
+      for (const ok of ["", "/logo.svg", "https://cdn.example.com/logo.png"])
+        expect(
+          (await call("PUT", "", { values: { [key]: ok } })).status,
+          `${key}=${ok}`,
+        ).toBe(200);
+      for (const bad of [
+        "href=https://cdn.example.com/logo.png",
+        "logo.png",
+        "//cdn.example.com/logo.png",
+        "javascript:alert(1)",
+        "ftp://example.com/logo.png",
+      ]) {
+        const res = await call("PUT", "", { values: { [key]: bad } });
+        expect(res.status, `${key}=${bad}`).toBe(400);
+        expect((await res.json()).error).toMatch(key);
+      }
+      await call("DELETE", `/${key}`);
+    }
+  });
+});
