@@ -199,6 +199,24 @@ describe("secrets", () => {
     );
   });
 
+  it("does not fall back to the .env key when the stored one cannot be decrypted", async () => {
+    vi.stubEnv("AZURE_OPENAI_KEY", "sk-from-env");
+    await call("PUT", "", {
+      values: {
+        AZURE_OPENAI_ENDPOINT: "https://admin-chosen.example.com",
+        AZURE_OPENAI_KEY: "sk-admin",
+      },
+    });
+    // A lost or rotated key file leaves a value that no longer decrypts.
+    store.setSetting("AZURE_OPENAI_KEY", "enc:v1:AAAA:AAAA:AAAA");
+    expect(getConfig("AZURE_OPENAI_KEY")).toBeUndefined();
+    const view = (await (await call("GET")).json()).find(
+      (s: any) => s.key === "AZURE_OPENAI_KEY",
+    );
+    expect(view).toMatchObject({ source: "db", set: false });
+    await call("DELETE", "/AZURE_OPENAI_KEY");
+  });
+
   it("uses a 0600 key file in DATA_DIR, not the database", () => {
     const keyFile = path.join(dir, "settings.key");
     expect(statSync(keyFile).mode & 0o777).toBe(0o600);

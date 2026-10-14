@@ -70,8 +70,10 @@ function resolve(key: SettingKey): {
 } {
   const stored = getSetting(key);
   if (stored !== null) {
+    // An undecryptable secret stays unset rather than falling back to env: the
+    // .env key would otherwise go to whatever target was saved alongside it.
     const value = def(key).secret ? decryptSecret(stored) : stored;
-    if (value !== null) return { value, source: "db" };
+    return { value: value ?? undefined, source: "db" };
   }
   // `||`, not `??`: an empty env var has always meant "unset" here.
   const env = process.env[key] || undefined;
