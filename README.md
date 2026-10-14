@@ -34,12 +34,13 @@ ever leaving the building in the clear.
 ### Write workflow (governed)
 
 - **Write mode** with a request → review → approval → execute lifecycle. Globally toggleable by admins.
-- **Two-person rule on production** — writes to any production environment (any name containing "prod") always require a second approver and can never be direct-execute; other environments can be configured for direct write.
+- **Two-person rule on production** — writes to any production environment (any name containing "prod") always require a second approver and can never be direct-execute; other environments can be configured for direct write. The one exception is the **admin override** below.
+- **Admin override** — an admin can run a pending write request without any approver (their own included), on any environment including production. A written reason is mandatory and the run is audited as `OVERRIDDEN` / `WRITE_OVERRIDE`. Non-admins cannot; there is no capability list for it.
 - **Paired verify SELECT** — every write request carries a read-only SELECT to preview affected rows before execution.
 - **AI safety review** — verdict (Safe / Caution / Dangerous), blast-radius estimate, SELECT-matches-write check, and one-click suggested corrections.
 - **Single-statement, scoped writes only** — one INSERT/UPDATE/DELETE (or Mongo/ES equivalent); UPDATE/DELETE must be scoped (WHERE required); transactional where the engine supports it.
 - **Save without running** — "Save request" stores a request as a draft that executes nothing until someone submits or runs it, on any environment. This is also what the MCP endpoint creates, so an AI agent can propose a change but never make one.
-- **Full lifecycle audit** — save, submit, AI review, approve/reject, execute/fail, cancel, revise & resubmit — each with an activity timeline.
+- **Full lifecycle audit** — save, submit, AI review, approve/reject/admin override, execute/fail, cancel, revise & resubmit — each with an activity timeline.
 
 ### AI assistant (Azure OpenAI)
 
@@ -284,7 +285,7 @@ Each user has an `isAdmin` flag plus four capability lists, managed from **Setti
 | **Approve** (`approveEnvironments`)   | Approve others' write requests in those environments  |
 
 Admin implies every capability on every environment. Production safety rails (mandatory
-PHI tokenization and two-person write approval) always apply regardless of capabilities,
+PHI tokenization and two-person write approval) always apply regardless of capabilities — except that an admin can override approval on a single request (see Write workflow) —
 on every environment whose name contains "prod" — see [Custom environments](#custom-environments).
 
 ### Custom environments

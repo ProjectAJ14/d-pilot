@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
+import router from "./write-requests.js";
+import { requireAdmin } from "../middleware/auth.js";
 import {
   DELETABLE_STATUSES,
+  planDecision,
   planDraftSubmit,
   planRevise,
 } from "./write-requests.js";
@@ -140,5 +143,85 @@ describe("DELETABLE_STATUSES", () => {
     for (const status of ["EXECUTED", "PENDING", "APPROVED"]) {
       expect(DELETABLE_STATUSES).not.toContain(status);
     }
+  });
+});
+
+describe("planDecision", () => {
+  const pending = {
+    status: "PENDING" as const,
+    env: "PROD",
+    requestedBy: "u1",
+  };
+  const admin = user({ sub: "a1", isAdmin: true });
+
+  it("lets an admin override their own request with a reason", () => {
+    const own = { ...pending, requestedBy: "a1" };
+    expect(planDecision(admin, own, true, "incident fix")).toEqual({
+      ok: true,
+    });
+  });
+
+  it("lets an admin override with no approve capability on the env", () => {
+    const a = user({ isAdmin: true, approveEnvironments: [] });
+    expect(planDecision(a, pending, true, "why")).toEqual({ ok: true });
+  });
+
+  it("refuses override from a non-admin, even with approve capability", () => {
+    const approver = user({ sub: "u2", approveEnvironments: ["PROD"] });
+    expect(planDecision(approver, pending, true, "why")).toMatchObject({
+      ok: false,
+      status: 403,
+    });
+  });
+
+  it("requires a reason to override", () => {
+    expect(planDecision(admin, pending, true)).toMatchObject({
+      ok: false,
+      status: 400,
+    });
+  });
+
+  it("refuses override of a request that is not pending", () => {
+    for (const status of ["DRAFT", "EXECUTED", "REJECTED"] as const) {
+      expect(
+        planDecision(admin, { ...pending, status }, true, "why"),
+      ).toMatchObject({ ok: false, status: 409 });
+    }
+  });
+
+  it("still blocks self-approval on the normal path, admin or not", () => {
+    const own = { ...pending, requestedBy: "a1" };
+    expect(planDecision(admin, own, false)).toMatchObject({
+      ok: false,
+      status: 403,
+    });
+  });
+
+  it("approves normally for another user's request with capability", () => {
+    const approver = user({ sub: "u2", approveEnvironments: ["PROD"] });
+    expect(planDecision(approver, pending, false)).toEqual({ ok: true });
+  });
+});
+
+describe("POST /:id/override wiring", () => {
+  // The planner also checks isAdmin; this guards the middleware layer so a
+  // refactor of decideAndRun cannot silently open the route to non-admins.
+  it("is guarded by requireAdmin", () => {
+    const layer = (router as any).stack.find(
+      (l: any) => l.route?.path === "/:id/override",
+    );
+    expect(layer?.route.methods.post).toBe(true);
+    const handlers = layer.route.stack.map((l: any) => l.handle);
+    expect(handlers).toContain(requireAdmin);
+  });
+
+  it("is not a route a normal approver can reach via /approve with override", () => {
+    const planner = planDecision(
+      user({ approveEnvironments: ["PROD"] }),
+      { status: "PENDING", env: "PROD", requestedBy: "u9" },
+      true,
+      "x",
+    );
+    expect(planner).toMatchObject({ ok: false, status: 403 });
   });
 });

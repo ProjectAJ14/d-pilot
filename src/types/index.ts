@@ -238,6 +238,7 @@ export interface WriteRequestEvent {
     | "AI_REVIEWED"
     | "APPROVED"
     | "AUTO_APPROVED"
+    | "OVERRIDDEN"
     | "REJECTED"
     | "RESUBMITTED"
     | "EXECUTED"
@@ -283,6 +284,8 @@ export interface WriteRequest {
   events?: WriteRequestEvent[];
   viewerCanApprove?: boolean;
   viewerIsRequester?: boolean;
+  /** Admin may run this PENDING request without approval. */
+  viewerCanOverride?: boolean;
   viewerCanPreview?: boolean;
   /** Viewer may turn this saved DRAFT into a live request (write capability on its env). */
   viewerCanSubmit?: boolean;

@@ -256,6 +256,7 @@ export type WriteRequestEventType =
   | "AI_REVIEWED"
   | "APPROVED"
   | "AUTO_APPROVED"
+  | "OVERRIDDEN"
   | "REJECTED"
   | "RESUBMITTED"
   | "EXECUTED"
