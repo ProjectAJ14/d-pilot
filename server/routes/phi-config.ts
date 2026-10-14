@@ -15,6 +15,7 @@ import {
   getConnection,
   getEnvironments,
   getProductionEnvs,
+  validEnvEdit,
 } from "../config/connections.js";
 import type { MaskingType, PhiFieldRule } from "../types/index.js";
 
@@ -124,14 +125,10 @@ router.get("/masked-envs", (_req: Request, res: Response) => {
 });
 
 router.put("/masked-envs", requireAdmin, (req: Request, res: Response) => {
-  const { environments } = req.body;
-  const valid = getEnvironments();
-  if (
-    !Array.isArray(environments) ||
-    !environments.every((e: string) => valid.includes(e))
-  ) {
+  const environments = validEnvEdit(req.body?.environments, getPhiMaskedEnvs());
+  if (!environments) {
     res.status(400).json({
-      error: `Invalid environments list. Allowed: ${valid.join(", ")}`,
+      error: `Invalid environments list. Allowed: ${getEnvironments().join(", ")}`,
     });
     return;
   }

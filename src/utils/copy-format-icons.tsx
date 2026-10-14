@@ -14,16 +14,10 @@ import type { CopyFormat } from "../types";
 /**
  * The icon for a "Copy as" format.
  *
- * Derived rather than stored. A deployment can define its own formats through
- * the `COPY_FORMATS` env var (see `server/config/copy-formats.ts`), and that
- * catalogue arrives as JSON over `/api/config` — so there is nowhere in the
- * data for a React component to live, and any format the code has never seen
- * still has to render something sensible.
- *
- * So the mapping keys off what a format *is*: its `builtin` formatter, or for
- * the separator-based ones, how it quotes. Everything else falls back to the
- * generic clipboard glyph, which is the honest answer for a custom extractor
- * this build knows nothing about.
+ * Derived rather than stored, so `CopyFormat` stays plain data: the mapping
+ * keys off what a format *is* — its `builtin` formatter, or for the
+ * separator-based ones, how it quotes — with the generic clipboard glyph as
+ * the fallback.
  *
  * Both copy menus in `results-grid.tsx` read this, so a format looks the same
  * in the toolbar dropdown and in the per-column right-click menu.

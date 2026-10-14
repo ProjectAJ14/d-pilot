@@ -1,50 +1,70 @@
 import type { ConnectionConfig } from "../types/index.js";
+import { listDbConnections } from "../services/sqlite-store.js";
 
 let cachedConnections: ConnectionConfig[] | null = null;
 
+/**
+ * The target-database connections, from the app database's `db_connections`
+ * table (managed in Settings → Connections). None before the DB is open.
+ */
 export function loadConnections(): ConnectionConfig[] {
   if (cachedConnections) return cachedConnections;
+  cachedConnections = listDbConnections() ?? [];
+  return cachedConnections;
+}
 
-  const raw = process.env.DBFORGE_CONNECTIONS;
-  if (!raw) {
-    console.warn(
-      "DBFORGE_CONNECTIONS not set, no database connections available",
-    );
-    return [];
-  }
-
-  try {
-    cachedConnections = JSON.parse(raw) as ConnectionConfig[];
-    console.log(`Loaded ${cachedConnections.length} database connections`);
-    return cachedConnections;
-  } catch (err) {
-    console.error("Failed to parse DBFORGE_CONNECTIONS:", err);
-    return [];
-  }
+/** Drop the memoized list; the store calls this on every connection write. */
+export function invalidateConnections(): void {
+  cachedConnections = null;
 }
 
 export function getConnection(id: string): ConnectionConfig | undefined {
   return loadConnections().find((c) => c.id === id);
 }
 
-/** Baseline order, least → most sensitive. Anything else goes after PROD. */
+/** Sort order, least → most sensitive. Anything else goes after PROD. */
 const KNOWN_ENV_ORDER = ["DEV", "QA", "UAT", "STG", "PROD"];
 
 /**
  * The environments this deployment actually has, ordered least → most sensitive.
- * Derived from `DBFORGE_CONNECTIONS`, so adding a connection with a new `env`
+ * Derived from the configured connections, so adding a connection with a new `env`
  * (e.g. `SUPER_PROD`) is all it takes to make that environment appear in the
  * capability pickers, PHI settings, write policy and the connection tree.
  *
  * This is the single source of truth — routes and the client must not re-declare
  * an environment list. Unknown envs sort after PROD (treated as most sensitive).
+ * No connections → no environments.
  */
 export function getEnvironments(): string[] {
   const found = new Set(loadConnections().map((c) => c.env));
-  if (found.size === 0) return [...KNOWN_ENV_ORDER];
   const known = KNOWN_ENV_ORDER.filter((e) => found.has(e));
   const extra = [...found].filter((e) => !KNOWN_ENV_ORDER.includes(e)).sort();
   return [...known, ...extra];
+}
+
+/**
+ * An edited env list as it should be saved: exactly `sent`, when each entry is
+ * an env that exists now or one `current` already holds. Pickers show saved
+ * envs that have no connection right now, so keeping one means sending it back
+ * and leaving it out revokes it. Returns null for anything else — an env that
+ * was never saved before cannot be granted until a connection defines it.
+ */
+export function validEnvEdit(
+  sent: unknown,
+  current: string[],
+): string[] | null {
+  if (!Array.isArray(sent) || !sent.every(envEditAllows(current))) return null;
+  return [...new Set(sent as string[])];
+}
+
+/**
+ * The rule for one entry of an edited env list (see validEnvEdit): an env that
+ * exists now, or one `current` already holds.
+ */
+export function envEditAllows(current: string[]) {
+  const known = getEnvironments();
+  return (e: unknown): e is string =>
+    typeof e === "string" && (known.includes(e) || current.includes(e));
 }
 
 /**

@@ -32,7 +32,9 @@ docs {
   request is a 422 naming the ones that were dropped.
 
   Values must be environments this deployment actually has (see `GET /api/config`
-  → `environments`); anything else is a 400 that names the allowed values.
+  → `environments`), or ones already in the saved list that have no connection
+  right now; anything else is a 400 that names the allowed values. The list is
+  saved exactly as sent, so leaving such an env out removes it.
 
   Requires a valid Bearer JWT ({{token}}).
   **Admin only.**

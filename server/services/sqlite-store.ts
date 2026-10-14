@@ -1,10 +1,16 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { DEFAULT_PHI_RULES } from "../config/phi-defaults.js";
-import { getProductionEnvs, isProductionEnv } from "../config/connections.js";
+import {
+  getProductionEnvs,
+  invalidateConnections,
+  isProductionEnv,
+} from "../config/connections.js";
+import { decryptSecret, encryptSecret } from "../config/secrets.js";
 import type {
+  ConnectionConfig,
   Artifact,
   ArtifactBlock,
   SavedQuery,
@@ -88,6 +94,24 @@ export function initDatabase(): void {
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS db_connections (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      env TEXT NOT NULL,
+      type TEXT NOT NULL,
+      host TEXT,
+      port INTEGER,
+      database_name TEXT,
+      username TEXT,
+      password_enc TEXT,
+      schema_name TEXT,
+      schemas TEXT,
+      uri_enc TEXT,
+      instance_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -200,6 +224,50 @@ export function initDatabase(): void {
   if (!wrColNames.has("no_transaction")) {
     db.exec(
       "ALTER TABLE write_requests ADD COLUMN no_transaction INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+
+  // A random id per stored connection, new on every insert and kept across
+  // updates: deleting and re-creating a connection under the same id gives it
+  // a new one, so a write request bound to the old one cannot run on it.
+  const connCols = db.pragma("table_info(db_connections)") as {
+    name: string;
+  }[];
+  if (!connCols.some((c) => c.name === "instance_id")) {
+    db.exec("ALTER TABLE db_connections ADD COLUMN instance_id TEXT");
+  }
+  db.exec(
+    "UPDATE db_connections SET instance_id = lower(hex(randomblob(16))) WHERE instance_id IS NULL",
+  );
+  invalidateConnections();
+
+  // The connection target a request was submitted against (connectionTarget).
+  // Existing pending requests and drafts are bound to their connection as of
+  // the upgrade (a draft is checked on submit); one whose connection is
+  // already gone, or now in another env, gets none, so it can never run — a
+  // draft like that can still be revised, which re-binds it.
+  if (!wrColNames.has("target_fingerprint")) {
+    db.exec("ALTER TABLE write_requests ADD COLUMN target_fingerprint TEXT");
+    const conns = new Map(
+      (listDbConnections() ?? []).map((c) => [c.id, c] as const),
+    );
+    const pending = db
+      .prepare(
+        "SELECT id, connection_id, env FROM write_requests WHERE status IN ('PENDING', 'DRAFT')",
+      )
+      .all() as { id: string; connection_id: string; env: string }[];
+    for (const row of pending) {
+      const conn = conns.get(row.connection_id);
+      // A connection already moved to another env would be approved under the
+      // request's stale env — leave that one unbound too.
+      if (conn?.env === row.env)
+        setWriteRequestTarget(row.id, connectionTarget(conn));
+    }
+  }
+
+  if (process.env.DBFORGE_CONNECTIONS) {
+    console.warn(
+      "DBFORGE_CONNECTIONS is no longer read; connections are managed in Settings → Connections.",
     );
   }
 
@@ -644,10 +712,18 @@ export function deleteAllPhiRules(includeLocked: boolean): {
 
 // --- App Settings ---
 
+// Prepared once per database handle: getSetting runs on every config read.
+const settingStmts = new WeakMap<Database.Database, Database.Statement>();
+
 export function getSetting(key: string): string | null {
-  const row = db
-    .prepare("SELECT value FROM app_settings WHERE key = ?")
-    .get(key) as { value: string } | undefined;
+  // Before initDatabase (unit tests, scripts) every setting falls back to env.
+  if (!db) return null;
+  let stmt = settingStmts.get(db);
+  if (!stmt) {
+    stmt = db.prepare("SELECT value FROM app_settings WHERE key = ?");
+    settingStmts.set(db, stmt);
+  }
+  const row = stmt.get(key) as { value: string } | undefined;
   return row?.value ?? null;
 }
 
@@ -656,6 +732,161 @@ export function setSetting(key: string, value: string): void {
     `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
   ).run(key, value);
+}
+
+export function deleteSetting(key: string): boolean {
+  return (
+    db.prepare("DELETE FROM app_settings WHERE key = ?").run(key).changes > 0
+  );
+}
+
+// --- Target-database connections ---
+
+/** Stored connections with secrets decrypted; null before initDatabase. */
+export function listDbConnections(): ConnectionConfig[] | null {
+  if (!db) return null;
+  const rows = db
+    .prepare("SELECT * FROM db_connections ORDER BY created_at, id")
+    .all() as any[];
+  return rows.map((r) => {
+    const conn: ConnectionConfig = {
+      id: r.id,
+      name: r.name,
+      env: r.env,
+      type: r.type,
+    };
+    if (r.host != null) conn.host = r.host;
+    if (r.port != null) conn.port = r.port;
+    if (r.database_name != null) conn.database = r.database_name;
+    if (r.username != null) conn.username = r.username;
+    if (r.schema_name != null) conn.schema = r.schema_name;
+    if (r.schemas != null) conn.schemas = JSON.parse(r.schemas);
+    const password = r.password_enc ? decryptSecret(r.password_enc) : null;
+    if (password != null) conn.password = password;
+    const uri = r.uri_enc ? decryptSecret(r.uri_enc) : null;
+    if (uri != null) conn.uri = uri;
+    return conn;
+  });
+}
+
+/**
+ * Which secrets a connection has stored — ciphertext present, whether or not it
+ * still decrypts. A secret that fails today revives if the key file is
+ * restored, so it counts as set (same rule as the AI key).
+ */
+export function storedConnectionSecrets(id: string): {
+  password: boolean;
+  uri: boolean;
+} {
+  const row = db
+    .prepare(
+      "SELECT password_enc IS NOT NULL AS password, uri_enc IS NOT NULL AS uri FROM db_connections WHERE id = ?",
+    )
+    .get(id) as { password: number; uri: number } | undefined;
+  return { password: !!row?.password, uri: !!row?.uri };
+}
+
+/** storedConnectionSecrets for every connection, in one query. */
+export function allStoredConnectionSecrets(): Map<
+  string,
+  { password: boolean; uri: boolean }
+> {
+  const rows = db
+    .prepare(
+      "SELECT id, password_enc IS NOT NULL AS password, uri_enc IS NOT NULL AS uri FROM db_connections",
+    )
+    .all() as { id: string; password: number; uri: number }[];
+  return new Map(
+    rows.map((r) => [r.id, { password: !!r.password, uri: !!r.uri }]),
+  );
+}
+
+/**
+ * Insert or replace a connection; password and URI are encrypted at rest.
+ * `keep` leaves an existing row's stored ciphertext as it is — including one
+ * that no longer decrypts, which `conn` cannot carry.
+ */
+export function saveDbConnection(
+  conn: ConnectionConfig,
+  keep: { password?: boolean; uri?: boolean } = {},
+): void {
+  writeDbConnection(conn, keep);
+  invalidateConnections();
+}
+
+/** Several connections in one transaction: all land, or none do. */
+export function saveDbConnections(conns: ConnectionConfig[]): void {
+  db.transaction(() => conns.forEach((c) => writeDbConnection(c)))();
+  invalidateConnections();
+}
+
+function writeDbConnection(
+  conn: ConnectionConfig,
+  keep: { password?: boolean; uri?: boolean } = {},
+): void {
+  db.prepare(
+    `INSERT INTO db_connections (id, name, env, type, host, port, database_name, username, password_enc, schema_name, schemas, uri_enc, instance_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, lower(hex(randomblob(16))))
+     ON CONFLICT(id) DO UPDATE SET name = excluded.name, env = excluded.env, type = excluded.type,
+       host = excluded.host, port = excluded.port, database_name = excluded.database_name,
+       username = excluded.username,
+       password_enc = CASE WHEN ? THEN password_enc ELSE excluded.password_enc END,
+       schema_name = excluded.schema_name, schemas = excluded.schemas,
+       uri_enc = CASE WHEN ? THEN uri_enc ELSE excluded.uri_enc END,
+       updated_at = datetime('now')`,
+  ).run(
+    conn.id,
+    conn.name,
+    conn.env,
+    conn.type,
+    conn.host ?? null,
+    conn.port ?? null,
+    conn.database ?? null,
+    conn.username ?? null,
+    conn.password ? encryptSecret(conn.password) : null,
+    conn.schema ?? null,
+    conn.schemas ? JSON.stringify(conn.schemas) : null,
+    conn.uri ? encryptSecret(conn.uri) : null,
+    keep.password ? 1 : 0,
+    keep.uri ? 1 : 0,
+  );
+}
+
+/**
+ * A SHA-256 of where `conn` points: the stored instance (see instance_id), env,
+ * type, host, port, database, username, schema (Postgres default schema / ES
+ * protocol) and the URI.
+ * Name, schema list and password are not part of it — renaming or rotating a
+ * password is not a different target. Null when the connection is not stored.
+ * A write request is bound to this when it is submitted, and refuses to run
+ * once it changes.
+ */
+export function connectionTarget(conn: ConnectionConfig): string | null {
+  const row = db
+    .prepare("SELECT instance_id FROM db_connections WHERE id = ?")
+    .get(conn.id) as { instance_id: string } | undefined;
+  if (!row) return null;
+  const fields = [
+    row.instance_id,
+    conn.env,
+    conn.type,
+    conn.host ?? null,
+    conn.port ?? null,
+    conn.database ?? null,
+    conn.username ?? null,
+    // Postgres writes run under `SET search_path` to it; for Elasticsearch it
+    // is the protocol. Every field the write path reads belongs here.
+    conn.schema ?? null,
+    conn.uri ?? null,
+  ];
+  return createHash("sha256").update(JSON.stringify(fields)).digest("hex");
+}
+
+export function deleteDbConnection(id: string): boolean {
+  const deleted =
+    db.prepare("DELETE FROM db_connections WHERE id = ?").run(id).changes > 0;
+  invalidateConnections();
+  return deleted;
 }
 
 export function getPhiMaskedEnvs(): Environment[] {
@@ -1442,6 +1673,20 @@ export function updateWriteRequest(
   return getWriteRequest(id);
 }
 
+/** Binds a request to the connection target it was submitted against. */
+export function setWriteRequestTarget(id: string, target: string | null): void {
+  db.prepare(
+    "UPDATE write_requests SET target_fingerprint = ? WHERE id = ?",
+  ).run(target, id);
+}
+
+export function getWriteRequestTarget(id: string): string | null {
+  const row = db
+    .prepare("SELECT target_fingerprint FROM write_requests WHERE id = ?")
+    .get(id) as { target_fingerprint: string | null } | undefined;
+  return row?.target_fingerprint ?? null;
+}
+
 /**
  * Atomically moves a request between two statuses, returning true only for the
  * caller that won the claim. Every transition that can end in an execution goes
@@ -1479,6 +1724,9 @@ export function claimWriteRequestForApproval(id: string): boolean {
 export function reviseWriteRequest(
   id: string,
   fields: {
+    /** The connection's env and name now — a revise re-binds the request. */
+    env: string;
+    connectionName?: string;
     title: string;
     description?: string;
     selectSql?: string;
@@ -1491,6 +1739,7 @@ export function reviseWriteRequest(
   const now = new Date().toISOString();
   db.prepare(
     `UPDATE write_requests SET
+       env = ?, connection_name = ?,
        title = ?, description = ?, select_sql = ?, write_sql = ?,
        is_migration = ?, no_transaction = ?,
        status = ?,
@@ -1501,6 +1750,8 @@ export function reviseWriteRequest(
        updated_at = ?
      WHERE id = ?`,
   ).run(
+    fields.env,
+    fields.connectionName ?? null,
     fields.title,
     fields.description ?? null,
     fields.selectSql ?? null,

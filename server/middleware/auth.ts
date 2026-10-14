@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import type { AuthUser, ConnectionConfig } from "../types/index.js";
 import { getDb, archiveIfDue } from "../services/sqlite-store.js";
 import { getConnection, getEnvironments } from "../config/connections.js";
+import { getConfig, jwtExpiresIn } from "../config/settings.js";
 
 // Extend Express Request to include user
 declare global {
@@ -16,7 +17,6 @@ declare global {
 
 const JWT_SECRET =
   process.env.JWT_SECRET || "dbpilot-dev-secret-change-in-production";
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "24h";
 
 function parseEnvList(
   raw: string | null | undefined,
@@ -148,7 +148,7 @@ export function initAuthTables(): void {
     cnt: number;
   };
   if (count.cnt === 0) {
-    const domain = process.env.EMAIL_DOMAIN || "example.com";
+    const domain = getConfig("EMAIL_DOMAIN") || "example.com";
     const adminEmail = `admin@${domain}`;
     const adminPassword = process.env.DEFAULT_ADMIN_PASSWORD || "changeme123";
     const adminHash = bcrypt.hashSync(adminPassword, 10);
@@ -217,7 +217,7 @@ export function handleLogin(req: Request, res: Response): void {
   };
 
   const token = jwt.sign(payload, JWT_SECRET, {
-    expiresIn: JWT_EXPIRES_IN,
+    expiresIn: jwtExpiresIn(),
   } as jwt.SignOptions);
 
   res.json({ token, user: profile });

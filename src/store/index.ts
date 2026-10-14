@@ -1,12 +1,5 @@
 import { create } from "zustand";
-import type {
-  Artifact,
-  ConnectionInfo,
-  CopyFormat,
-  QueryTab,
-  SavedQuery,
-} from "../types";
-import { DEFAULT_COPY_FORMATS } from "../utils/data-extractors";
+import type { Artifact, ConnectionInfo, QueryTab, SavedQuery } from "../types";
 import {
   loadTabs,
   clearPersistedTabs,
@@ -34,11 +27,12 @@ interface AppConfig {
   lightLogoUrl: string | null;
   faviconUrl: string | null;
   emailDomain: string | null;
+  /** The two lines under the app name on the login page; "" hides one. */
+  loginTagline: string;
+  loginSubtitle: string;
   phiMaskedEnvironments: string[];
   /** Environments this deployment has, least → most sensitive (from the server). */
   environments: string[];
-  /** Results "Copy as" formats (from the server; falls back to code defaults). */
-  copyFormats: CopyFormat[];
 }
 
 interface AppState {
@@ -57,7 +51,7 @@ interface AppState {
   connections: ConnectionInfo[];
   activeConnectionId: string | null;
   setConnections: (connections: ConnectionInfo[]) => void;
-  setActiveConnection: (id: string) => void;
+  setActiveConnection: (id: string | null) => void;
 
   // Selected schema per connection — single source of truth shared by the
   // sidebar explorer and the editor-toolbar schema dropdowns. Tabs on the
@@ -228,12 +222,13 @@ export const useStore = create<AppState>((set, get) => ({
     lightLogoUrl: null,
     faviconUrl: null,
     emailDomain: null,
+    // Server defaults, shown until /api/config answers.
+    loginTagline: "Internal query tool",
+    loginSubtitle: "HIPAA · PHI tokenized",
     phiMaskedEnvironments: ["PROD"],
     // Empty until /api/config answers — an env picker must never offer an
     // environment this deployment may not have.
     environments: [],
-    // Code defaults until /api/config answers (or if an older server omits it).
-    copyFormats: DEFAULT_COPY_FORMATS,
   },
   setConfig: (config) => set({ config }),
 
@@ -256,7 +251,27 @@ export const useStore = create<AppState>((set, get) => ({
   // Connections
   connections: [],
   activeConnectionId: initialActiveConnectionId,
-  setConnections: (connections) => set({ connections }),
+  // The server's list: a tab still on a connection that is gone (deleted in
+  // Settings) is detached from it, rather than querying a dead id, and the
+  // schema remembered for it is dropped.
+  setConnections: (connections) => {
+    const ids = new Set(connections.map((c) => c.id));
+    const gone = (id: string | null) => id !== null && !ids.has(id);
+    set((s) => ({
+      connections,
+      schemaByConnection: Object.fromEntries(
+        Object.entries(s.schemaByConnection).filter(([id]) => ids.has(id)),
+      ),
+      tabs: s.tabs.some((t) => gone(t.connectionId))
+        ? s.tabs.map((t) =>
+            gone(t.connectionId)
+              ? { ...t, connectionId: null, schema: undefined }
+              : t,
+          )
+        : s.tabs,
+    }));
+    persistAfterSet();
+  },
   setActiveConnection: (id) => {
     set({ activeConnectionId: id });
     const { activeTabId, tabs, schemaByConnection } = get();
@@ -265,7 +280,11 @@ export const useStore = create<AppState>((set, get) => ({
       // the editor's default-seeding fills it in).
       tabs: tabs.map((t) =>
         t.id === activeTabId
-          ? { ...t, connectionId: id, schema: schemaByConnection[id] }
+          ? {
+              ...t,
+              connectionId: id,
+              schema: id ? schemaByConnection[id] : undefined,
+            }
           : t,
       ),
     });

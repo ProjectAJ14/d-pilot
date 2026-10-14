@@ -1,23 +1,30 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { isProductionEnv } from "./connections.js";
+import { describe, it, expect, vi } from "vitest";
+import {
+  getEnvironments,
+  getProductionEnvs,
+  invalidateConnections,
+  isProductionEnv,
+  envEditAllows,
+} from "./connections.js";
 
-/**
- * `loadConnections()` memoizes, so each case re-imports the module with its own
- * DBFORGE_CONNECTIONS.
- */
-async function prodEnvsFor(connections: unknown): Promise<string[]> {
-  vi.resetModules();
-  process.env.DBFORGE_CONNECTIONS = JSON.stringify(connections);
-  const { getProductionEnvs } = await import("./connections.js");
+/** Connections come from the app database only; stand in for its table. */
+let table: unknown[] | null = null;
+vi.mock("../services/sqlite-store.js", () => ({
+  listDbConnections: () => table,
+}));
+
+function use(connections: unknown[] | null) {
+  table = connections;
+  invalidateConnections();
+}
+
+async function prodEnvsFor(connections: unknown[]): Promise<string[]> {
+  use(connections);
   return getProductionEnvs();
 }
 
-async function envsFor(connections: unknown): Promise<string[]> {
-  vi.resetModules();
-  process.env.DBFORGE_CONNECTIONS =
-    connections === undefined ? "" : JSON.stringify(connections);
-  if (connections === undefined) delete process.env.DBFORGE_CONNECTIONS;
-  const { getEnvironments } = await import("./connections.js");
+async function envsFor(connections: unknown[] | null): Promise<string[]> {
+  use(connections);
   return getEnvironments();
 }
 
@@ -29,10 +36,6 @@ const conn = (id: string, env: string) => ({
 });
 
 describe("getEnvironments", () => {
-  beforeEach(() => {
-    delete process.env.DBFORGE_CONNECTIONS;
-  });
-
   it("returns the known envs least → most sensitive, deduped", async () => {
     expect(
       await envsFor([
@@ -54,14 +57,15 @@ describe("getEnvironments", () => {
     ).toEqual(["DEV", "PROD", "SUPER_PROD"]);
   });
 
-  it("falls back to the standard five when no connections are configured", async () => {
-    expect(await envsFor(undefined)).toEqual([
-      "DEV",
-      "QA",
-      "UAT",
-      "STG",
-      "PROD",
-    ]);
+  it("is empty when no connections are configured", async () => {
+    expect(await envsFor([])).toEqual([]);
+    expect(await envsFor(null)).toEqual([]);
+  });
+
+  it("ignores DBFORGE_CONNECTIONS", async () => {
+    vi.stubEnv("DBFORGE_CONNECTIONS", JSON.stringify([conn("a", "QA")]));
+    expect(await envsFor(null)).toEqual([]);
+    vi.unstubAllEnvs();
   });
 });
 
@@ -89,5 +93,19 @@ describe("getProductionEnvs", () => {
         conn("d", "QA"),
       ]),
     ).toEqual(["PROD", "SUPER_PROD"]);
+  });
+});
+
+describe("envEditAllows", () => {
+  it("accepts an env that exists, or one already saved; nothing else", () => {
+    use([conn("dev-core", "DEV")]);
+    const ok = envEditAllows(["UAT"]);
+    expect(["DEV", "UAT", "QA", 1, null].map(ok)).toEqual([
+      true,
+      true,
+      false,
+      false,
+      false,
+    ]);
   });
 });

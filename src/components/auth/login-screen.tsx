@@ -2,13 +2,17 @@ import { useState } from "react";
 import { TextInput, PasswordInput, Button, Text } from "@mantine/core";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
-import { Footer } from "../layout/footer";
 
 export function LoginScreen() {
   const login = useStore((s) => s.login);
-  const { appName, logoUrl, lightLogoUrl, emailDomain } = useStore(
-    (s) => s.config,
-  );
+  const {
+    appName,
+    logoUrl,
+    lightLogoUrl,
+    emailDomain,
+    loginTagline,
+    loginSubtitle,
+  } = useStore((s) => s.config);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -103,12 +107,17 @@ export function LoginScreen() {
             >
               {appName}
             </Text>
-            <Text className="dp-eyebrow" c="var(--brand-dim)">
-              Internal Query Tool
-            </Text>
-            <Text className="dp-eyebrow" c="var(--brand-faint)" mt={6}>
-              HIPAA &middot; PHI Tokenized
-            </Text>
+            {/* Settings → Branding; a saved "" hides the line. */}
+            {loginTagline && (
+              <Text className="dp-eyebrow" c="var(--brand-dim)">
+                {loginTagline}
+              </Text>
+            )}
+            {loginSubtitle && (
+              <Text className="dp-eyebrow" c="var(--brand-faint)" mt={6}>
+                {loginSubtitle}
+              </Text>
+            )}
           </div>
         </div>
 
@@ -212,7 +221,6 @@ export function LoginScreen() {
           </div>
         </div>
       </div>
-      <Footer />
     </div>
   );
 }

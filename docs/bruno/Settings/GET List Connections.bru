@@ -1,0 +1,18 @@
+meta {
+  name: List Connections
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/settings/connections
+  body: none
+  auth: inherit
+}
+
+docs {
+  Every configured target-database connection, for editing. Credentials are replaced by `passwordSet` / `uriSet` flags — true whenever a secret is stored, even one that no longer decrypts (lost key file), since restoring the key revives it. Connections live only in the app database; `DBFORGE_CONNECTIONS` is not read.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

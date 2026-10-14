@@ -23,6 +23,8 @@ body:json {
 docs {
   Approve and execute a PENDING request. Requires approve capability for the env; you cannot approve your own.
 
+  409 if the request's connection was edited (env, type, host, port, database, username, default schema, URI), or deleted and re-created, since the request was submitted — "Connection <id> changed since this request was submitted — re-approve it…" — or no longer exists. Nothing runs and the request stays PENDING; cancel or reject it and resubmit (revise) to bind it to the current connection. Renaming the connection or rotating its password does not trigger this.
+
   Requires a valid Bearer JWT ({{token}}).
   Requires **write mode** to be enabled.
 }

@@ -4,7 +4,7 @@ import { useStore } from "../store";
  * Environment presentation + the deployment's environment list.
  *
  * The set of environments is NOT hardcoded here: it comes from the server
- * (`/api/config` → `environments`, derived from `DBFORGE_CONNECTIONS`), so a
+ * (`/api/config` → `environments`, derived from the configured connections), so a
  * deployment can add its own (e.g. `SUPER_PROD`) without a frontend change.
  * Only the colors/labels of the well-known ones live here, with a fallback for
  * anything else.
@@ -58,3 +58,26 @@ export function useEnvironments(): string[] {
   const envs = useStore((s) => s.config.environments);
   return [...envs].reverse();
 }
+
+/**
+ * Picker options for a saved env list: every env that exists, then each saved
+ * one that has no connection right now. The admin has to see those to untick
+ * them, and a save sends back exactly what the picker shows — so an orphan is
+ * neither stripped by accident nor kept behind the admin's back.
+ */
+export const withSavedEnvs = (known: string[], saved: string[]): string[] => [
+  ...known,
+  ...saved.filter((e) => !known.includes(e)),
+];
+
+/**
+ * MultiSelect options for a saved env list: withSavedEnvs, each orphan
+ * labelled "(no connection)". Pass the list as SAVED (when the editor opened),
+ * not the live form value — an orphan unticked by mistake must stay on offer
+ * to tick again before saving.
+ */
+export const envPickerOptions = (known: string[], saved: string[]) =>
+  withSavedEnvs(known, saved).map((env) => ({
+    value: env,
+    label: known.includes(env) ? env : `${env} (no connection)`,
+  }));

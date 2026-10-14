@@ -7,9 +7,22 @@ import type {
   WriteRequest,
   WriteAiReview,
   QueryResult,
-  CopyFormat,
+  AppSettingView,
+  ConnectionAdminView,
 } from "../types";
 import { BASE_PATH } from "./base-path";
+
+/** Body for creating/updating a connection. A blank password/uri keeps the stored one. */
+export type ConnectionInput = Omit<
+  ConnectionAdminView,
+  "passwordSet" | "uriSet"
+> & { password?: string; uri?: string };
+
+/** Update body: blank keeps a stored secret, `clear*` removes it. */
+export type ConnectionUpdate = Omit<ConnectionInput, "id"> & {
+  clearPassword?: boolean;
+  clearUri?: boolean;
+};
 
 /**
  * Every API call goes through here, so this one line is what makes the whole
@@ -96,9 +109,10 @@ export const api = {
       lightLogoUrl: string | null;
       faviconUrl: string | null;
       emailDomain: string | null;
+      loginTagline: string;
+      loginSubtitle: string;
       phiMaskedEnvironments: string[];
       environments: string[];
-      copyFormats?: CopyFormat[];
     }>,
 
   // Auth
@@ -581,4 +595,51 @@ export const api = {
     if (params.status) q.set("status", params.status);
     return request<AiChatLogEntry[]>(`/azure-ai/chat-log?${q.toString()}`);
   },
+
+  // Runtime settings & connections (admin)
+  getAppSettings: () => request<AppSettingView[]>("/settings"),
+  updateAppSettings: (values: Record<string, string>) =>
+    request<AppSettingView[]>("/settings", {
+      method: "PUT",
+      body: JSON.stringify({ values }),
+    }),
+  resetAppSetting: (key: string) =>
+    request<AppSettingView[]>(`/settings/${encodeURIComponent(key)}`, {
+      method: "DELETE",
+    }),
+  getAdminConnections: () =>
+    request<ConnectionAdminView[]>("/settings/connections"),
+  createConnection: (data: ConnectionInput) =>
+    request<ConnectionAdminView>("/settings/connections", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateConnection: (id: string, data: ConnectionUpdate) =>
+    request<ConnectionAdminView>(
+      `/settings/connections/${encodeURIComponent(id)}`,
+      { method: "PUT", body: JSON.stringify(data) },
+    ),
+  /** Dry run of importConnections: every item's problem, nothing written. */
+  checkConnectionImport: (connections: unknown[]) =>
+    request<{ errors: { index: number; id?: string; error: string }[] }>(
+      "/settings/connections/import",
+      { method: "POST", body: JSON.stringify({ connections, dryRun: true }) },
+    ),
+  /** All-or-nothing, create-only bulk create. */
+  importConnections: (connections: unknown[]) =>
+    request<ConnectionAdminView[]>("/settings/connections/import", {
+      method: "POST",
+      body: JSON.stringify({ connections }),
+    }),
+  /** Test unsaved form values; `id` lets an edit use the stored secrets. */
+  testConnectionDraft: (data: ConnectionUpdate & { id?: string }) =>
+    request<{ ok: boolean; error?: string }>("/settings/connections/test", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  deleteConnection: (id: string) =>
+    request<{ deleted: boolean }>(
+      `/settings/connections/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    ),
 };

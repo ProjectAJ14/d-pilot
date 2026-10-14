@@ -1,0 +1,30 @@
+meta {
+  name: Override Write Request
+  type: http
+  seq: 18
+}
+
+post {
+  url: {{baseUrl}}/api/write-requests/{{writeRequestId}}/override
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "notes": "Urgent fix; reviewer unavailable."
+  }
+}
+
+docs {
+  Run a PENDING request without an approver, own requests included. Admin only (403 otherwise); `notes` is the required reason (400 without it). Audited as `WRITE_OVERRIDE`. Production direct-write and PHI-masking rails are unaffected.
+
+  Same connection check as Approve: 409 if the request's connection changed since it was submitted, or no longer exists. Nothing runs and the request stays PENDING.
+
+  Requires a valid Bearer JWT ({{token}}).
+  Requires **write mode** to be enabled.
+}

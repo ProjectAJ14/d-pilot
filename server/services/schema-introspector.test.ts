@@ -8,6 +8,7 @@ import {
   summarizeTables,
   dropPhiValues,
   getCachedFullSchema,
+  clearSchemaCache,
   type FullSchema,
 } from "./schema-introspector.js";
 import { findMatchingRule } from "./phi-masking.js";
@@ -18,15 +19,21 @@ const ruleMock = vi.mocked(findMatchingRule);
 
 // The admin toggle (Settings → Azure OpenAI) and a fake pg/mssql that records
 // every statement, so "no sampling when off" is checked at the driver.
-const h = vi.hoisted(() => ({ valuesOn: true, sql: [] as string[] }));
+const h = vi.hoisted(() => ({
+  valuesOn: true,
+  sql: [] as string[],
+  gate: undefined as Promise<void> | undefined,
+}));
 vi.mock("./sqlite-store.js", () => ({
   getAiColumnValuesEnabled: () => h.valuesOn,
+  getSetting: () => null,
 }));
 vi.mock("pg", () => ({
   default: {
     Pool: class {
       async query(sql: string) {
         h.sql.push(sql);
+        await h.gate;
         return { rows: [] };
       }
       async end() {}
@@ -469,5 +476,28 @@ describe("column values admin toggle", () => {
   it("samples SQL Server values when on", async () => {
     await introspect("mssql");
     expect(h.sql.some((q) => q.includes("SELECT DISTINCT TOP 21"))).toBe(true);
+  });
+});
+
+describe("clearSchemaCache", () => {
+  it("keeps an introspection that was running during the clear out of the cache", async () => {
+    const conn = {
+      id: "race-pg",
+      name: "pg",
+      env: "DEV",
+      type: "postgres",
+      host: "localhost",
+      database: "app_db",
+      schema: "app_core",
+    } as ConnectionConfig;
+    let release!: () => void;
+    h.gate = new Promise((r) => (release = r));
+    const stale = getCachedFullSchema(conn);
+    clearSchemaCache(conn.id);
+    release();
+    await stale;
+    h.gate = undefined;
+    // The old definition's schema must not be served from cache.
+    expect((await getCachedFullSchema(conn)).cached).toBe(false);
   });
 });

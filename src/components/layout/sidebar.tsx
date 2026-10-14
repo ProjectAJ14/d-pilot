@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Text,
   Badge,
@@ -12,6 +13,7 @@ import {
   Menu,
   Alert,
   Button,
+  Anchor,
 } from "@mantine/core";
 import {
   IconChevronDown,
@@ -1070,6 +1072,19 @@ export function Sidebar() {
                 <Text size="xs" c="dimmed">
                   No connections configured
                 </Text>
+                {user?.isAdmin ? (
+                  <Anchor
+                    component={Link}
+                    to="/settings?tab=connections"
+                    size="xs"
+                  >
+                    Add one in Settings
+                  </Anchor>
+                ) : (
+                  <Text size="xs" c="dimmed">
+                    Ask an admin to add one.
+                  </Text>
+                )}
               </div>
             )}
           </div>

@@ -9,9 +9,8 @@ export type MaskingType = "FULL" | "PARTIAL" | "HASH" | "REDACT";
 export type ResultViewMode = "table" | "json";
 
 // --- Results "Copy as" formats ------------------------------------------------
-// Deployment-configurable via the COPY_FORMATS env var, with code defaults. See
-// server/config/copy-formats.ts (loader + defaults) and
-// src/utils/data-extractors.ts (the renderer). Mirrored in server/types.
+// The built-in catalogue and its renderer live in src/utils/data-extractors.ts.
+// Client-only: the server never sees these.
 
 /** How a template extractor quotes each cell. */
 export type CopyQuote = "none" | "single" | "double";
@@ -24,14 +23,6 @@ export interface CopyTemplate {
   columnSeparator: string;
   rowSeparator: string;
   quote?: CopyQuote;
-  /** When false, the first column is emitted bare (e.g. `code "description"`). */
-  quoteFirstColumn?: boolean;
-  /** Text emitted for null/undefined cells (default ""). */
-  nullText?: string;
-  /** Prepend a row of column names. */
-  header?: boolean;
-  prefix?: string;
-  suffix?: string;
 }
 
 /**
@@ -68,6 +59,41 @@ export interface ConnectionInfo {
   port?: number;
   database?: string;
   schema?: string;
+}
+
+// --- Admin settings (/api/settings) -------------------------------------------
+// Mirrored in server/types/index.ts — keep the two in sync.
+
+/** Where a setting's effective value comes from: Settings, `.env`, or code. */
+export type SettingSource = "db" | "env" | "default";
+
+export interface AppSettingView {
+  key: string;
+  group: "ai" | "branding" | "limits";
+  secret: boolean;
+  source: SettingSource;
+  /** Effective value; absent for secrets, which never leave the server. */
+  value?: string | null;
+  /** Secrets only: whether a value is configured. */
+  set?: boolean;
+  /** Numeric limits only: the highest value that may be saved (operator ceiling). */
+  max?: number;
+}
+
+/** A connection as the admin API returns it — credentials replaced by flags. */
+export interface ConnectionAdminView {
+  id: string;
+  name: string;
+  env: Environment;
+  type: DatabaseType;
+  host?: string;
+  port?: number;
+  database?: string;
+  username?: string;
+  schema?: string;
+  schemas?: string[];
+  passwordSet: boolean;
+  uriSet: boolean;
 }
 
 export interface QueryColumn {

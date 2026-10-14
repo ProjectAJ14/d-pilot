@@ -38,15 +38,9 @@ import { z } from "zod";
 import { DPilotApiClient } from "../services/mcp-client.js";
 import { blocksSchema } from "./artifacts.js";
 import { BASE_PATH, withBaseOrigin } from "../config/base-path.js";
+import { getConfig, getConfigNumber } from "../config/settings.js";
 
 const router = Router();
-
-/**
- * Default rows returned per query; agents can raise it per call via `limit`.
- * A non-numeric value falls back to the default rather than becoming NaN, which
- * would silently truncate every result to zero rows.
- */
-const MCP_MAX_ROWS = parseInt(process.env.MCP_MAX_ROWS || "", 10) || 1000;
 
 const MONGO_WRITE_HINT =
   'For MongoDB: one `db.<collection>.updateOne|updateMany|insertOne|insertMany|deleteOne|deleteMany|replaceOne(...)` call whose arguments are Extended JSON with quoted keys — a non-string `_id` is `{"$oid": "..."}` or `{"$binary": {"base64": "...", "subType": "..."}}`, a date `{"$date": "..."}`.';
@@ -70,7 +64,7 @@ export const appUrl = (path: string): string =>
   // APP_BASE_URL is an origin, so the sub-path has to be added to it — see
   // withBaseOrigin. An empty or "/" value falls through to the bare BASE_PATH
   // form rather than producing a link to the wrong origin.
-  `${withBaseOrigin(process.env.APP_BASE_URL, BASE_PATH)}${path}`;
+  `${withBaseOrigin(getConfig("APP_BASE_URL"), BASE_PATH)}${path}`;
 export const artifactUrl = (id: string): string => appUrl(`/artifacts/${id}`);
 
 // --- Credentials ---
@@ -149,6 +143,11 @@ const readOnly = { readOnlyHint: true, openWorldHint: true };
 
 export function createMcpServer(client: DPilotApiClient): McpServer {
   const server = new McpServer({ name: "d-pilot", version: "1.0.0" });
+  // Default rows returned per query; agents can raise it per call via `limit`.
+  // Read per server (i.e. per MCP session), so a changed setting reaches new
+  // sessions. getConfigNumber turns a non-numeric or non-positive value into
+  // the default rather than one that truncates every result to zero rows.
+  const MCP_MAX_ROWS = getConfigNumber("MCP_MAX_ROWS");
 
   server.registerTool(
     "whoami",

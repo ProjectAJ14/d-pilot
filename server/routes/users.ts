@@ -3,7 +3,8 @@ import bcrypt from "bcryptjs";
 import { randomUUID } from "crypto";
 import { requireAdmin } from "../middleware/auth.js";
 import { getDb } from "../services/sqlite-store.js";
-import { getEnvironments } from "../config/connections.js";
+import { envEditAllows, getEnvironments } from "../config/connections.js";
+import { getConfig } from "../config/settings.js";
 
 const router = Router();
 
@@ -29,10 +30,13 @@ function parseEnvs(raw: string | null | undefined): string[] {
   }
 }
 
-function sanitizeEnvs(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const allowed = getEnvironments();
-  return value.filter((e) => typeof e === "string" && allowed.includes(e));
+/**
+ * Drops entries validEnvEdit would refuse (unknown, unless the user already
+ * has them); what remains is saved as sent.
+ */
+function sanitizeEnvs(value: unknown, currentRaw?: string): string[] {
+  const ok = envEditAllows(parseEnvs(currentRaw));
+  return [...new Set((Array.isArray(value) ? value : []).filter(ok))];
 }
 
 function mapUserRow(u: any) {
@@ -72,7 +76,7 @@ router.post("/", (req: Request, res: Response) => {
     return;
   }
 
-  const domain = process.env.EMAIL_DOMAIN;
+  const domain = getConfig("EMAIL_DOMAIN");
   if (domain) {
     if (!email.endsWith(`@${domain}`)) {
       res.status(400).json({ error: `Email must be a @${domain} address` });
@@ -140,7 +144,9 @@ router.put("/:id", (req: Request, res: Response) => {
   } = req.body;
 
   const db = getDb();
-  const existing = db.prepare("SELECT id FROM users WHERE id = ?").get(id);
+  const existing = db.prepare("SELECT * FROM users WHERE id = ?").get(id) as
+    | Record<string, string>
+    | undefined;
   if (!existing) {
     res.status(404).json({ error: "User not found" });
     return;
@@ -159,19 +165,35 @@ router.put("/:id", (req: Request, res: Response) => {
   }
   if (allowedEnvironments !== undefined) {
     updates.push("allowed_environments = ?");
-    values.push(JSON.stringify(sanitizeEnvs(allowedEnvironments)));
+    values.push(
+      JSON.stringify(
+        sanitizeEnvs(allowedEnvironments, existing.allowed_environments),
+      ),
+    );
   }
   if (unmaskEnvironments !== undefined) {
     updates.push("unmask_environments = ?");
-    values.push(JSON.stringify(sanitizeEnvs(unmaskEnvironments)));
+    values.push(
+      JSON.stringify(
+        sanitizeEnvs(unmaskEnvironments, existing.unmask_environments),
+      ),
+    );
   }
   if (writeEnvironments !== undefined) {
     updates.push("write_environments = ?");
-    values.push(JSON.stringify(sanitizeEnvs(writeEnvironments)));
+    values.push(
+      JSON.stringify(
+        sanitizeEnvs(writeEnvironments, existing.write_environments),
+      ),
+    );
   }
   if (approveEnvironments !== undefined) {
     updates.push("approve_environments = ?");
-    values.push(JSON.stringify(sanitizeEnvs(approveEnvironments)));
+    values.push(
+      JSON.stringify(
+        sanitizeEnvs(approveEnvironments, existing.approve_environments),
+      ),
+    );
   }
 
   if (updates.length === 0) {

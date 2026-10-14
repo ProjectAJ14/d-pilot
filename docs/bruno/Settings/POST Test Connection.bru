@@ -1,0 +1,41 @@
+meta {
+  name: Test Connection
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/settings/connections/test
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "id": "{{connectionId}}",
+    "name": "QA PostgreSQL",
+    "env": "QA",
+    "type": "postgres",
+    "host": "localhost",
+    "port": 5432,
+    "database": "app_core",
+    "username": "dpilot",
+    "password": "",
+    "schema": "public"
+  }
+}
+
+docs {
+  Test a connection's values before saving them. Takes the Update Connection body (including `clearPassword` / `clearUri`), plus an optional `id` when editing an existing connection; omit `id` for a new one. Builds a throwaway client, runs the same trivial check as `GET /api/connections/:id/test` (`SELECT 1` / ping) within the usual 10-second connect timeout, and always closes it — the connection pools and the saved connection are never touched.
+
+  With `id` and a blank `password` / `uri`, the stored secret is used only if the request passes the same gate as Update Connection (only `name`, `env`, `schemas` — and `schema`, except on Elasticsearch — may differ from what is stored); otherwise 400 "Re-enter the password…". An invalid body is a 400 like create/update.
+
+  Returns `{ "ok": true }` or `{ "ok": false, "error": "<driver message>" }` — the driver message only when every secret came from the request. If the test used a stored password or URI, `error` is a generic message and the driver text goes to the server log, since a driver can echo a stored secret in an encoding no redaction would catch. Audited as `CONNECTION_TEST` with the connection id, env, type and outcome — never secrets.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

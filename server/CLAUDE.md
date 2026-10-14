@@ -50,7 +50,8 @@ submission/rejection when write mode is off.
   capability (write/approve/unmask) check that _in addition_.
 - `initAuthTables` creates/migrates the `users` table, backfills capability columns, does
   the one-time **`role` → capabilities** migration (then drops `role`), and seeds the
-  default admin (`admin@$EMAIL_DOMAIN`) when the table is empty.
+  default admin (`admin@$EMAIL_DOMAIN`, `admin@example.com` when unset) when the table is
+  empty.
 - The middleware keeps backward-compat for pre-capability JWTs (derives from the old
   `role` claim) so live sessions survive a deploy.
 
@@ -61,28 +62,29 @@ name rather than one baked in at build time. In production `express.static` also
 
 ## Routes (`routes/`) — all under `/api`
 
-| Mount             | File                | Notes                                                                                                                                  |
-| ----------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `/query`          | `query.ts`          | `POST /execute` (read-only), `GET /history`                                                                                            |
-| `/connections`    | `connections.ts`    | list / `writable` / `grouped` / `:id/test`                                                                                             |
-| `/schema`         | `schema.ts`         | `:connectionId` full / schemas / tables / columns                                                                                      |
-| `/saved-queries`  | `saved-queries.ts`  | CRUD; shared-by-default; `GET /:id` backs share links                                                                                  |
-| `/artifacts`      | `artifacts.ts`      | CRUD; shared-by-default; `GET /:id` backs share links. `parseBlocks` is the only gate on document shape                                |
-| `/phi-config`     | `phi-config.ts`     | masked-envs, `POST /unmask` (audited), rule CRUD (admin), CSV `GET /export` / `POST /import` + `DELETE /` bulk delete (admin, audited) |
-| `/audit`          | `audit.ts`          | log + archive read, manual archive (admin)                                                                                             |
-| `/export`         | `export.ts`         | `POST /csv`, `POST /json` (masking enforced + audited)                                                                                 |
-| `/users`          | `users.ts`          | user CRUD + reset-password (admin)                                                                                                     |
-| `/azure-ai`       | `azure-ai.ts`       | `test`, `generate-query`, `settings` (admin), `schema-cache/clear` (admin), `chat-log` (admin)                                         |
-| `/analytics`      | `analytics.ts`      | admin usage dashboard                                                                                                                  |
-| `/write-requests` | `write-requests.ts` | write lifecycle + policy + AI review/suggest                                                                                           |
-| `/mcp`            | `mcp.ts`            | **read-only MCP endpoint for AI agents — mounted _before_ `authMiddleware`** (HTTP Basic, not Bearer)                                  |
+| Mount             | File                | Notes                                                                                                                                                                           |
+| ----------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/query`          | `query.ts`          | `POST /execute` (read-only), `GET /history`                                                                                                                                     |
+| `/connections`    | `connections.ts`    | list / `writable` / `grouped` / `:id/test`                                                                                                                                      |
+| `/schema`         | `schema.ts`         | `:connectionId` full / schemas / tables / columns                                                                                                                               |
+| `/saved-queries`  | `saved-queries.ts`  | CRUD; shared-by-default; `GET /:id` backs share links                                                                                                                           |
+| `/artifacts`      | `artifacts.ts`      | CRUD; shared-by-default; `GET /:id` backs share links. `parseBlocks` is the only gate on document shape                                                                         |
+| `/phi-config`     | `phi-config.ts`     | masked-envs, `POST /unmask` (audited), rule CRUD (admin), CSV `GET /export` / `POST /import` + `DELETE /` bulk delete (admin, audited)                                          |
+| `/audit`          | `audit.ts`          | log + archive read, manual archive (admin)                                                                                                                                      |
+| `/export`         | `export.ts`         | `POST /csv`, `POST /json` (masking enforced + audited)                                                                                                                          |
+| `/users`          | `users.ts`          | user CRUD + reset-password (admin)                                                                                                                                              |
+| `/azure-ai`       | `azure-ai.ts`       | `test`, `generate-query`, `settings` (admin), `schema-cache/clear` (admin), `chat-log` (admin)                                                                                  |
+| `/analytics`      | `analytics.ts`      | admin usage dashboard                                                                                                                                                           |
+| `/write-requests` | `write-requests.ts` | write lifecycle + policy + AI review/suggest                                                                                                                                    |
+| `/settings`       | `settings.ts`       | admin runtime config: settings list/update/reset, connection CRUD + pre-save `POST /connections/test` + all-or-nothing `POST /connections/import` (secrets write-only, audited) |
+| `/mcp`            | `mcp.ts`            | **read-only MCP endpoint for AI agents — mounted _before_ `authMiddleware`** (HTTP Basic, not Bearer)                                                                           |
 
 ## Services (`services/`)
 
 - **`query-executor.ts`** — read path for all four DB types. `validateQuery`/`isReadQuery`
   block DML/DDL; `applyDefaultLimit` injects a LIMIT when absent (default 500, hard cap
   `MAX_ROWS`). Connection pools are cached and reused. `validateSqlSyntax` does a dry
-  parse; `testConnection` powers the connection tester.
+  parse; `testConnection` powers the connection tester; `testConnectionConfig` runs the same check on a throwaway, never-pooled client (Settings → test before saving).
 - **`write-executor.ts`** — the _only_ write path. `validateWriteQuery` allows exactly one
   statement per dialect (SQL INSERT/UPDATE/DELETE — no stacked semicolons, no DDL;
   Mongo `updateOne/Many`,`insertOne/Many`,`deleteOne/Many`,`replaceOne`; ES
@@ -121,6 +123,24 @@ name rather than one baked in at build time. In production `express.static` also
 - **Settings** (`app_settings`) — PHI masked envs (`getPhiMaskedEnvs`, PROD always
   included), write-mode toggle (`getWriteModeEnabled`), direct-write envs
   (`getWriteDirectEnvs`), AI column values (`getAiColumnValuesEnabled`).
+- **Runtime config** (`config/settings.ts`) — AI, branding and limits keys (`MAX_ROWS`,
+  `AZURE_OPENAI_*`, `APP_NAME`, …) stored in `app_settings` under their env-var name.
+  Branding and limits: precedence **db > `process.env` > built-in default**. AI
+  (`group: "ai"`): **db > default** — never read from env, like connections. Read via
+  `getConfig*` at use time, never into a module-level const. Bootstrap vars (PORT,
+  DATA_DIR, BASE_PATH, JWT_SECRET, DEFAULT_ADMIN_PASSWORD, proxies) stay env-only.
+- **Operator ceilings** — a numeric setting's built-in `max` can be lowered (never raised)
+  by `<KEY>_LIMIT` in env (`settingMax`; invalid or above the cap → warning, built-in
+  cap). `updateSettings` 400s above it; `getConfigNumber` clamps the saved/env/default
+  value to it; `listSettings` reports it as `max`. All in `settings.ts` — callers just use
+  `getConfigNumber`.
+- **Connections** (`db_connections`) — the only source; managed in Settings →
+  Connections (or `POST /api/settings/connections/import`). `DBFORGE_CONNECTIONS` is not
+  read (a startup warning if set). Before `initDatabase` there are none. The store
+  invalidates the connection cache on every write.
+- **Secrets** (connection password/URI, `AZURE_OPENAI_KEY`) are AES-256-GCM encrypted
+  (`config/secrets.ts`) with `SETTINGS_ENCRYPTION_KEY`, else a key generated once into
+  `DATA_DIR/settings.key` (0600). The key never goes in SQLite; losing it loses the secrets.
 - **Audit** — `logAudit`/`getAuditLog` capture every query, error, export, PHI unmask (and
   denial), and write-lifecycle event. `getAnalytics`/`getWriteAnalytics` power the admin
   dashboard.
@@ -161,6 +181,20 @@ review queue and the other may be mid-execution). `EXECUTED` is never deletable,
 an admin — it is the record of a change that already landed. It is not an audit hole:
 `audit_log` is a separate table, so what was proposed and run survives, plus a `WRITE_DELETE`
 entry. There is no MCP tool for it.
+
+**Bound to its target.** Every transition into `PENDING` (create, submit, revise) stores
+`connectionTarget(conn)` — a SHA-256 of the connection's `instance_id` (random, new on every
+insert, so delete + re-create under the same id differs), env, type, host, port, database,
+username, `schema` (Postgres `search_path` for writes, ES protocol) and URI — every field the
+write path reads; never name or password. Approve and override recompute it and
+409 on any difference (or a missing connection), leaving the request `PENDING`; resubmitting
+re-binds — and sets the request's `env` to the connection's current env, which every rights
+check (author, direct-write, approve) then uses. Drafts are bound when saved; submitting one
+whose connection moved 409s ("revise it"). Any route that awaits SQL validation re-reads the
+connection afterwards (`connectionIfUnchanged`) and 409s if it changed — before anything is
+inserted, claimed or revised, so a retry never duplicates — and then binds and runs with no
+await in between. Existing pending requests and drafts are bound to their connection as of the upgrade (the migration backfills them); one whose
+connection was already gone, or now sits in another env, has no target and never runs.
 
 Every request carries a paired verify **SELECT** and the **WRITE**.
 `WriteAiReview` holds the structured safety verdict (SAFE/CAUTION/DANGEROUS, blast

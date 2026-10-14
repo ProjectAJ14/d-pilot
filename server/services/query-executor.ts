@@ -6,9 +6,12 @@ import { Client as EsClient } from "@elastic/elasticsearch";
 import type { ConnectionConfig } from "../types/index.js";
 import { CONNECTION_ERROR_PATTERN } from "./connection-errors.js";
 import { scanSql } from "./sql-scan.js";
+import { getConfigNumber } from "../config/settings.js";
 
-const MAX_ROWS = parseInt(process.env.MAX_ROWS || "10000", 10);
-const QUERY_TIMEOUT = parseInt(process.env.QUERY_TIMEOUT_MS || "90000", 10);
+// Read per use so an admin's change applies without a restart. A pool keeps the
+// timeout it was created with; the settings route closes pools when it changes.
+const maxRows = () => getConfigNumber("MAX_ROWS");
+const queryTimeout = () => getConfigNumber("QUERY_TIMEOUT_MS");
 
 // Connection pools
 const pgPools = new Map<string, pg.Pool>();
@@ -21,6 +24,29 @@ const poolLastUsed = new Map<string, number>();
 
 function touchPool(id: string): void {
   poolLastUsed.set(id, Date.now());
+}
+
+// Bumped whenever a connection's pool is retired. A connect that was awaiting
+// when its generation changed was built from a definition that is gone, so it
+// must not be cached (see `cacheIfCurrent`).
+const poolGen = new Map<string, number>();
+let genAll = 0;
+const generation = (id: string) => genAll + (poolGen.get(id) ?? 0);
+
+/**
+ * Caches a freshly connected client unless its connection was retired while it
+ * connected. A stale one still serves the caller that asked for it (who holds
+ * the old definition anyway), then closes after the query timeout.
+ */
+function cacheIfCurrent<T extends { close(): Promise<unknown> }>(
+  map: Map<string, T>,
+  id: string,
+  gen: number,
+  client: T,
+): T {
+  if (generation(id) === gen) map.set(id, client);
+  else closeLater(id, client, queryTimeout());
+  return client;
 }
 
 // DML/DDL patterns that should be blocked
@@ -312,16 +338,17 @@ export function applyDefaultLimit(
   // null = user explicitly disabled auto-limit
   if (defaultLimit === null) return trimmed;
 
-  const limit = Math.min(defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT, MAX_ROWS);
+  const limit = Math.min(defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT, maxRows());
   return `${trimmed} LIMIT ${limit}`;
 }
 
-export async function getPgPool(conn: ConnectionConfig): Promise<pg.Pool> {
-  touchPool(conn.id);
-  const existing = pgPools.get(conn.id);
-  if (existing) return existing;
+// How long to wait for a server to answer before giving up on it.
+const CONNECT_TIMEOUT_MS = 10000;
 
-  const pool = new pg.Pool({
+// Client builders: unpooled and unconnected. The get* functions below cache
+// them; the connection tester also uses them for throwaway clients.
+const createPgPool = (conn: ConnectionConfig) =>
+  new pg.Pool({
     host: conn.host,
     port: conn.port || 5432,
     database: conn.database,
@@ -329,22 +356,21 @@ export async function getPgPool(conn: ConnectionConfig): Promise<pg.Pool> {
     password: conn.password,
     max: 5,
     idleTimeoutMillis: 60000,
-    connectionTimeoutMillis: 10000,
-    statement_timeout: QUERY_TIMEOUT,
+    connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+    statement_timeout: queryTimeout(),
   });
 
+export async function getPgPool(conn: ConnectionConfig): Promise<pg.Pool> {
+  touchPool(conn.id);
+  const existing = pgPools.get(conn.id);
+  if (existing) return existing;
+  const pool = createPgPool(conn);
   pgPools.set(conn.id, pool);
   return pool;
 }
 
-export async function getMssqlPool(
-  conn: ConnectionConfig,
-): Promise<mssql.ConnectionPool> {
-  touchPool(conn.id);
-  const existing = mssqlPools.get(conn.id);
-  if (existing?.connected) return existing;
-
-  const pool = new mssql.ConnectionPool({
+const createMssqlPool = (conn: ConnectionConfig) =>
+  new mssql.ConnectionPool({
     server: conn.host || "localhost",
     port: conn.port || 1433,
     database: conn.database,
@@ -354,29 +380,38 @@ export async function getMssqlPool(
       encrypt: false,
       trustServerCertificate: true,
     },
-    requestTimeout: QUERY_TIMEOUT,
-    connectionTimeout: 10000,
+    requestTimeout: queryTimeout(),
+    connectionTimeout: CONNECT_TIMEOUT_MS,
     pool: { max: 5, min: 0, idleTimeoutMillis: 60000 },
   });
 
+export async function getMssqlPool(
+  conn: ConnectionConfig,
+): Promise<mssql.ConnectionPool> {
+  touchPool(conn.id);
+  const existing = mssqlPools.get(conn.id);
+  if (existing?.connected) return existing;
+  const gen = generation(conn.id);
+  const pool = createMssqlPool(conn);
   await pool.connect();
-  mssqlPools.set(conn.id, pool);
-  return pool;
+  return cacheIfCurrent(mssqlPools, conn.id, gen, pool);
 }
 
-export async function getMongoClient(
-  conn: ConnectionConfig,
-): Promise<MongoClient> {
-  touchPool(conn.id);
-  const existing = mongClients.get(conn.id);
-  if (existing) return existing;
+/**
+ * Connection string for a Mongo connection: the stored `uri`, else one built
+ * from the fields. Each part is percent-encoded — a raw `@`, `/` or `?` in a
+ * username or password would otherwise move the host the password is sent to.
+ */
+export function mongoUri(conn: ConnectionConfig): string {
+  if (conn.uri) return conn.uri;
+  const e = (v: string | undefined) => encodeURIComponent(v ?? "");
+  return `mongodb://${e(conn.username)}:${e(conn.password)}@${conn.host}:${conn.port || 27017}/${e(conn.database)}`;
+}
 
-  const uri =
-    conn.uri ||
-    `mongodb://${conn.username}:${conn.password}@${conn.host}:${conn.port || 27017}/${conn.database}`;
-  const client = new MongoClient(uri, {
-    serverSelectionTimeoutMS: 10000,
-    socketTimeoutMS: QUERY_TIMEOUT,
+const createMongoClient = (conn: ConnectionConfig) =>
+  new MongoClient(mongoUri(conn), {
+    serverSelectionTimeoutMS: CONNECT_TIMEOUT_MS,
+    socketTimeoutMS: queryTimeout(),
     // Match the pg/mssql pools: small cap, drop idle sockets. Without these the
     // driver defaults to maxPoolSize 100 and holds sockets indefinitely.
     maxPoolSize: 5,
@@ -384,9 +419,16 @@ export async function getMongoClient(
     maxIdleTimeMS: 60000,
   });
 
+export async function getMongoClient(
+  conn: ConnectionConfig,
+): Promise<MongoClient> {
+  touchPool(conn.id);
+  const existing = mongClients.get(conn.id);
+  if (existing) return existing;
+  const gen = generation(conn.id);
+  const client = createMongoClient(conn);
   await client.connect();
-  mongClients.set(conn.id, client);
-  return client;
+  return cacheIfCurrent(mongClients, conn.id, gen, client);
 }
 
 export interface RawQueryResult {
@@ -464,7 +506,7 @@ export function applyDefaultLimitMssql(
   // null = user explicitly disabled auto-limit
   if (defaultLimit === null) return trimmed;
 
-  const limit = Math.min(defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT, MAX_ROWS);
+  const limit = Math.min(defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT, maxRows());
   // Insert TOP after SELECT
   return trimmed.replace(/^(\s*SELECT)\b/i, `$1 TOP ${limit}`);
 }
@@ -475,6 +517,7 @@ async function executePostgres(
   start: number,
   schema?: string,
 ): Promise<RawQueryResult> {
+  const cap = maxRows(); // one read per query, not per use
   const pool = await getPgPool(conn);
 
   // Set search_path to the active schema (validated + quoted) when present.
@@ -493,11 +536,11 @@ async function executePostgres(
     : result;
   const rows = queryResult.rows || [];
   const columns = queryResult.fields?.map((f: any) => f.name) || [];
-  const truncated = rows.length >= MAX_ROWS;
+  const truncated = rows.length >= cap;
 
   return {
     columns,
-    rows: rows.slice(0, MAX_ROWS),
+    rows: rows.slice(0, cap),
     totalRows: rows.length,
     executionTimeMs: Math.round(elapsed),
     truncated,
@@ -509,17 +552,18 @@ async function executeMssql(
   sql: string,
   start: number,
 ): Promise<RawQueryResult> {
+  const cap = maxRows(); // one read per query, not per use
   const pool = await getMssqlPool(conn);
   const result = await pool.request().query(sql);
   const elapsed = performance.now() - start;
 
   const rows = result.recordset || [];
   const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
-  const truncated = rows.length >= MAX_ROWS;
+  const truncated = rows.length >= cap;
 
   return {
     columns,
-    rows: rows.slice(0, MAX_ROWS),
+    rows: rows.slice(0, cap),
     totalRows: rows.length,
     executionTimeMs: Math.round(elapsed),
     truncated,
@@ -532,6 +576,7 @@ async function executeMongo(
   start: number,
   defaultLimit?: number | null,
 ): Promise<RawQueryResult> {
+  const cap = maxRows(); // one read per query, not per use
   // Block write operations before connecting
   const MONGO_WRITE_OPS =
     /\b(updateOne|updateMany|insertOne|insertMany|deleteOne|deleteMany|replaceOne|drop|rename|createIndex|dropIndex|forEach|bulkWrite|findOneAndUpdate|findOneAndDelete|findOneAndReplace|save|remove)\b/;
@@ -622,10 +667,8 @@ async function executeMongo(
 
   const userLimit = limitMatch ? parseInt(limitMatch[1], 10) : null;
   const effectiveDefault =
-    defaultLimit === null
-      ? MAX_ROWS
-      : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
-  const limit = Math.min(userLimit ?? effectiveDefault, MAX_ROWS);
+    defaultLimit === null ? cap : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
+  const limit = Math.min(userLimit ?? effectiveDefault, cap);
   const sort = sortMatch ? parseMongoJson(sortMatch[1]) : undefined;
   const skip = skipMatch ? parseInt(skipMatch[1], 10) : undefined;
 
@@ -687,7 +730,7 @@ async function executeMongo(
 
   return {
     columns,
-    rows: rows.slice(0, MAX_ROWS),
+    rows: rows.slice(0, cap),
     totalRows: rows.length,
     executionTimeMs: Math.round(elapsed),
     truncated,
@@ -696,24 +739,32 @@ async function executeMongo(
 
 // --- Elasticsearch ---
 
-export function getEsClient(conn: ConnectionConfig): EsClient {
-  touchPool(conn.id);
-  const existing = esClients.get(conn.id);
-  if (existing) return existing;
-
+function createEsClient(
+  conn: ConnectionConfig,
+  requestTimeout = queryTimeout(),
+  maxRetries?: number,
+): EsClient {
   const protocol = conn.schema || "http"; // reuse schema field for protocol
   const node = conn.uri || `${protocol}://${conn.host}:${conn.port || 9200}`;
-
-  const client = new EsClient({
+  return new EsClient({
     node,
     auth:
       conn.username && conn.password
         ? { username: conn.username, password: conn.password }
         : undefined,
     tls: { rejectUnauthorized: false },
-    requestTimeout: QUERY_TIMEOUT,
+    requestTimeout,
+    // Only when given: the driver's Object.assign defaults would take an
+    // explicit `undefined` as "no retries setting" rather than its default 3.
+    ...(maxRetries !== undefined && { maxRetries }),
   });
+}
 
+export function getEsClient(conn: ConnectionConfig): EsClient {
+  touchPool(conn.id);
+  const existing = esClients.get(conn.id);
+  if (existing) return existing;
+  const client = createEsClient(conn);
   esClients.set(conn.id, client);
   return client;
 }
@@ -724,6 +775,7 @@ async function executeElasticsearch(
   start: number,
   defaultLimit?: number | null,
 ): Promise<RawQueryResult> {
+  const cap = maxRows(); // one read per query, not per use
   const client = getEsClient(conn);
   const trimmed = sql.trim();
 
@@ -759,9 +811,9 @@ async function executeElasticsearch(
     if (!body.size && body.size !== 0) {
       const esLimit =
         defaultLimit === null
-          ? MAX_ROWS
+          ? cap
           : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
-      body.size = Math.min(esLimit, MAX_ROWS);
+      body.size = Math.min(esLimit, cap);
     }
     const result = await client.search({ index, ...body });
     const elapsed = performance.now() - start;
@@ -793,12 +845,10 @@ async function executeElasticsearch(
   // Format: just an index name — list first N docs
   if (/^[\w\-.*]+$/.test(trimmed)) {
     const esLimit =
-      defaultLimit === null
-        ? MAX_ROWS
-        : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
+      defaultLimit === null ? cap : (defaultLimit ?? DEFAULT_SELECT_STAR_LIMIT);
     const result = await client.search({
       index: trimmed,
-      size: Math.min(esLimit, MAX_ROWS),
+      size: Math.min(esLimit, cap),
       query: { match_all: {} },
     });
     const elapsed = performance.now() - start;
@@ -834,32 +884,70 @@ async function executeElasticsearch(
 
 export async function testConnection(conn: ConnectionConfig): Promise<boolean> {
   try {
-    switch (conn.type) {
-      case "postgres": {
-        const pool = await getPgPool(conn);
-        await pool.query("SELECT 1");
-        return true;
-      }
-      case "mssql": {
-        const pool = await getMssqlPool(conn);
-        await pool.request().query("SELECT 1");
-        return true;
-      }
-      case "mongodb": {
-        const client = await getMongoClient(conn);
-        await client.db().admin().ping();
-        return true;
-      }
-      case "elasticsearch": {
-        const client = getEsClient(conn);
-        await client.ping();
-        return true;
-      }
-      default:
-        return false;
-    }
+    await ping(conn, false);
+    return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * The same check on a throwaway client built from `conn` — for testing values
+ * that are not saved yet. Never touches the pool maps; the client is always
+ * closed. Throws the driver's error.
+ */
+export async function testConnectionConfig(
+  conn: ConnectionConfig,
+): Promise<void> {
+  await ping(conn, true);
+}
+
+/** The tester's trivial round-trip, on the pooled client or a throwaway one. */
+async function ping(conn: ConnectionConfig, throwaway: boolean): Promise<void> {
+  let close: (() => Promise<unknown>) | undefined;
+  try {
+    switch (conn.type) {
+      case "postgres": {
+        const pool = throwaway ? createPgPool(conn) : await getPgPool(conn);
+        if (throwaway) close = () => pool.end();
+        await pool.query("SELECT 1");
+        return;
+      }
+      case "mssql": {
+        let pool: mssql.ConnectionPool;
+        if (throwaway) {
+          const fresh = createMssqlPool(conn);
+          close = () => fresh.close();
+          pool = await fresh.connect();
+        } else pool = await getMssqlPool(conn);
+        await pool.request().query("SELECT 1");
+        return;
+      }
+      case "mongodb": {
+        let client: MongoClient;
+        if (throwaway) {
+          const fresh = createMongoClient(conn);
+          close = () => fresh.close();
+          client = await fresh.connect();
+        } else client = await getMongoClient(conn);
+        await client.db().admin().ping();
+        return;
+      }
+      case "elasticsearch": {
+        const client = throwaway
+          ? // The driver's default 3 retries (with sniff/backoff) would turn
+            // one dead host into a ~40s spin in the Settings form.
+            createEsClient(conn, CONNECT_TIMEOUT_MS, 0)
+          : getEsClient(conn);
+        if (throwaway) close = () => client.close();
+        await client.ping();
+        return;
+      }
+      default:
+        throw new Error(`Unsupported connection type: ${conn.type}`);
+    }
+  } finally {
+    await close?.().catch(() => {});
   }
 }
 
@@ -899,45 +987,150 @@ export function getPoolStatus(id: string): PoolStatus {
   return { live: false, lastUsedAt };
 }
 
-/** Closes and evicts the pool for one connection; it reconnects lazily on next use. */
-export async function closeConnectionPool(id: string): Promise<boolean> {
+const logClose = (err: unknown) =>
+  console.error("Failed to close a retired connection pool:", err);
+
+// Governed writes and migrations running on each client (holdClient), keyed
+// by the client instance the write actually uses.
+const writesInFlight = new Map<object, number>();
+const whenIdle = new Map<object, (() => void)[]>();
+// A migration may legitimately run for hours; past this a retired client is
+// closed regardless, so a hung write cannot pin it forever.
+const WRITE_CLOSE_CAP_MS = 6 * 3_600_000;
+
+/**
+ * Runs a governed write or migration on `client`, so that client is not
+ * closed under it if its connection is retired meanwhile (see closeLater).
+ */
+export async function holdClient<T>(
+  client: object,
+  fn: () => Promise<T>,
+): Promise<T> {
+  writesInFlight.set(client, (writesInFlight.get(client) ?? 0) + 1);
+  try {
+    return await fn();
+  } finally {
+    const left = writesInFlight.get(client)! - 1;
+    if (left > 0) writesInFlight.set(client, left);
+    else {
+      writesInFlight.delete(client);
+      whenIdle.get(client)?.forEach((wake) => wake());
+      whenIdle.delete(client);
+    }
+  }
+}
+
+/**
+ * Closes a retired `client` (of connection `id`, for the log) once the reads
+ * started under `graceMs` have finished or timed out and no governed write
+ * holds it — or after WRITE_CLOSE_CAP_MS, logging that it was cut short.
+ */
+function closeLater<T extends { close(): Promise<unknown> }>(
+  id: string,
+  client: T,
+  graceMs: number,
+): void {
+  // Node clamps anything above 2^31-1 ms to 1 ms, which would close at once.
+  const delay = Math.min(graceMs + 1000, 2_147_483_647);
+  let done = false;
+  const closeOnce = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(cap); // drop the cap timer's hold on the client
+    client.close().catch(logClose);
+  };
+  setTimeout(() => {
+    if (!writesInFlight.has(client)) return closeOnce();
+    whenIdle.set(client, [...(whenIdle.get(client) ?? []), closeOnce]);
+  }, delay).unref();
+  const cap = setTimeout(() => {
+    if (done) return;
+    console.warn(
+      `Closing a retired connection pool for ${id} with a write still running after ${WRITE_CLOSE_CAP_MS / 3_600_000}h.`,
+    );
+    closeOnce();
+  }, WRITE_CLOSE_CAP_MS).unref();
+}
+
+/**
+ * Evicts one connection's clients synchronously and closes them in the
+ * background, so nothing here awaits or throws. pg's `end()` already lets
+ * checked-out clients finish. mssql/Mongo/ES `close()` would abort in-flight
+ * work — governed writes included, since write-executor shares these pools —
+ * so those wait out `graceMs`, the timeout their queries were started under.
+ */
+function retire(id: string, graceMs: number): boolean {
+  poolGen.set(id, generation(id) + 1);
   let closed = false;
   const pgPool = pgPools.get(id);
-  if (pgPool) {
-    pgPools.delete(id);
-    await pgPool.end();
-    closed = true;
-  }
+  if (pgPool) pgPool.end().catch(logClose);
   const msPool = mssqlPools.get(id);
-  if (msPool) {
-    mssqlPools.delete(id);
-    await msPool.close();
-    closed = true;
-  }
+  if (msPool) closeLater(id, msPool, graceMs);
   const mongo = mongClients.get(id);
-  if (mongo) {
-    mongClients.delete(id);
-    await mongo.close();
-    closed = true;
-  }
+  if (mongo) closeLater(id, mongo, graceMs);
   const es = esClients.get(id);
-  if (es) {
-    esClients.delete(id);
-    await es.close();
-    closed = true;
-  }
+  if (es) closeLater(id, es, graceMs);
+  for (const map of [pgPools, mssqlPools, mongClients, esClients])
+    closed = map.delete(id) || closed;
+  return closed;
+}
+
+/** Retires the pool for one connection; it reconnects lazily on next use. */
+export function closeConnectionPool(
+  id: string,
+  graceMs = queryTimeout(),
+): boolean {
+  const closed = retire(id, graceMs);
   poolLastUsed.delete(id);
   return closed;
 }
 
-export async function closeAllConnections(): Promise<void> {
-  for (const pool of pgPools.values()) await pool.end();
-  for (const pool of mssqlPools.values()) await pool.close();
-  for (const client of mongClients.values()) await client.close();
-  for (const client of esClients.values()) await client.close();
-  pgPools.clear();
-  mssqlPools.clear();
-  mongClients.clear();
-  esClients.clear();
+/**
+ * Closes one connection's clients now — the admin "disconnect" action, whose
+ * point is to end sessions. MSSQL, Mongo and Elasticsearch clients close at
+ * once, cutting off in-flight work. For pg, in-flight queries finish, but no
+ * new ones start and idle clients close now. Edits and timeout changes use
+ * closeConnectionPool's graceful retire instead.
+ */
+export async function disconnectPool(id: string): Promise<boolean> {
+  poolGen.set(id, generation(id) + 1);
+  const pgPool = pgPools.get(id);
+  const msPool = mssqlPools.get(id);
+  const mongo = mongClients.get(id);
+  const es = esClients.get(id);
+  for (const map of [pgPools, mssqlPools, mongClients, esClients])
+    map.delete(id);
+  poolLastUsed.delete(id);
+  // Never rejects: a close that fails is logged, and the caller (an Express
+  // route with no try/catch) always gets its answer.
+  // pg's end() resolves only once checked-out clients are released, so it is
+  // not awaited: in-flight pg queries finish, no new ones start, and idle
+  // clients close now.
+  pgPool?.end().catch(logClose);
+  for (const r of await Promise.allSettled([
+    msPool?.close(),
+    mongo?.close(),
+    es?.close(),
+  ]))
+    if (r.status === "rejected") logClose(r.reason);
+  return !!(pgPool || msPool || mongo || es);
+}
+
+/**
+ * Retires every pool so the next query builds a fresh one with current
+ * settings — see `retire`. A settings save neither hangs on a long query nor
+ * fails after it was written.
+ */
+export function closeAllConnections(graceMs = queryTimeout()): void {
+  const ids = new Set([
+    ...pgPools.keys(),
+    ...mssqlPools.keys(),
+    ...mongClients.keys(),
+    ...esClients.keys(),
+  ]);
+  for (const id of ids) retire(id, graceMs);
+  // Connects still in flight have no map entry yet; bumping every
+  // generation makes them discard their client too.
+  genAll++;
   poolLastUsed.clear();
 }

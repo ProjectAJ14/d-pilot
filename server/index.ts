@@ -15,7 +15,8 @@ import {
 import { initDatabase, getPhiMaskedEnvs } from "./services/sqlite-store.js";
 import { getEnvironments } from "./config/connections.js";
 import { BASE_PATH, BASE_URL, withBase } from "./config/base-path.js";
-import { loadCopyFormats } from "./config/copy-formats.js";
+import { getConfig } from "./config/settings.js";
+import settingsRoutes from "./routes/settings.js";
 import queryRoutes from "./routes/query.js";
 import connectionRoutes from "./routes/connections.js";
 import savedQueryRoutes from "./routes/saved-queries.js";
@@ -62,21 +63,22 @@ router.get("/api/health", (_req, res) => {
 // Public config (no auth) — non-sensitive settings for frontend
 router.get("/api/config", (_req, res) => {
   res.json({
-    appName: process.env.APP_NAME || "D-Pilot",
+    appName: getConfig("APP_NAME") || "D-Pilot",
     // Branding URLs are either a file the deployment dropped in public/
     // ("/logo/logo.png") or somebody else's CDN. withBase prefixes the first
     // kind and leaves the second alone, so a sub-path deployment does not ask
     // the domain root for its logo and get another app's 404 page.
-    logoUrl: withBase(BASE_PATH, process.env.LOGO_URL),
-    lightLogoUrl: withBase(BASE_PATH, process.env.LIGHT_LOGO_URL),
-    faviconUrl: withBase(BASE_PATH, process.env.FAVICON_URL),
-    emailDomain: process.env.EMAIL_DOMAIN || null,
+    logoUrl: withBase(BASE_PATH, getConfig("LOGO_URL")),
+    lightLogoUrl: withBase(BASE_PATH, getConfig("LIGHT_LOGO_URL")),
+    faviconUrl: withBase(BASE_PATH, getConfig("FAVICON_URL")),
+    emailDomain: getConfig("EMAIL_DOMAIN") || null,
+    // The login page renders before auth, hence public. "" hides the line.
+    loginTagline: getConfig("LOGIN_TAGLINE") ?? "",
+    loginSubtitle: getConfig("LOGIN_SUBTITLE") ?? "",
     phiMaskedEnvironments: getPhiMaskedEnvs(),
-    // The deployment's environments, derived from DBFORGE_CONNECTIONS. The
+    // The deployment's environments, derived from its connections. The
     // client renders its env pickers from this — never a hardcoded list.
     environments: getEnvironments(),
-    // Results "Copy as" formats — from COPY_FORMATS env, else code defaults.
-    copyFormats: loadCopyFormats(),
   });
 });
 
@@ -87,9 +89,9 @@ router.get("/api/config", (_req, res) => {
 // require raster icons at the declared sizes. Regenerate them with
 // `npm run icons:pwa`.
 router.get("/manifest.webmanifest", (_req, res) => {
-  const appName = process.env.APP_NAME || "D-Pilot";
+  const appName = getConfig("APP_NAME") || "D-Pilot";
   res.type("application/manifest+json");
-  // Branding comes from env, so never let a proxy pin an old name.
+  // Branding is runtime config, so never let a proxy pin an old name.
   res.setHeader("Cache-Control", "no-cache");
   res.json({
     // All four of these are resolved against the origin, not against the
@@ -163,6 +165,7 @@ router.use("/api/users", userRoutes);
 router.use("/api/azure-ai", azureAiRoutes);
 router.use("/api/analytics", analyticsRoutes);
 router.use("/api/write-requests", writeRequestRoutes);
+router.use("/api/settings", settingsRoutes);
 
 // Serve static frontend in production
 if (process.env.NODE_ENV === "production") {

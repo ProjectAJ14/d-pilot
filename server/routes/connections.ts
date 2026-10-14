@@ -7,7 +7,7 @@ import {
 import {
   testConnection,
   getPoolStatus,
-  closeConnectionPool,
+  disconnectPool,
 } from "../services/query-executor.js";
 import { requireAdmin, resolveReadableConnection } from "../middleware/auth.js";
 
@@ -26,7 +26,8 @@ router.get("/status", requireAdmin, (_req: Request, res: Response) => {
   res.json(statuses);
 });
 
-// Force-close a connection's pool; it reconnects lazily on next use.
+// Force-close a connection's pool (an admin ending its sessions); it
+// reconnects lazily on next use.
 router.post(
   "/:id/disconnect",
   requireAdmin,
@@ -36,7 +37,7 @@ router.post(
       res.status(404).json({ error: "Connection not found" });
       return;
     }
-    const closed = await closeConnectionPool(conn.id);
+    const closed = await disconnectPool(conn.id);
     res.json({ connectionId: conn.id, closed });
   },
 );

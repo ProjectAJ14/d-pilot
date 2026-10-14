@@ -1,51 +1,12 @@
 export type DatabaseType = "postgres" | "mssql" | "mongodb" | "elasticsearch";
 /**
  * Environment name. Deliberately an open `string`: the set of environments comes
- * from `DBFORGE_CONNECTIONS` at runtime (see `getEnvironments()`), so a
+ * from the configured connections at runtime (see `getEnvironments()`), so a
  * deployment can define its own (e.g. `SUPER_PROD`) without a code change.
  * `"PROD"` is still special-cased by the PROD safety rails.
  */
 export type Environment = string;
 export type MaskingType = "FULL" | "PARTIAL" | "HASH" | "REDACT";
-
-// --- Results "Copy as" formats ------------------------------------------------
-// Deployment-configurable via COPY_FORMATS (see config/copy-formats.ts).
-// Mirrored in src/types/index.ts — keep the two in sync.
-
-/** How a template extractor quotes each cell. */
-export type CopyQuote = "none" | "single" | "double";
-
-/** Built-in structural formatters a copy format can reference by name. */
-export type CopyBuiltin = "csv" | "tsv" | "json" | "markdown" | "sql-insert";
-
-/** Separator-based custom extractor (DataGrip-style). */
-export interface CopyTemplate {
-  columnSeparator: string;
-  rowSeparator: string;
-  quote?: CopyQuote;
-  /** When false, the first column is emitted bare (e.g. `code "description"`). */
-  quoteFirstColumn?: boolean;
-  /** Text emitted for null/undefined cells (default ""). */
-  nullText?: string;
-  /** Prepend a row of column names. */
-  header?: boolean;
-  prefix?: string;
-  suffix?: string;
-}
-
-/**
- * One entry in the results "Copy as" menu. Carries either a `builtin`
- * structural formatter or a separator `template` — never both.
- */
-export interface CopyFormat {
-  id: string;
-  label: string;
-  group?: string;
-  example?: string;
-  columnMenu?: boolean;
-  builtin?: CopyBuiltin;
-  template?: CopyTemplate;
-}
 
 // Machine-readable error codes returned by the API (body: { error, code? }).
 export type ApiErrorCode = "CONNECTION_FAILED";
@@ -74,6 +35,41 @@ export interface ConnectionConfig {
    */
   schemas?: string[];
   uri?: string; // for MongoDB
+}
+
+// --- Admin settings (/api/settings) -------------------------------------------
+// Mirrored in src/types/index.ts — keep the two in sync.
+
+/** Where a setting's effective value comes from: Settings, `.env`, or code. */
+export type SettingSource = "db" | "env" | "default";
+
+export interface AppSettingView {
+  key: string;
+  group: "ai" | "branding" | "limits";
+  secret: boolean;
+  source: SettingSource;
+  /** Effective value; absent for secrets, which never leave the server. */
+  value?: string | null;
+  /** Secrets only: whether a value is configured. */
+  set?: boolean;
+  /** Numeric limits only: the highest value that may be saved (operator ceiling). */
+  max?: number;
+}
+
+/** A connection as the admin API returns it — credentials replaced by flags. */
+export interface ConnectionAdminView {
+  id: string;
+  name: string;
+  env: Environment;
+  type: DatabaseType;
+  host?: string;
+  port?: number;
+  database?: string;
+  username?: string;
+  schema?: string;
+  schemas?: string[];
+  passwordSet: boolean;
+  uriSet: boolean;
 }
 
 export interface QueryRequest {

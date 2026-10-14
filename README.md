@@ -36,6 +36,7 @@ ever leaving the building in the clear.
 - **Write mode** with a request → review → approval → execute lifecycle. Globally toggleable by admins.
 - **Two-person rule on production** — writes to any production environment (any name containing "prod") always require a second approver and can never be direct-execute; other environments can be configured for direct write. The one exception is the **admin override** below.
 - **Admin override** — an admin can run a pending write request without any approver (their own included), on any environment including production. A written reason is mandatory and the run is audited as `OVERRIDDEN` / `WRITE_OVERRIDE`. Non-admins cannot; there is no capability list for it.
+- **Bound to its connection** — a request is bound to where its connection points when it is submitted (environment, type, host, port, database, username, default schema, URI, and the stored connection itself). If an admin edits any of those, or deletes and re-creates the connection under the same id, approving it is refused with a 409 until it is cancelled or rejected and resubmitted. Renaming the connection or rotating its password does not unbind it. Existing pending requests and drafts are bound to their connection as of the upgrade.
 - **Paired verify SELECT** — every write request carries a read-only SELECT to preview affected rows before execution.
 - **AI safety review** — verdict (Safe / Caution / Dangerous), blast-radius estimate, SELECT-matches-write check, and one-click suggested corrections.
 - **Single-statement, scoped writes only** — one INSERT/UPDATE/DELETE (or Mongo/ES equivalent); UPDATE/DELETE must be scoped (WHERE required); transactional where the engine supports it.
@@ -194,32 +195,81 @@ hands to anyone sharing the origin.
 
 ## Configuration
 
-Copy `.env.example` to `.env` and set the following:
+Configuration comes in three kinds. Copy `.env.example` to `.env`; it is laid out the
+same way. Every variable is described in [docs/environment-variables.md](docs/environment-variables.md).
+
+**Bootstrap — env only.** Needed before the app database exists or baked into the
+client build; change them in `.env` and restart (`BASE_PATH`: rebuild).
 
 ```env
-# Server
 PORT=3101
 VITE_PORT=3100
 NODE_ENV=production
+# BASE_PATH=/d-pilot                 # see "Serving under a sub-path"
+# DATA_DIR=data                      # app database + settings.key
 
 # JWT — CHANGE THIS to a random string (e.g. openssl rand -hex 32)
 JWT_SECRET=<your-random-secret-here>
-JWT_EXPIRES_IN=24h
 
+# Default admin password (only used on first run to seed the admin user)
+DEFAULT_ADMIN_PASSWORD=<strong-password>
+
+# Encrypts secrets stored in the app database. Unset = a key generated into DATA_DIR/settings.key
+# SETTINGS_ENCRYPTION_KEY=<any-long-random-string>
+# HTTPS_PROXY=http://proxy.example:8080   # outbound proxy for the Azure OpenAI call
+
+# Operator ceilings — can only LOWER a limit's built-in cap (shown here)
+# MAX_ROWS_LIMIT=1000000
+# MCP_MAX_ROWS_LIMIT=1000000
+# QUERY_TIMEOUT_MS_LIMIT=2147483647
+# SCHEMA_CACHE_TTL_HOURS_LIMIT=8760
+```
+
+**Operator ceilings.** A `*_LIMIT` caps what an admin may save for that limit in
+Settings: a higher value is refused ("MAX_ROWS must be ≤ 500 (set by the server
+operator)"), and Settings shows the max next to the field. Lowering a ceiling below a
+value already saved (or set in `.env`, or the default) clamps it — nothing breaks. A
+ceiling above the built-in cap, zero, negative or not a number is ignored with a
+warning.
+
+**Initial values / fallbacks — overridden by Settings.** Branding and limits. Admins
+change these in **Settings → Branding & Limits** without a restart. Precedence is
+**saved in Settings > `.env` > built-in default**; once a value is saved in Settings,
+editing `.env` no longer changes it. **Reset** drops the saved value so `.env` (or the
+default) applies again.
+
+```env
 # Branding
 APP_NAME="Your App Name"
 LOGO_URL=/logo/your-logo.svg              # dark-ink mark, shown on the light theme (empty = text-only)
 LIGHT_LOGO_URL=/logo/your-logo-light.svg  # light-ink mark, shown on the dark theme and the login panel
 FAVICON_URL=/logo/favicon.svg         # optional
+# LOGIN_TAGLINE="Internal query tool"     # login-page lines under the app name;
+# LOGIN_SUBTITLE="HIPAA · PHI tokenized"  # save one empty in Settings to hide it
+EMAIL_DOMAIN=yourcompany.com          # enforced on user creation, used for the default admin seed
+# APP_BASE_URL=https://d-pilot.internal   # origin for artifact links in MCP output
 
-# Email domain — enforced on user creation, used for the default admin seed
-EMAIL_DOMAIN=yourcompany.com
+# Limits
+JWT_EXPIRES_IN=24h
+MAX_ROWS=10000            # hard cap on returned rows
+QUERY_TIMEOUT_MS=90000    # per-query timeout
+MCP_MAX_ROWS=1000         # rows per MCP agent query (agents may raise per call)
+SCHEMA_CACHE_TTL_HOURS=24 # schema cache (autocomplete + AI); hours, 0 disables
+```
 
-# Default admin password (only used on first run to seed the admin user)
-DEFAULT_ADMIN_PASSWORD=<strong-password>
+**Settings only — no env var.** Database connections (**Settings → Connections**) and
+the AI assistant (**Settings → Azure OpenAI**: endpoint, key, deployment, model, API
+version, TLS) live in the app database and are never read from `.env`. A fresh install
+starts with no connections; the first admin adds them.
 
-# Database connections — JSON array
-DBFORGE_CONNECTIONS='[
+**Bulk import.** **Settings → Connections → Import** takes a JSON array of connections
+(or a single connection object) and previews each row before anything is saved. It is
+all-or-nothing and create-only: an invalid item, a repeated id or an id that already
+exists stops the whole import, and an existing connection is never overwritten. API:
+`POST /api/settings/connections/import` with `{ "connections": [...] }` (up to 200):
+
+```json
+[
   {
     "id": "qa-pg",
     "name": "QA PostgreSQL",
@@ -232,35 +282,41 @@ DBFORGE_CONNECTIONS='[
     "password": "your_password",
     "schema": "public"
   }
-]'
-
-# Query safety
-MAX_ROWS=10000            # hard cap on returned rows
-QUERY_TIMEOUT_MS=90000    # per-query timeout
-
-# Results "Copy as" formats (optional; JSON array). Unset = built-in defaults
-# (CSV, TSV, JSON, Markdown, SQL INSERT, comma, single-quoted, double-quoted).
-# COPY_FORMATS='[{"id":"in-clause","label":"SQL IN","group":"List / SQL","columnMenu":true,"template":{"columnSeparator":",","rowSeparator":",","quote":"single","prefix":"IN (","suffix":")"}}]'
-
-# MCP endpoint for AI agents — rows returned per query (agents may raise per call)
-MCP_MAX_ROWS=1000
-
-# Schema cache (autocomplete + AI); hours, 0 disables
-SCHEMA_CACHE_TTL_HOURS=24
-
-# AI assistant — Azure OpenAI (optional; endpoints return 503 if unset)
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
-AZURE_OPENAI_KEY=<your-key>
-AZURE_OPENAI_DEPLOYMENT=<your-deployment-name>
-AZURE_OPENAI_MODEL=gpt-4o           # optional, informational
-# AZURE_OPENAI_API_VERSION=2024-08-01-preview
-# AZURE_OPENAI_INSECURE_TLS=true    # only for TLS-inspecting corporate proxies
+]
 ```
 
-> **Note:** PHI masking and the write workflow are configured **in-app** (Settings), not
-> via environment variables — masked environments, PHI rules, write-mode toggle, and
-> direct-write environments are stored in the SQLite app database. (The legacy
-> `PHI_ALWAYS_MASKED` / `PHI_ADMIN_CAN_UNMASK` env vars are no longer read.)
+> **Upgrading from an `.env`-configured install:** `DBFORGE_CONNECTIONS` and the
+> `AZURE_OPENAI_*` variables are no longer read. Connections and AI settings an earlier
+> version already imported or saved are kept. Anything that only lived in `.env`:
+> re-create connections via **Settings → Connections → Import** (paste the old JSON
+> array as-is) and re-enter the AI settings in **Settings → Azure OpenAI**. Then delete
+> those lines from `.env`.
+>
+> One change to the JSON: a MongoDB `username`/`password` must be the raw value
+> (`p@ss`, not `p%40ss`). D-Pilot now percent-encodes them itself when it builds the
+> connection string, so a value that was escaped by hand for the old `.env` would be
+> escaped twice and fail to log in. A full `uri` is used as-is, unchanged.
+
+**Secrets are encrypted at rest.** Connection passwords/URIs and `AZURE_OPENAI_KEY` are
+stored AES-256-GCM encrypted, with `SETTINGS_ENCRYPTION_KEY` or — if unset — a key
+generated once into `DATA_DIR/settings.key`. Settings never shows a stored secret back,
+and a kept password cannot be redirected: editing a connection keeps it only when the
+change is limited to name, env or schemas — anything else (host, port, username,
+database, …) needs it typed again, as does changing the AI endpoint or TLS setting.
+A stored password or URI can be removed with **Clear** in the connection editor.
+**Back up `settings.key` along with the database, but store it separately** (anyone
+holding both can decrypt the secrets). Lose it and the app still starts, but every
+stored secret must be re-entered in Settings.
+
+**One process per data directory.** D-Pilot runs as a single Node process. Saving a
+connection or a setting invalidates pools and caches only in the process that handled
+the save, so several processes or replicas sharing one `DATA_DIR` would keep serving
+stale connections and limits — that deployment shape is unsupported. Scale up the one
+instance instead.
+
+> **Note:** PHI masking and the write workflow are configured **in-app** too — masked
+> environments, PHI rules, write-mode toggle, and direct-write environments are stored
+> in the SQLite app database and have no env var.
 
 ### Supported connection types
 
@@ -273,8 +329,8 @@ AZURE_OPENAI_MODEL=gpt-4o           # optional, informational
 
 ### Access model
 
-Access is **capability-based and scoped per environment** (`DEV`, `QA`, `UAT`, `STG`, `PROD`
-by default — see [Custom environments](#custom-environments)).
+Access is **capability-based and scoped per environment** (typically `DEV`, `QA`, `UAT`,
+`STG`, `PROD` — whatever envs your connections use; see [Custom environments](#custom-environments)).
 Each user has an `isAdmin` flag plus four capability lists, managed from **Settings → User Management**:
 
 | Capability                            | Grants                                                |
@@ -290,14 +346,15 @@ on every environment whose name contains "prod" — see [Custom environments](#c
 
 ### Custom environments
 
-The environment list is **not** hardcoded — it is derived from the `env` values in
-`DBFORGE_CONNECTIONS`. Adding a connection with a new `env` is all it takes:
+The environment list is **not** hardcoded — it is derived from the `env` values of the
+configured connections. Adding a connection with a new `env` (in **Settings →
+Connections**) is all it takes:
 
 ```jsonc
 { "id": "sp-pg", "name": "Super Prod PostgreSQL", "env": "SUPER_PROD", "type": "postgres", … }
 ```
 
-After a restart, `SUPER_PROD` shows up on its own in the connection tree, the four
+`SUPER_PROD` then shows up on its own in the connection tree, the four
 capability pickers in **Settings → User Management**, the PHI masked-environment toggles
 and the write policy. Only environments the deployment actually has are accepted by the
 API, so a stale name can't be granted to anyone.
@@ -472,9 +529,11 @@ HMR). Verify PWA behavior against a production build — `npm run build && npm s
 ## First-Run Behavior
 
 - SQLite database created at `data/dbpilot.sqlite` (WAL mode)
-- Default admin user seeded: `admin@<EMAIL_DOMAIN>` with `DEFAULT_ADMIN_PASSWORD`, granted all capabilities on all environments
+- Default admin user seeded: `admin@<EMAIL_DOMAIN>` (`admin@example.com` when `EMAIL_DOMAIN` is unset) with `DEFAULT_ADMIN_PASSWORD`; as an admin it has every capability on every environment
 - Default PHI masking rules seeded (name / DOB / phone / email / address / ZIP patterns, PARTIAL masking)
 - Default app settings seeded: PHI masked on `PROD`, write mode enabled, direct-write on `DEV`
+- No connections — log in as the admin and add them in **Settings → Connections** (or **Import** a JSON array)
+- Unless `SETTINGS_ENCRYPTION_KEY` is set, a secrets key generated at `data/settings.key`
 
 ---
 
@@ -651,13 +710,18 @@ cp data/dbpilot.sqlite data/dbpilot-backup-$(date +%Y%m%d).sqlite
 cp data/audit_archive.sqlite data/audit_archive-backup-$(date +%Y%m%d).sqlite
 ```
 
+Back up `data/settings.key` too (unless you use `SETTINGS_ENCRYPTION_KEY`), but keep the
+copy **apart from** the database backups: it decrypts the connection passwords and AI key
+stored in `dbpilot.sqlite`. Without it a restored database works, but every stored secret
+has to be re-entered in Settings.
+
 ## Troubleshooting
 
-| Issue                        | Fix                                                                               |
-| ---------------------------- | --------------------------------------------------------------------------------- |
-| `EADDRINUSE` on startup      | Another process is using the port. `lsof -i :3101` to find it                     |
-| Database connection errors   | Verify the server can reach DB hosts: `telnet <host> <port>`                      |
-| AI assistant returns 503     | Set the `AZURE_OPENAI_*` env vars; use **Settings → Azure OpenAI → Test Connect** |
-| Logo not showing             | Check file exists at `public/logo/` and `LOGO_URL` matches the path               |
-| Forgot admin password        | Delete `data/dbpilot.sqlite` and restart — re-seeds from `.env`                   |
-| Permission denied on `data/` | `chown -R www-data:www-data /opt/d-pilot/data`                                    |
+| Issue                        | Fix                                                                 |
+| ---------------------------- | ------------------------------------------------------------------- |
+| `EADDRINUSE` on startup      | Another process is using the port. `lsof -i :3101` to find it       |
+| Database connection errors   | Verify the server can reach DB hosts: `telnet <host> <port>`        |
+| AI assistant returns 503     | Fill in **Settings → Azure OpenAI**, then **Test Connect**          |
+| Logo not showing             | Check file exists at `public/logo/` and `LOGO_URL` matches the path |
+| Forgot admin password        | Delete `data/dbpilot.sqlite` and restart — re-seeds from `.env`     |
+| Permission denied on `data/` | `chown -R www-data:www-data /opt/d-pilot/data`                      |

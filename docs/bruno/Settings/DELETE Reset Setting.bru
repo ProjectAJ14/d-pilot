@@ -1,0 +1,18 @@
+meta {
+  name: Reset Setting
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{baseUrl}}/api/settings/MAX_ROWS
+  body: none
+  auth: inherit
+}
+
+docs {
+  Delete the saved value so `.env` (or the built-in default) applies again. The path segment is the setting key (e.g. `MAX_ROWS`); unknown keys 404. AI settings (`AZURE_OPENAI_*`) have no `.env` fallback, so resetting one returns it to the built-in default (unset for the key, endpoint and deployment). Audited as `SETTINGS_RESET`. Returns the same list as List Settings.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}

@@ -26,8 +26,18 @@ const fakeCollection = new Proxy(
   },
 );
 
+const pgQueries: string[] = [];
 vi.mock("./query-executor.js", async (orig) => ({
   ...(await orig<typeof import("./query-executor.js")>()),
+  getPgPool: async () => ({
+    connect: async () => ({
+      query: async (sql: string) => {
+        pgQueries.push(sql);
+        return { rowCount: 1 };
+      },
+      release: () => {},
+    }),
+  }),
   getMongoClient: async () => ({
     db: () => ({ collection: () => fakeCollection }),
     startSession: () => ({
@@ -40,7 +50,7 @@ vi.mock("./query-executor.js", async (orig) => ({
   }),
 }));
 
-const { validateWriteQuery, parseMongoArgs, executeWrite } =
+const { validateWriteQuery, parseMongoArgs, executeWrite, executeMigration } =
   await import("./write-executor.js");
 
 const conn = {
@@ -237,5 +247,36 @@ describe("executeWrite (mongodb)", () => {
   it("refuses to run an invalid write", async () => {
     await expect(executeWrite(conn, "db.orders.drop()")).rejects.toThrow();
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("default schema on the Postgres write path", () => {
+  const pg = (schema: string) =>
+    ({ id: "pg-w", type: "postgres", env: "QA", schema }) as ConnectionConfig;
+  const update = "UPDATE orders SET status = 'placed' WHERE id = 1";
+  beforeEach(() => {
+    pgQueries.length = 0;
+  });
+
+  it("is quoted, for a write and a migration", async () => {
+    await executeWrite(pg("app_core"), update);
+    await executeMigration(
+      pg("app_core"),
+      "ALTER TABLE orders ADD COLUMN note text",
+    );
+    expect(pgQueries.filter((q) => q.startsWith("SET search_path"))).toEqual([
+      'SET search_path TO "app_core"',
+      'SET search_path TO "app_core"',
+    ]);
+  });
+
+  it("is refused, never executed, when it is not a plain identifier", async () => {
+    const evil = pg("public; DROP TABLE orders");
+    await expect(executeWrite(evil, update)).rejects.toThrow(/Invalid schema/);
+    await expect(
+      executeMigration(evil, "ALTER TABLE orders ADD COLUMN note text"),
+    ).rejects.toThrow(/Invalid schema/);
+    expect(pgQueries.some((q) => q.includes("DROP"))).toBe(false);
+    expect(pgQueries).not.toContain(update);
   });
 });

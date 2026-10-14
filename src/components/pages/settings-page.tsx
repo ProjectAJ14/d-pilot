@@ -24,6 +24,13 @@ import {
   Divider,
   FileButton,
   Checkbox,
+  Autocomplete,
+  TagsInput,
+  Skeleton,
+  Alert,
+  Stack,
+  Anchor,
+  Code,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
@@ -57,6 +64,8 @@ import {
   IconMail,
   IconDownload,
   IconUpload,
+  IconAdjustments,
+  IconPlugConnected,
 } from "@tabler/icons-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useStore } from "../../store";
@@ -70,14 +79,26 @@ import {
   envColor,
   isProductionEnv,
   useEnvironments,
+  withSavedEnvs,
+  envPickerOptions,
 } from "../../utils/environments";
 import type {
   User,
   PhiFieldRule,
   MaskingType,
   AiChatLogEntry,
+  AppSettingView,
+  ConnectionAdminView,
 } from "../../types";
+import type { ConnectionInput } from "../../utils/api-client";
+import { loadAppConfig, loadConnections } from "../../utils/app-config";
 import { BASE_PATH } from "../../utils/base-path";
+import { settingBool } from "../../utils/setting-bool";
+import {
+  parseConnectionsJson,
+  runLimited,
+} from "../../utils/connection-import";
+import { useDebouncedValue } from "@mantine/hooks";
 
 // ── PHI Field Icons ──
 const FIELD_ICONS: Record<string, string> = {
@@ -114,6 +135,18 @@ const SETTINGS_SECTIONS = [
     label: "User Management",
     icon: IconUsers,
     desc: "People, roles & environment access",
+  },
+  {
+    value: "connections",
+    label: "Connections",
+    icon: IconDatabase,
+    desc: "Target databases & their environments",
+  },
+  {
+    value: "general",
+    label: "Branding & Limits",
+    icon: IconAdjustments,
+    desc: "App name, logos, query & session limits",
   },
   {
     value: "write",
@@ -244,6 +277,10 @@ export function SettingsPage() {
             {activeTab === "analytics" && <AnalyticsTab />}
             {activeTab === "users" && (
               <UserManagementTab currentUserId={user?.id || ""} />
+            )}
+            {activeTab === "connections" && <ConnectionsTab />}
+            {activeTab === "general" && (
+              <RuntimeSettingsForm groups={["branding", "limits"]} />
             )}
             {activeTab === "write" && <WriteModeTab />}
             {activeTab === "phi" && <PhiManagementTab />}
@@ -1327,6 +1364,13 @@ function AddUserModal({
   );
 }
 
+interface SavedEnvLists {
+  read: string[];
+  unmask: string[];
+  write: string[];
+  approve: string[];
+}
+
 /** Shared capability editor: Administrator toggle + four env-scoped multiselects. */
 function CapabilityFields({
   isAdmin,
@@ -1339,7 +1383,10 @@ function CapabilityFields({
   setWriteEnvs,
   approveEnvs,
   setApproveEnvs,
+  saved,
 }: {
+  /** The user's lists as stored — orphan envs in them stay pickable. */
+  saved?: SavedEnvLists;
   isAdmin: boolean;
   setIsAdmin: (v: boolean) => void;
   readEnvs: string[];
@@ -1352,6 +1399,10 @@ function CapabilityFields({
   setApproveEnvs: (v: string[]) => void;
 }) {
   const envOptions = useEnvironments();
+  // From the lists as saved, not the form, so an orphan unticked by mistake
+  // stays on offer until the edit is saved.
+  const optionsFor = (list: keyof SavedEnvLists) =>
+    envPickerOptions(envOptions, saved?.[list] ?? []);
   return (
     <>
       <div
@@ -1376,7 +1427,7 @@ function CapabilityFields({
           <MultiSelect
             label="Read environments"
             description="Run read queries in these environments"
-            data={envOptions}
+            data={optionsFor("read")}
             value={readEnvs}
             onChange={setReadEnvs}
             mb="sm"
@@ -1384,7 +1435,7 @@ function CapabilityFields({
           <MultiSelect
             label="Unmask PHI environments"
             description="De-tokenize PHI in these environments (still needs a reason on masked envs)"
-            data={envOptions}
+            data={optionsFor("unmask")}
             value={unmaskEnvs}
             onChange={setUnmaskEnvs}
             mb="sm"
@@ -1392,7 +1443,7 @@ function CapabilityFields({
           <MultiSelect
             label="Write environments"
             description="Author write requests (direct-policy envs run immediately)"
-            data={envOptions}
+            data={optionsFor("write")}
             value={writeEnvs}
             onChange={setWriteEnvs}
             mb="sm"
@@ -1400,7 +1451,7 @@ function CapabilityFields({
           <MultiSelect
             label="Approve environments"
             description="Approve others' write requests"
-            data={envOptions}
+            data={optionsFor("approve")}
             value={approveEnvs}
             onChange={setApproveEnvs}
             mb="sm"
@@ -1485,6 +1536,16 @@ function EditUserModal({
         mb="sm"
       />
       <CapabilityFields
+        saved={
+          user
+            ? {
+                read: user.allowedEnvironments || [],
+                unmask: user.unmaskEnvironments || [],
+                write: user.writeEnvironments || [],
+                approve: user.approveEnvironments || [],
+              }
+            : undefined
+        }
         isAdmin={isAdmin}
         setIsAdmin={setIsAdmin}
         readEnvs={readEnvs}
@@ -1948,7 +2009,7 @@ function WriteModeTab() {
         logged). All other environments require approval by a second person.
       </Text>
       <Group gap={8} mb="lg">
-        {envOptions.map((env) => {
+        {withSavedEnvs(envOptions, directEnvs).map((env) => {
           const active = directEnvs.includes(env);
           const locked = isProductionEnv(env);
           const button = (
@@ -1972,6 +2033,11 @@ function WriteModeTab() {
               }}
             >
               {env}
+              {!envOptions.includes(env) && (
+                <Text span size="xs" c="dimmed" ml={4}>
+                  (no connection)
+                </Text>
+              )}
             </Button>
           );
           return locked ? (
@@ -2203,7 +2269,7 @@ function PhiManagementTab() {
         role can request de-tokenization with a logged reason.
       </Text>
       <Group gap={8} mb="lg">
-        {envOptions.map((env) => {
+        {withSavedEnvs(envOptions, maskedEnvs).map((env) => {
           const active = maskedEnvs.includes(env);
           const locked = isProductionEnv(env);
           const button = (
@@ -2227,6 +2293,11 @@ function PhiManagementTab() {
               }}
             >
               {env}
+              {!envOptions.includes(env) && (
+                <Text span size="xs" c="dimmed" ml={4}>
+                  (no connection)
+                </Text>
+              )}
             </Button>
           );
           return locked ? (
@@ -3197,21 +3268,19 @@ function AzureOpenAiTab() {
             Azure OpenAI Connection
           </Text>
           <Text size="xs" c="dimmed" style={{ lineHeight: 1.6 }}>
-            Credentials are read from server environment variables (
+            Configure the provider below; a value saved here overrides the
+            matching{" "}
             <Text span ff="monospace" size="xs">
-              AZURE_OPENAI_ENDPOINT
-            </Text>
-            ,{" "}
-            <Text span ff="monospace" size="xs">
-              AZURE_OPENAI_KEY
-            </Text>
-            ,{" "}
-            <Text span ff="monospace" size="xs">
-              AZURE_OPENAI_DEPLOYMENT
-            </Text>
-            ). Click below to send a test request and verify the keys are valid.
+              AZURE_OPENAI_*
+            </Text>{" "}
+            environment variable. Save, then send a test request to verify the
+            keys are valid.
           </Text>
         </div>
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <RuntimeSettingsForm groups={["ai"]} />
       </div>
 
       <Group mb="lg">
@@ -3303,6 +3372,1383 @@ function AzureOpenAiTab() {
         </div>
       )}
     </>
+  );
+}
+
+// ═══════════════════════════════════════
+// ── Runtime settings (/api/settings) ──
+// ═══════════════════════════════════════
+
+type SettingGroup = AppSettingView["group"];
+
+const SETTING_GROUP_LABELS: Record<SettingGroup, string> = {
+  ai: "Azure OpenAI",
+  branding: "Branding",
+  limits: "Limits",
+};
+
+/** Labels and input kinds for the keys server/config/settings.ts defines. */
+const SETTING_META: Record<
+  string,
+  { label: string; hint?: string; kind?: "bool" | "int" | "number" }
+> = {
+  AZURE_OPENAI_ENDPOINT: {
+    label: "Endpoint",
+    hint: "https://<resource>.openai.azure.com",
+  },
+  AZURE_OPENAI_KEY: { label: "API key" },
+  AZURE_OPENAI_DEPLOYMENT: { label: "Deployment" },
+  AZURE_OPENAI_MODEL: { label: "Model" },
+  AZURE_OPENAI_API_VERSION: { label: "API version" },
+  AZURE_OPENAI_INSECURE_TLS: {
+    label: "Skip TLS verification",
+    hint: "Only for a proxy with a self-signed certificate",
+    kind: "bool",
+  },
+  APP_NAME: { label: "App name" },
+  LOGO_URL: { label: "Logo URL", hint: "Top-bar logo on the light theme" },
+  LIGHT_LOGO_URL: {
+    label: "Light logo URL",
+    hint: "Light-coloured logo for the dark theme",
+  },
+  FAVICON_URL: { label: "Favicon URL" },
+  EMAIL_DOMAIN: { label: "Email domain" },
+  LOGIN_TAGLINE: {
+    label: "Login tagline",
+    hint: "Under the app name on the login page; empty hides it",
+  },
+  LOGIN_SUBTITLE: {
+    label: "Login subtitle",
+    hint: "e.g. a compliance note; empty hides it",
+  },
+  APP_BASE_URL: {
+    label: "Public base URL",
+    hint: "Used in links the server builds",
+  },
+  MAX_ROWS: { label: "Max rows per query", kind: "int" },
+  QUERY_TIMEOUT_MS: { label: "Query timeout (ms)", kind: "int" },
+  MCP_MAX_ROWS: { label: "Max rows per MCP query", kind: "int" },
+  SCHEMA_CACHE_TTL_HOURS: {
+    label: "Schema cache TTL (hours)",
+    kind: "number",
+  },
+  JWT_EXPIRES_IN: { label: "Session length", hint: 'e.g. "24h" or "7d"' },
+};
+
+const SOURCE_BADGE: Record<
+  AppSettingView["source"],
+  { label: string; color: string; variant: string; tip: string }
+> = {
+  db: {
+    label: "DB",
+    color: "blue",
+    variant: "light",
+    tip: "Saved in Settings — overrides .env",
+  },
+  env: {
+    label: ".env",
+    color: "neutral",
+    variant: "light",
+    tip: "From the server environment",
+  },
+  default: {
+    label: "default",
+    color: "neutral",
+    variant: "outline",
+    tip: "Built-in default",
+  },
+};
+
+const SECRET_PLACEHOLDER = "•••• (unchanged)";
+
+/**
+ * Secret → the settings that decide where it is sent. The server refuses to
+ * keep a stored secret when any of them changes, so it has to be typed again;
+ * resetting the secret resets them too.
+ */
+const SECRET_TARGET: Record<string, { keys: string[]; label: string }> = {
+  AZURE_OPENAI_KEY: {
+    keys: ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_INSECURE_TLS"],
+    label: "the endpoint or TLS setting",
+  },
+};
+
+/** Secrets never come back from the server, so their draft starts blank. */
+const initialValue = (s: AppSettingView) => (s.secret ? "" : (s.value ?? ""));
+
+/**
+ * One input per setting in `groups`, saved together. The server validates and
+ * answers 400 with "<KEY> <problem>", which is shown under that field.
+ * Branding comes from /api/config, so it is reloaded after every save/reset
+ * to apply it without a page reload.
+ */
+function RuntimeSettingsForm({ groups }: { groups: SettingGroup[] }) {
+  const [settings, setSettings] = useState<AppSettingView[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [fieldError, setFieldError] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState<string | null>(null);
+
+  const apply = (list: AppSettingView[]) => {
+    setSettings(list);
+    setDraft(Object.fromEntries(list.map((s) => [s.key, initialValue(s)])));
+    setFieldError({});
+    setFormError(null);
+  };
+
+  const load = () => {
+    api
+      .getAppSettings()
+      .then(apply)
+      .catch((err) => setLoadError(err.message));
+  };
+  useEffect(load, []);
+
+  const visible = (settings ?? []).filter((s) => groups.includes(s.group));
+  // Bools compare by meaning, so re-ticking an env "1" is not an edit.
+  const edited = (s: AppSettingView) =>
+    SETTING_META[s.key]?.kind === "bool"
+      ? settingBool(draft[s.key]) !== settingBool(initialValue(s))
+      : draft[s.key] !== initialValue(s);
+  const dirty = visible.filter(edited);
+
+  const showError = (err: any) => {
+    const msg: string = err?.message ?? String(err);
+    const key = visible.find((s) => msg.startsWith(`${s.key} `))?.key;
+    if (key) setFieldError({ [key]: msg });
+    else setFormError(msg);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setFieldError({});
+    setFormError(null);
+    try {
+      apply(
+        await api.updateAppSettings(
+          Object.fromEntries(dirty.map((s) => [s.key, draft[s.key]])),
+        ),
+      );
+      await loadAppConfig().catch(() => {});
+      notifications.show({ message: "Settings saved", color: "green" });
+    } catch (err) {
+      showError(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const reset = async (key: string) => {
+    setResetting(key);
+    try {
+      apply(await api.resetAppSetting(key));
+      await loadAppConfig().catch(() => {});
+      notifications.show({ message: `${key} reset`, color: "green" });
+    } catch (err) {
+      notifyError(err, "Settings");
+    } finally {
+      setResetting(null);
+    }
+  };
+
+  if (loadError) {
+    return (
+      <Alert color="red" title="Could not load settings">
+        <Text size="sm" mb="xs">
+          {loadError}
+        </Text>
+        <Button
+          size="xs"
+          variant="light"
+          color="red"
+          onClick={() => {
+            setLoadError(null);
+            load();
+          }}
+        >
+          Retry
+        </Button>
+      </Alert>
+    );
+  }
+  if (!settings) {
+    return (
+      <Stack gap="xs">
+        {groups.map((g) => (
+          <Skeleton key={g} height={160} />
+        ))}
+      </Stack>
+    );
+  }
+
+  const set = (key: string, value: string) => {
+    setDraft((d) => ({ ...d, [key]: value }));
+    setFieldError((e) => (e[key] ? {} : e));
+  };
+
+  const control = (s: AppSettingView) => {
+    const meta = SETTING_META[s.key];
+    const label = meta?.label ?? s.key;
+    const common = {
+      "aria-label": label,
+      error: fieldError[s.key],
+      size: "xs" as const,
+    };
+    if (s.secret) {
+      const target = SECRET_TARGET[s.key];
+      // Required only while the target is edited and nothing new is typed.
+      const reenter =
+        !!target &&
+        !!s.set &&
+        !draft[s.key] &&
+        visible.some((v) => target.keys.includes(v.key) && edited(v));
+      return (
+        <PasswordInput
+          {...common}
+          required={reenter}
+          description={
+            reenter
+              ? `Re-enter the key when changing ${target.label}`
+              : undefined
+          }
+          value={draft[s.key] ?? ""}
+          onChange={(e) => set(s.key, e.currentTarget.value)}
+          placeholder={s.set ? SECRET_PLACEHOLDER : "Not set"}
+          autoComplete="new-password"
+        />
+      );
+    }
+    switch (meta?.kind) {
+      case "bool":
+        return (
+          <Checkbox
+            {...common}
+            checked={settingBool(draft[s.key])}
+            onChange={(e) =>
+              set(s.key, e.currentTarget.checked ? "true" : "false")
+            }
+          />
+        );
+      default:
+        return (
+          <TextInput
+            {...common}
+            type={
+              meta?.kind === "int" || meta?.kind === "number"
+                ? "number"
+                : "text"
+            }
+            min={
+              meta?.kind === "int" ? 1 : meta?.kind === "number" ? 0 : undefined
+            }
+            max={s.max}
+            description={
+              s.max !== undefined ? `max ${s.max.toLocaleString()}` : undefined
+            }
+            value={draft[s.key] ?? ""}
+            onChange={(e) => set(s.key, e.currentTarget.value)}
+            placeholder={s.source === "default" ? "Not set" : undefined}
+          />
+        );
+    }
+  };
+
+  return (
+    <Stack gap="md">
+      {groups.map((g) => (
+        <Panel key={g}>
+          <div className="dp-eyebrow" style={{ marginBottom: 12 }}>
+            {SETTING_GROUP_LABELS[g]}
+          </div>
+          <Stack gap="sm">
+            {visible
+              .filter((s) => s.group === g)
+              .map((s) => {
+                const meta = SETTING_META[s.key];
+                const badge = SOURCE_BADGE[s.source];
+                return (
+                  <div
+                    key={s.key}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "minmax(180px, 240px) 1fr auto",
+                      gap: 12,
+                      alignItems: "start",
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <Text size="sm" fw={600} c="var(--text)">
+                        {meta?.label ?? s.key}
+                      </Text>
+                      <Text size="xs" ff="monospace" c="dimmed" truncate>
+                        {s.key}
+                      </Text>
+                      {meta?.hint && (
+                        <Text size="xs" c="dimmed">
+                          {meta.hint}
+                        </Text>
+                      )}
+                    </div>
+                    <div style={{ minWidth: 0 }}>{control(s)}</div>
+                    <Group
+                      gap={6}
+                      wrap="nowrap"
+                      style={{ minWidth: 112, paddingTop: 7 }}
+                    >
+                      <Tooltip label={badge.tip}>
+                        <Badge
+                          size="xs"
+                          color={badge.color}
+                          variant={badge.variant}
+                        >
+                          {badge.label}
+                        </Badge>
+                      </Tooltip>
+                      {s.source === "db" && (
+                        <Tooltip
+                          label={
+                            s.group === "ai"
+                              ? "Remove the saved value"
+                              : "Remove the saved value and fall back to .env / default"
+                          }
+                        >
+                          <Button
+                            size="compact-xs"
+                            variant="subtle"
+                            color="neutral"
+                            loading={resetting === s.key}
+                            onClick={() => reset(s.key)}
+                            aria-label={`Reset ${s.key}`}
+                          >
+                            Reset
+                          </Button>
+                        </Tooltip>
+                      )}
+                    </Group>
+                  </div>
+                );
+              })}
+          </Stack>
+        </Panel>
+      ))}
+      {formError && (
+        <Alert color="red" icon={<IconAlertTriangle size={16} />}>
+          {formError}
+        </Alert>
+      )}
+      <Group justify="flex-end" gap="xs">
+        <Button
+          variant="subtle"
+          color="neutral"
+          disabled={dirty.length === 0 || saving}
+          onClick={() => apply(settings)}
+        >
+          Discard
+        </Button>
+        <Button
+          onClick={save}
+          loading={saving}
+          disabled={dirty.length === 0}
+          leftSection={<IconCheck size={16} />}
+        >
+          Save{dirty.length > 0 ? ` (${dirty.length})` : ""}
+        </Button>
+      </Group>
+    </Stack>
+  );
+}
+
+// ═══════════════════════════════════════
+// ── Connections Tab ──
+// ═══════════════════════════════════════
+
+// Helper text under the field, so inputs side by side in a grid line up.
+const BELOW: ("label" | "input" | "description" | "error")[] = [
+  "label",
+  "input",
+  "description",
+  "error",
+];
+
+const DB_TYPES = ["postgres", "mssql", "mongodb", "elasticsearch"];
+
+/** After any change: the admin list, plus what the rest of the app reads. */
+async function refreshAppConnections(): Promise<void> {
+  await Promise.all([loadConnections(), loadAppConfig()]).catch(() => {});
+}
+
+function ConnectionsTab() {
+  const [conns, setConns] = useState<ConnectionAdminView[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<ConnectionAdminView | "new" | null>(
+    null,
+  );
+  const [deleting, setDeleting] = useState<ConnectionAdminView | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [tests, setTests] = useState<Record<string, boolean | "pending">>({});
+
+  const load = () => {
+    api
+      .getAdminConnections()
+      .then(setConns)
+      .catch((err) => setLoadError(err.message));
+  };
+  useEffect(load, []);
+
+  const changed = () => {
+    load();
+    refreshAppConnections();
+  };
+
+  const test = async (id: string) => {
+    setTests((t) => ({ ...t, [id]: "pending" }));
+    try {
+      const { connected } = await api.testConnection(id);
+      setTests((t) => ({ ...t, [id]: connected }));
+    } catch (err) {
+      setTests((t) => ({ ...t, [id]: false }));
+      notifyError(err, "Settings");
+    }
+  };
+
+  return (
+    <>
+      <Group justify="space-between" mb="md">
+        <Text size="sm" c="dimmed">
+          Saved here, a connection applies immediately. Its environment name
+          also defines the environment — a new name adds one.
+        </Text>
+        <Group gap="xs" wrap="nowrap">
+          <Button
+            variant="default"
+            leftSection={<IconUpload size={16} />}
+            onClick={() => setImportOpen(true)}
+          >
+            Import
+          </Button>
+          <Button
+            leftSection={<IconPlus size={16} />}
+            onClick={() => setEditing("new")}
+          >
+            Add connection
+          </Button>
+        </Group>
+      </Group>
+
+      {loadError ? (
+        <Alert color="red" title="Could not load connections">
+          <Text size="sm" mb="xs">
+            {loadError}
+          </Text>
+          <Button
+            size="xs"
+            variant="light"
+            color="red"
+            onClick={() => {
+              setLoadError(null);
+              load();
+            }}
+          >
+            Retry
+          </Button>
+        </Alert>
+      ) : !conns ? (
+        <Skeleton height={200} />
+      ) : conns.length === 0 ? (
+        <Panel>
+          <Text size="sm" c="dimmed" ta="center" py="lg">
+            No connections yet. Add one to start querying.
+          </Text>
+        </Panel>
+      ) : (
+        <Panel>
+          <Table verticalSpacing="xs" highlightOnHover>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Name</Table.Th>
+                <Table.Th>Env</Table.Th>
+                <Table.Th>Type</Table.Th>
+                <Table.Th>Target</Table.Th>
+                <Table.Th>Credentials</Table.Th>
+                <Table.Th />
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {conns.map((c) => {
+                const t = tests[c.id];
+                return (
+                  <Table.Tr key={c.id}>
+                    <Table.Td>
+                      <Text size="sm" fw={600}>
+                        {c.name}
+                      </Text>
+                      <Text size="xs" ff="monospace" c="dimmed">
+                        {c.id}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Badge size="xs" variant="light" color={envColor(c.env)}>
+                        {c.env}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="xs">{c.type}</Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="xs" ff="monospace" truncate maw={260}>
+                        {c.host
+                          ? `${c.host}${c.port ? `:${c.port}` : ""}`
+                          : c.uriSet
+                            ? "URI"
+                            : "—"}
+                        {c.database ? ` / ${c.database}` : ""}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="xs" c="dimmed">
+                        {[c.passwordSet && "password", c.uriSet && "URI"]
+                          .filter(Boolean)
+                          .join(", ") || "none"}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Group gap={4} justify="flex-end" wrap="nowrap">
+                        {t === true && (
+                          <Badge size="xs" color="green" variant="light">
+                            Connected
+                          </Badge>
+                        )}
+                        {t === false && (
+                          <Badge size="xs" color="red" variant="light">
+                            Failed
+                          </Badge>
+                        )}
+                        <Tooltip label="Test connection">
+                          <ActionIcon
+                            variant="subtle"
+                            color="neutral"
+                            aria-label={`Test ${c.name}`}
+                            loading={t === "pending"}
+                            onClick={() => test(c.id)}
+                          >
+                            <IconPlugConnected size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label="Edit">
+                          <ActionIcon
+                            variant="subtle"
+                            color="neutral"
+                            aria-label={`Edit ${c.name}`}
+                            onClick={() => setEditing(c)}
+                          >
+                            <IconEdit size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label="Delete">
+                          <ActionIcon
+                            variant="subtle"
+                            color="red"
+                            aria-label={`Delete ${c.name}`}
+                            onClick={() => setDeleting(c)}
+                          >
+                            <IconTrash size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                      </Group>
+                    </Table.Td>
+                  </Table.Tr>
+                );
+              })}
+            </Table.Tbody>
+          </Table>
+        </Panel>
+      )}
+
+      {editing && (
+        <ConnectionModal
+          connection={editing === "new" ? null : editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            changed();
+          }}
+        />
+      )}
+      {importOpen && (
+        <ImportConnectionsModal
+          onClose={() => setImportOpen(false)}
+          onImported={() => {
+            setImportOpen(false);
+            changed();
+          }}
+        />
+      )}
+      <DeleteConnectionModal
+        connection={deleting}
+        onClose={() => setDeleting(null)}
+        onDeleted={changed}
+      />
+    </>
+  );
+}
+
+const IMPORT_PLACEHOLDER = `[
+  {
+    "id": "qa-orders",
+    "name": "QA Orders",
+    "env": "QA",
+    "type": "postgres",
+    "host": "db.example.com",
+    "port": 5432,
+    "database": "orders",
+    "username": "dpilot",
+    "password": "…"
+  }
+]`;
+
+/** The server's verdict on one pasted text (`for`). */
+type ImportCheck = { for: string } & (
+  | { state: "done"; errors: Map<number, string> }
+  | { state: "failed"; error: string }
+);
+
+/** A pasted row's connection test — results belong to the text they ran on. */
+type RowTest =
+  | { state: "running" }
+  | { state: "ok" }
+  | { state: "failed"; error: string };
+const NO_TESTS = new Map<number, RowTest>();
+
+/** One preview cell: a string/number field of a pasted item, else blank. */
+function importField(item: unknown, key: string): string {
+  const v = (item as Record<string, unknown> | null)?.[key];
+  return typeof v === "string" || typeof v === "number" ? String(v) : "";
+}
+
+function ImportConnectionsModal({
+  onClose,
+  onImported,
+}: {
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const [text, setText] = useState("");
+  const [debounced] = useDebouncedValue(text, 300);
+  const [result, setResult] = useState<ImportCheck | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  // Keyed by the text they ran on, so any edit clears them, and a result that
+  // lands after an edit is dropped rather than shown against changed values.
+  const [tests, setTests] = useState({ for: "", rows: NO_TESTS });
+  const textRef = useRef(text);
+
+  // Parsing is cheap, so the preview follows every keystroke; only the
+  // server check (and showing a syntax error mid-typing) waits for a pause.
+  const parsed = text.trim() ? parseConnectionsJson(text) : null;
+  const items = parsed && "items" in parsed ? parsed.items : null;
+
+  // The server validates each item (dry run), so the field rules are the
+  // create route's own — nothing duplicated here.
+  useEffect(() => {
+    const settled = debounced.trim() ? parseConnectionsJson(debounced) : null;
+    if (!settled || !("items" in settled)) return;
+    let stale = false;
+    api
+      .checkConnectionImport(settled.items)
+      .then(({ errors }) => {
+        if (!stale)
+          setResult({
+            for: debounced,
+            state: "done",
+            errors: new Map(errors.map((e) => [e.index, e.error])),
+          });
+      })
+      .catch((err) => {
+        if (!stale)
+          setResult({ for: debounced, state: "failed", error: err.message });
+      });
+    return () => {
+      stale = true;
+    };
+  }, [debounced]);
+
+  const check = result?.for === debounced ? result : null;
+  const pending = text !== debounced || (!!items && !check);
+  const errorCount = check?.state === "done" ? check.errors.size : 0;
+  const ready =
+    !!items && !pending && check?.state === "done" && errorCount === 0;
+
+  const rowTests = tests.for === text ? tests.rows : NO_TESTS;
+  const testable = (i: number) =>
+    !pending && check?.state === "done" && !check.errors.has(i);
+  const setRowTest = (forText: string, i: number, t: RowTest) =>
+    setTests((prev) => {
+      if (forText !== textRef.current) return prev;
+      const rows = new Map(prev.for === forText ? prev.rows : NO_TESTS);
+      rows.set(i, t);
+      return { for: forText, rows };
+    });
+  // No `id`: these are unsaved, so the server uses only the pasted values and
+  // returns the driver's full error.
+  const testRow = async (forText: string, i: number) => {
+    if (!items) return;
+    setRowTest(forText, i, { state: "running" });
+    const { id: _id, ...body } = items[i] as Record<string, unknown>;
+    try {
+      const r = await api.testConnectionDraft(
+        body as Parameters<typeof api.testConnectionDraft>[0],
+      );
+      setRowTest(
+        forText,
+        i,
+        r.ok
+          ? { state: "ok" }
+          : { state: "failed", error: r.error ?? "Failed" },
+      );
+    } catch (err) {
+      setRowTest(forText, i, {
+        state: "failed",
+        error: (err as Error).message,
+      });
+    }
+  };
+  const testAll = () => {
+    if (!items) return;
+    const rows = items.map((_, i) => i).filter(testable);
+    void runLimited(rows, 4, (i) => testRow(text, i));
+  };
+  const testing = [...rowTests.values()].some((t) => t.state === "running");
+  const failedTests = [...rowTests.values()].filter(
+    (t) => t.state === "failed",
+  ).length;
+
+  const submit = async () => {
+    if (!items || !ready) return;
+    setImporting(true);
+    setImportError(null);
+    try {
+      const created = await api.importConnections(items);
+      notifications.show({
+        message: `Imported ${created.length} connection${created.length === 1 ? "" : "s"}`,
+        color: "green",
+      });
+      onImported();
+    } catch (err) {
+      setImportError((err as Error).message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <Modal opened onClose={onClose} title="Import connections" size="xl">
+      <Stack gap="sm">
+        <Text size="sm" c="dimmed">
+          Paste an array of connections, or a single connection object — an old{" "}
+          <Code>DBFORGE_CONNECTIONS</Code> value works as-is. Nothing is saved
+          unless every row is valid, and existing connections are never
+          overwritten.
+        </Text>
+        <Textarea
+          aria-label="Connections JSON"
+          placeholder={IMPORT_PLACEHOLDER}
+          autosize
+          minRows={16}
+          maxRows={24}
+          spellCheck={false}
+          autoComplete="off"
+          value={text}
+          onChange={(e) => {
+            setText(e.currentTarget.value);
+            textRef.current = e.currentTarget.value;
+            setImportError(null);
+          }}
+          error={
+            text === debounced && parsed && "error" in parsed
+              ? parsed.error
+              : undefined
+          }
+          styles={{
+            input: {
+              fontFamily: "var(--font-mono)",
+              fontSize: "var(--text-xs)",
+            },
+          }}
+        />
+        {check?.state === "failed" && (
+          <Alert color="red" icon={<IconAlertTriangle size={16} />}>
+            {check.error}
+          </Alert>
+        )}
+        {items && check?.state !== "failed" && (
+          <Panel>
+            <ScrollArea.Autosize mah={280}>
+              <Table verticalSpacing={4} fz="xs">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>ID</Table.Th>
+                    <Table.Th>Name</Table.Th>
+                    <Table.Th>Env</Table.Th>
+                    <Table.Th>Type</Table.Th>
+                    <Table.Th>Target</Table.Th>
+                    <Table.Th>Status</Table.Th>
+                    <Table.Th>Test</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {items.map((item, i) => {
+                    const env = importField(item, "env");
+                    const host = importField(item, "host");
+                    const port = importField(item, "port");
+                    const database = importField(item, "database");
+                    const error =
+                      check?.state === "done" ? check.errors.get(i) : undefined;
+                    const target = `${
+                      host
+                        ? `${host}${port ? `:${port}` : ""}`
+                        : importField(item, "uri")
+                          ? "URI"
+                          : "—"
+                    }${database ? ` / ${database}` : ""}`;
+                    const t = rowTests.get(i);
+                    return (
+                      <Table.Tr key={i}>
+                        <Table.Td
+                          ff="monospace"
+                          style={{ whiteSpace: "nowrap" }}
+                        >
+                          {importField(item, "id") || "—"}
+                        </Table.Td>
+                        <Table.Td>{importField(item, "name")}</Table.Td>
+                        <Table.Td>
+                          {env && (
+                            <Badge
+                              size="xs"
+                              variant="light"
+                              color={envColor(env)}
+                            >
+                              {env}
+                            </Badge>
+                          )}
+                        </Table.Td>
+                        <Table.Td>{importField(item, "type")}</Table.Td>
+                        <Table.Td ff="monospace">
+                          <Text
+                            size="xs"
+                            ff="monospace"
+                            truncate
+                            maw={220}
+                            title={target}
+                          >
+                            {target}
+                          </Text>
+                        </Table.Td>
+                        <Table.Td>
+                          {pending ? (
+                            <Text size="xs" c="dimmed">
+                              Checking…
+                            </Text>
+                          ) : error ? (
+                            <Text size="xs" c="var(--error)">
+                              {error}
+                            </Text>
+                          ) : (
+                            <Badge size="xs" color="green" variant="light">
+                              Ready
+                            </Badge>
+                          )}
+                        </Table.Td>
+                        <Table.Td style={{ whiteSpace: "nowrap" }}>
+                          <Group gap={6} wrap="nowrap">
+                            <Tooltip label="Test connection">
+                              <ActionIcon
+                                size="sm"
+                                variant="subtle"
+                                color="neutral"
+                                aria-label={`Test connection ${importField(item, "id") || i + 1}`}
+                                disabled={
+                                  !testable(i) || t?.state === "running"
+                                }
+                                onClick={() => testRow(text, i)}
+                              >
+                                <IconPlugConnected size={14} />
+                              </ActionIcon>
+                            </Tooltip>
+                            {t?.state === "running" ? (
+                              <Loader size={12} aria-label="Testing" />
+                            ) : t?.state === "ok" ? (
+                              <Badge size="xs" color="green" variant="light">
+                                Connected
+                              </Badge>
+                            ) : t?.state === "failed" ? (
+                              <Tooltip
+                                label={t.error}
+                                multiline
+                                w={360}
+                                events={{
+                                  hover: true,
+                                  focus: true,
+                                  touch: true,
+                                }}
+                              >
+                                <Badge
+                                  size="xs"
+                                  color="red"
+                                  variant="light"
+                                  tabIndex={0}
+                                  aria-label={`Failed: ${t.error}`}
+                                  style={{ cursor: "help" }}
+                                >
+                                  Failed
+                                </Badge>
+                              </Tooltip>
+                            ) : null}
+                          </Group>
+                        </Table.Td>
+                      </Table.Tr>
+                    );
+                  })}
+                </Table.Tbody>
+              </Table>
+            </ScrollArea.Autosize>
+          </Panel>
+        )}
+        {importError && (
+          <Alert color="red" icon={<IconAlertTriangle size={16} />}>
+            {importError}
+          </Alert>
+        )}
+        <Group justify="space-between" mt="xs">
+          <Group gap="xs">
+            <Text size="xs" c="dimmed">
+              {!items
+                ? ""
+                : pending
+                  ? "Validating…"
+                  : errorCount > 0
+                    ? `${errorCount} of ${items.length} row${items.length === 1 ? "" : "s"} need fixing`
+                    : check?.state === "done"
+                      ? `${items.length} connection${items.length === 1 ? "" : "s"} ready`
+                      : ""}
+            </Text>
+            {items?.some((_, i) => testable(i)) && (
+              <Button
+                size="xs"
+                variant="default"
+                leftSection={<IconPlugConnected size={14} />}
+                onClick={testAll}
+                loading={testing}
+              >
+                Test all
+              </Button>
+            )}
+          </Group>
+          <Group gap="xs">
+            {failedTests > 0 && !testing && (
+              <Text size="xs" c="var(--warning)">
+                {failedTests} connection{failedTests === 1 ? "" : "s"} failed
+                its test
+              </Text>
+            )}
+            <Button variant="subtle" color="neutral" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              onClick={submit}
+              loading={importing}
+              disabled={!ready}
+              leftSection={<IconUpload size={16} />}
+            >
+              Import{items && ready ? ` ${items.length}` : ""}
+            </Button>
+          </Group>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
+const REENTER_PASSWORD =
+  "Re-enter the password when changing anything other than the name, environment or schemas";
+
+function ConnectionModal({
+  connection,
+  onClose,
+  onSaved,
+}: {
+  connection: ConnectionAdminView | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const environments = useEnvironments();
+  const isNew = !connection;
+  const [f, setF] = useState({
+    id: connection?.id ?? "",
+    name: connection?.name ?? "",
+    env: connection?.env ?? "",
+    type: connection?.type ?? "postgres",
+    host: connection?.host ?? "",
+    port: connection?.port ? String(connection.port) : "",
+    database: connection?.database ?? "",
+    username: connection?.username ?? "",
+    password: "",
+    schema: connection?.schema ?? "",
+    uri: "",
+  });
+  const [schemas, setSchemas] = useState<string[]>(connection?.schemas ?? []);
+  // Explicit removal of a stored secret — a blank field means "keep it".
+  const [clear, setClear] = useState({ password: false, uri: false });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    error?: string;
+  } | null>(null);
+
+  const field = (key: keyof typeof f) => ({
+    value: f[key],
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+      const value = e.currentTarget.value;
+      setF((p) => ({ ...p, [key]: value }));
+      setErrors((e) => (e[key] ? {} : e));
+      setTestResult(null);
+    },
+    error: errors[key],
+  });
+
+  const buildBody = (): Omit<ConnectionInput, "id"> => {
+    const opt = (v: string) => v.trim() || undefined;
+    return {
+      name: f.name.trim(),
+      env: f.env.trim(),
+      type: f.type as ConnectionInput["type"],
+      host: opt(f.host),
+      port: f.port ? Number(f.port) : undefined,
+      database: opt(f.database),
+      username: opt(f.username),
+      // Blank keeps the stored secret (server side).
+      password: f.password || undefined,
+      schema: opt(f.schema),
+      schemas: schemas.length ? schemas : undefined,
+      uri: f.uri || undefined,
+    };
+  };
+
+  // Server errors read "<field>: <problem>" — put them on the field.
+  const showServerError = (err: any) => {
+    const msg: string = err?.message ?? String(err);
+    const m = /^(\w+): (.*)$/.exec(msg);
+    if (m && m[1] in f) setErrors({ [m[1]]: m[2] });
+    else if (/password/i.test(msg)) setErrors({ password: msg });
+    else setFormError(msg);
+  };
+
+  const submit = async () => {
+    setSaving(true);
+    setErrors({});
+    setFormError(null);
+    const body = buildBody();
+    try {
+      if (isNew) await api.createConnection({ ...body, id: f.id.trim() });
+      else
+        await api.updateConnection(connection.id, {
+          ...body,
+          clearPassword: clear.password || undefined,
+          clearUri: clear.uri || undefined,
+        });
+      notifications.show({
+        message: isNew ? "Connection added" : "Connection updated",
+        color: "green",
+      });
+      onSaved();
+    } catch (err: any) {
+      showServerError(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Tests the form as typed, before saving. Same password rule as Save.
+  const test = async () => {
+    setErrors({});
+    setFormError(null);
+    setTestResult(null);
+    if (reenterPassword) {
+      setErrors({ password: REENTER_PASSWORD });
+      return;
+    }
+    setTesting(true);
+    try {
+      setTestResult(
+        await api.testConnectionDraft({
+          ...buildBody(),
+          id: isNew ? undefined : connection.id,
+          clearPassword: clear.password || undefined,
+          clearUri: clear.uri || undefined,
+        }),
+      );
+    } catch (err: any) {
+      showServerError(err);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  // The server keeps a stored password only when name, env or the schema list
+  // changed (plus `schema`, except on Elasticsearch where it is the protocol) —
+  // anything else could point the password elsewhere. Mirror that here.
+  const reenterPassword =
+    !isNew &&
+    connection.passwordSet &&
+    !f.password &&
+    !clear.password &&
+    (f.type !== connection.type ||
+      f.host.trim() !== (connection.host ?? "") ||
+      f.port !== (connection.port ? String(connection.port) : "") ||
+      f.database.trim() !== (connection.database ?? "") ||
+      f.username.trim() !== (connection.username ?? "") ||
+      !!f.uri ||
+      clear.uri ||
+      (f.type === "elasticsearch" &&
+        f.schema.trim() !== (connection.schema ?? "")));
+
+  // Production rail (server 422s too): relabelling a production connection to a
+  // non-production env would lift forced masking and the direct-write block.
+  const prodLocked = !isNew && isProductionEnv(connection.env);
+
+  const secretPlaceholder = (set: boolean | undefined) =>
+    set ? SECRET_PLACEHOLDER : "Not set";
+
+  // Props for a write-only field: a Clear/Undo link while a value is stored.
+  const secretField = (
+    key: "password" | "uri",
+    set: boolean | undefined,
+    hint?: ReactNode,
+  ) => {
+    const clearing = clear[key];
+    const toggle = set && (
+      <Anchor
+        component="button"
+        type="button"
+        size="xs"
+        onClick={() => {
+          setClear((c) => ({ ...c, [key]: !c[key] }));
+          setF((p) => ({ ...p, [key]: "" }));
+        }}
+      >
+        {clearing ? "Undo clear" : "Clear stored value"}
+      </Anchor>
+    );
+    return {
+      ...field(key),
+      disabled: clearing,
+      placeholder: clearing
+        ? "Will be cleared on save"
+        : secretPlaceholder(set),
+      description:
+        hint || toggle ? (
+          <>
+            {hint} {toggle}
+          </>
+        ) : undefined,
+    };
+  };
+
+  return (
+    <Modal
+      opened
+      onClose={onClose}
+      title={isNew ? "Add connection" : `Edit ${connection.name}`}
+      size="lg"
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <Stack gap="sm">
+          <SimpleGrid cols={2} spacing="sm">
+            <TextInput
+              label="ID"
+              inputWrapperOrder={BELOW}
+              description="Letters, digits, _ or -. Cannot be changed."
+              required
+              disabled={!isNew}
+              {...field("id")}
+              styles={{ input: { fontFamily: "var(--font-mono)" } }}
+            />
+            <TextInput label="Name" required {...field("name")} />
+            <Autocomplete
+              label="Environment"
+              inputWrapperOrder={BELOW}
+              description={
+                prodLocked
+                  ? "Production — can only move to another production environment"
+                  : "Pick one or type a new name"
+              }
+              required
+              data={
+                prodLocked ? environments.filter(isProductionEnv) : environments
+              }
+              value={f.env}
+              onChange={(v) => setF((p) => ({ ...p, env: v }))}
+              error={errors.env}
+            />
+            <Select
+              label="Type"
+              required
+              allowDeselect={false}
+              data={DB_TYPES}
+              value={f.type}
+              onChange={(v) => {
+                if (!v) return;
+                setF((p) => ({ ...p, type: v as typeof p.type }));
+                setTestResult(null);
+              }}
+            />
+            <TextInput label="Host" {...field("host")} />
+            <TextInput
+              label="Port"
+              type="number"
+              min={1}
+              max={65535}
+              {...field("port")}
+            />
+            <TextInput label="Database" {...field("database")} />
+            <TextInput
+              label="Username"
+              autoComplete="off"
+              {...field("username")}
+            />
+            <PasswordInput
+              label="Password"
+              inputWrapperOrder={BELOW}
+              required={reenterPassword}
+              autoComplete="new-password"
+              {...secretField(
+                "password",
+                connection?.passwordSet,
+                reenterPassword && REENTER_PASSWORD,
+              )}
+            />
+            <TextInput label="Default schema" {...field("schema")} />
+          </SimpleGrid>
+          <TagsInput
+            label="Schemas"
+            inputWrapperOrder={BELOW}
+            description="Limit the schema browser to these (Enter to add). Empty = all."
+            value={schemas}
+            onChange={setSchemas}
+            error={errors.schemas}
+          />
+          <PasswordInput
+            label="Connection URI"
+            inputWrapperOrder={BELOW}
+            autoComplete="off"
+            {...secretField(
+              "uri",
+              connection?.uriSet,
+              "Optional connection string; stored encrypted, never shown again",
+            )}
+          />
+          {formError && (
+            <Alert color="red" icon={<IconAlertTriangle size={16} />}>
+              {formError}
+            </Alert>
+          )}
+          {testResult && (
+            <Alert
+              color={testResult.ok ? "green" : "red"}
+              icon={
+                testResult.ok ? (
+                  <IconCheck size={16} />
+                ) : (
+                  <IconAlertTriangle size={16} />
+                )
+              }
+            >
+              {testResult.ok
+                ? "Connected"
+                : `Could not connect: ${testResult.error ?? "unknown error"}`}
+            </Alert>
+          )}
+          <Group justify="flex-end" mt="xs">
+            <Button variant="subtle" color="neutral" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              onClick={test}
+              loading={testing}
+              disabled={saving}
+            >
+              Test connection
+            </Button>
+            <Button type="submit" loading={saving}>
+              {isNew ? "Add connection" : "Save"}
+            </Button>
+          </Group>
+        </Stack>
+      </form>
+    </Modal>
+  );
+}
+
+function DeleteConnectionModal({
+  connection,
+  onClose,
+  onDeleted,
+}: {
+  connection: ConnectionAdminView | null;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!connection) return;
+    setDeleting(true);
+    try {
+      await api.deleteConnection(connection.id);
+      notifications.show({ message: "Connection deleted", color: "green" });
+      onClose();
+      onDeleted();
+    } catch (err) {
+      notifyError(err, "Settings");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <Modal
+      opened={!!connection}
+      onClose={onClose}
+      title="Delete connection"
+      size="sm"
+    >
+      <Text size="sm" mb="lg">
+        Delete <strong>{connection?.name}</strong> (
+        <Text span ff="monospace" size="sm">
+          {connection?.id}
+        </Text>
+        )? Open tabs on it stop working, and saved queries that use it can no
+        longer run.
+      </Text>
+      <Group justify="flex-end">
+        <Button variant="subtle" color="neutral" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button color="red" onClick={handleDelete} loading={deleting}>
+          Delete connection
+        </Button>
+      </Group>
+    </Modal>
   );
 }
 

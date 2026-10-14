@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import {
   getConnection,
   getEnvironments,
+  validEnvEdit,
   isProductionEnv,
 } from "../config/connections.js";
 import {
@@ -46,6 +47,9 @@ import {
   getPhiMaskedEnvs,
   setSetting,
   logAudit,
+  connectionTarget,
+  getWriteRequestTarget,
+  setWriteRequestTarget,
 } from "../services/sqlite-store.js";
 import type {
   AuthUser,
@@ -300,6 +304,34 @@ async function validateRequestQueries(
 }
 
 /**
+ * Binds a request to where its connection points now. Approval checks it, so a
+ * connection edited (or deleted and re-created) after submission cannot send an
+ * approved statement somewhere its reviewers never saw.
+ */
+function bindTarget(
+  id: string,
+  conn: NonNullable<ReturnType<typeof getConnection>>,
+): void {
+  setWriteRequestTarget(id, connectionTarget(conn));
+}
+
+/**
+ * The connection as it is now, if it still points at `target`. Every route
+ * that awaits (SQL validation) re-reads it this way afterwards: an edit during
+ * the await must not be bound, or run, on the strength of checks made before.
+ */
+function connectionIfUnchanged(id: string, target: string | null) {
+  const now = getConnection(id);
+  return now && target !== null && connectionTarget(now) === target
+    ? now
+    : undefined;
+}
+
+// Raised before anything is inserted, claimed or revised, so a retry is safe.
+const changedWhileChecking = (id: string) =>
+  `Connection ${id} changed while this request was being checked — nothing was saved or run; try again.`;
+
+/**
  * Executes a request immediately on a DIRECT-policy environment (an authorized
  * author self-serves), transitioning it to EXECUTED or FAILED and recording the
  * events + audit. Used by both create and revise.
@@ -382,15 +414,16 @@ router.get("/policy", (_req: Request, res: Response) => {
 });
 
 router.put("/policy", requireAdmin, (req: Request, res: Response) => {
-  const { writeModeEnabled, directEnvs } = req.body as {
+  const { writeModeEnabled, directEnvs: sentDirect } = req.body as {
     writeModeEnabled?: boolean;
     directEnvs?: string[];
   };
   if (typeof writeModeEnabled === "boolean") {
     setSetting("write_mode_enabled", writeModeEnabled ? "true" : "false");
   }
-  if (Array.isArray(directEnvs)) {
-    if (!directEnvs.every((e) => getEnvironments().includes(e))) {
+  if (Array.isArray(sentDirect)) {
+    const directEnvs = validEnvEdit(sentDirect, getWriteDirectEnvs());
+    if (!directEnvs) {
       res.status(400).json({ error: "Invalid environment in directEnvs" });
       return;
     }
@@ -463,12 +496,17 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
   const { isMigration } = classifyWrite(writeSql, conn.type);
   const noTx = isMigration ? !!noTransaction : false;
 
+  const target = connectionTarget(conn);
   const queryError = await validateRequestQueries(conn, selectSql, writeSql, {
     isMigration,
     noTransaction: noTx,
   });
   if (queryError) {
     res.status(400).json({ error: queryError });
+    return;
+  }
+  if (!connectionIfUnchanged(connectionId, target)) {
+    res.status(409).json({ error: changedWhileChecking(connectionId) });
     return;
   }
 
@@ -493,6 +531,7 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
     isMigration,
     noTransaction: noTx,
   });
+  bindTarget(wr.id, conn);
 
   addWriteRequestEvent(
     wr.id,
@@ -938,9 +977,19 @@ function decideAndRun(override: boolean) {
       return;
     }
 
+    // The request runs only on the target it was submitted against (bindTarget).
+    // It stays PENDING; resubmitting it (reject or cancel, then revise) re-binds.
     const conn = getConnection(wr.connectionId);
     if (!conn) {
-      res.status(404).json({ error: "Connection not found" });
+      res.status(409).json({
+        error: `Connection ${wr.connectionId} no longer exists — this request can't run.`,
+      });
+      return;
+    }
+    if (getWriteRequestTarget(wr.id) !== connectionTarget(conn)) {
+      res.status(409).json({
+        error: `Connection ${wr.connectionId} changed since this request was submitted — re-approve it: reject or cancel it, then resubmit it against the current connection.`,
+      });
       return;
     }
 
@@ -1117,15 +1166,26 @@ router.post(
       return;
     }
 
-    const plan = planDraftSubmit(user, wr, getWriteDirectEnvs());
-    if (!plan.ok) {
-      res.status(plan.status).json({ error: plan.error });
+    // A draft is bound to its connection when saved. If that moved (another
+    // host, another env), submitting would carry it somewhere its author never
+    // looked; revising is the explicit re-bind.
+    const target = getWriteRequestTarget(wr.id);
+    const conn = connectionIfUnchanged(wr.connectionId, target);
+    if (!conn) {
+      res.status(409).json({
+        error: `Connection ${wr.connectionId} changed since this draft was saved — revise it to bind it to the current connection.`,
+      });
       return;
     }
 
-    const conn = getConnection(wr.connectionId);
-    if (!conn) {
-      res.status(404).json({ error: "Connection not found" });
+    // Rights are judged on the connection's env, which the bound target pins.
+    const plan = planDraftSubmit(
+      user,
+      { ...wr, env: conn.env },
+      getWriteDirectEnvs(),
+    );
+    if (!plan.ok) {
+      res.status(plan.status).json({ error: plan.error });
       return;
     }
 
@@ -1138,6 +1198,10 @@ router.post(
     );
     if (queryError) {
       res.status(400).json({ error: queryError });
+      return;
+    }
+    if (!connectionIfUnchanged(wr.connectionId, target)) {
+      res.status(409).json({ error: changedWhileChecking(wr.connectionId) });
       return;
     }
 
@@ -1289,7 +1353,7 @@ router.post(
     }
 
     // Plan against the connection's CURRENT env, not the one stamped on the
-    // request: a connection moved between environments in DBFORGE_CONNECTIONS
+    // request: a connection moved between environments in Settings
     // must be judged by where it points now, or a stale QA stamp would authorize
     // an edit — and a direct re-run — against what is now a production database.
     const plan = planRevise(
@@ -1319,6 +1383,7 @@ router.post(
     const { isMigration } = classifyWrite(newWrite, conn.type);
     const noTx = isMigration ? !!noTransaction : false;
 
+    const target = connectionTarget(conn);
     const queryError = await validateRequestQueries(conn, newSelect, newWrite, {
       isMigration,
       noTransaction: noTx,
@@ -1327,8 +1392,16 @@ router.post(
       res.status(400).json({ error: queryError });
       return;
     }
+    if (!connectionIfUnchanged(wr.connectionId, target)) {
+      res.status(409).json({ error: changedWhileChecking(wr.connectionId) });
+      return;
+    }
 
+    // Revising re-binds the request to the connection as it is now, so its env
+    // (what approval is judged on) becomes the connection's current env too.
     reviseWriteRequest(wr.id, {
+      env: conn.env,
+      connectionName: conn.name,
       title: newTitle,
       description: newDescription,
       selectSql: isMigration ? undefined : newSelect,
@@ -1337,6 +1410,7 @@ router.post(
       noTransaction: noTx,
       status: plan.keepDraft ? "DRAFT" : "PENDING",
     });
+    bindTarget(wr.id, conn);
     addWriteRequestEvent(
       wr.id,
       user.sub,

@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useStore } from "./store";
 import { BASE_PATH } from "./utils/base-path";
 import { api } from "./utils/api-client";
-import { DEFAULT_COPY_FORMATS } from "./utils/data-extractors";
+import { loadAppConfig, loadConnections } from "./utils/app-config";
 import { LoginScreen } from "./components/auth/login-screen";
 import { TopBar } from "./components/layout/top-bar";
 import { Sidebar } from "./components/layout/sidebar";
@@ -26,23 +26,13 @@ import { SavedQueryLink } from "./components/query/saved-query-link";
 import { ArtifactLink } from "./components/query/artifact-link";
 
 function AuthenticatedApp() {
-  const setConnections = useStore((s) => s.setConnections);
   const setSavedQueries = useStore((s) => s.setSavedQueries);
   const setArtifacts = useStore((s) => s.setArtifacts);
-  const setActiveConnection = useStore((s) => s.setActiveConnection);
   const login = useStore((s) => s.login);
   const user = useStore((s) => s.user);
 
   useEffect(() => {
-    api
-      .getConnections()
-      .then((conns) => {
-        setConnections(conns);
-        if (conns.length > 0) {
-          setActiveConnection(conns[0].id);
-        }
-      })
-      .catch(console.error);
+    loadConnections().catch(console.error);
 
     api.getSavedQueries().then(setSavedQueries).catch(console.error);
     api.getArtifacts().then(setArtifacts).catch(console.error);
@@ -128,40 +118,8 @@ function AuthenticatedApp() {
 
 export default function App() {
   const isAuthenticated = useStore((s) => s.isAuthenticated);
-  const setConfig = useStore((s) => s.setConfig);
-
   useEffect(() => {
-    api
-      .getConfig()
-      .then((cfg) => {
-        // An older server may not send copyFormats — fall back to code defaults.
-        setConfig({
-          ...cfg,
-          copyFormats: cfg.copyFormats?.length
-            ? cfg.copyFormats
-            : DEFAULT_COPY_FORMATS,
-        });
-        if (cfg.faviconUrl) {
-          let link =
-            document.querySelector<HTMLLinkElement>('link[rel="icon"]');
-          if (!link) {
-            link = document.createElement("link");
-            link.rel = "icon";
-            document.head.appendChild(link);
-          }
-          link.href = cfg.faviconUrl;
-        }
-        // iOS takes the home-screen name from this tag rather than the
-        // manifest, so branding has to be applied to it at runtime too.
-        if (cfg.appName) {
-          document
-            .querySelector<HTMLMetaElement>(
-              'meta[name="apple-mobile-web-app-title"]',
-            )
-            ?.setAttribute("content", cfg.appName);
-        }
-      })
-      .catch(() => {});
+    loadAppConfig().catch(() => {});
   }, []);
 
   return (
