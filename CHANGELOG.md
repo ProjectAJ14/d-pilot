@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [2.1.0](https://github.com/ProjectAJ14/d-pilot/compare/v2.0.0...v2.1.0) (2026-10-14)
+
+
+### Features
+
+* **sidebar:** recent-first connections, global search, env tabs ([7f823b0](https://github.com/ProjectAJ14/d-pilot/commit/7f823b0ad3acb4a4f36cfafee09b30863365f74c))
+
 # [2.0.0](https://github.com/ProjectAJ14/d-pilot/compare/v1.31.0...v2.0.0) (2026-10-14)
 
 
