@@ -188,8 +188,13 @@ insert, so delete + re-create under the same id differs), env, type, host, port,
 username, `schema` (Postgres `search_path` for writes, ES protocol) and URI — every field the
 write path reads; never name or password. Approve and override recompute it and
 409 on any difference (or a missing connection), leaving the request `PENDING`; resubmitting
-re-binds. Existing pending requests are bound to their connection as of the upgrade (the
-migration backfills them); one whose connection was already gone has no target and never runs.
+re-binds — and sets the request's `env` to the connection's current env, which every rights
+check (author, direct-write, approve) then uses. Drafts are bound when saved; submitting one
+whose connection moved 409s ("revise it"). Any route that awaits SQL validation re-reads the
+connection afterwards (`connectionIfUnchanged`) and 409s if it changed, and
+`runDirectExecution` runs only on the target bound right before it. Existing pending requests
+are bound to their connection as of the upgrade (the migration backfills them); one whose
+connection was already gone, or now sits in another env, has no target and never runs.
 
 Every request carries a paired verify **SELECT** and the **WRITE**.
 `WriteAiReview` holds the structured safety verdict (SAFE/CAUTION/DANGEROUS, blast

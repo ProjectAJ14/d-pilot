@@ -316,6 +316,21 @@ function bindTarget(
 }
 
 /**
+ * The connection as it is now, if it still points at `target`. Every route
+ * that awaits (SQL validation) re-reads it this way afterwards: an edit during
+ * the await must not be bound, or run, on the strength of checks made before.
+ */
+function connectionIfUnchanged(id: string, target: string | null) {
+  const now = getConnection(id);
+  return now && target !== null && connectionTarget(now) === target
+    ? now
+    : undefined;
+}
+
+const changedWhileChecking = (id: string) =>
+  `Connection ${id} changed while this request was being checked — nothing was run; try again.`;
+
+/**
  * Executes a request immediately on a DIRECT-policy environment (an authorized
  * author self-serves), transitioning it to EXECUTED or FAILED and recording the
  * events + audit. Used by both create and revise.
@@ -328,7 +343,9 @@ async function runDirectExecution(
   opts: { isMigration: boolean; noTransaction?: boolean } = {
     isMigration: false,
   },
-): Promise<void> {
+): Promise<boolean> {
+  // Runs only on the target bound to the request right before this call.
+  if (!connectionIfUnchanged(conn.id, getWriteRequestTarget(id))) return false;
   const now = new Date().toISOString();
   addWriteRequestEvent(
     id,
@@ -384,6 +401,7 @@ async function runDirectExecution(
       phiAccessed: false,
     });
   }
+  return true;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -480,12 +498,17 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
   const { isMigration } = classifyWrite(writeSql, conn.type);
   const noTx = isMigration ? !!noTransaction : false;
 
+  const target = connectionTarget(conn);
   const queryError = await validateRequestQueries(conn, selectSql, writeSql, {
     isMigration,
     noTransaction: noTx,
   });
   if (queryError) {
     res.status(400).json({ error: queryError });
+    return;
+  }
+  if (!connectionIfUnchanged(connectionId, target)) {
+    res.status(409).json({ error: changedWhileChecking(connectionId) });
     return;
   }
 
@@ -528,11 +551,15 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
   });
 
   // DIRECT-policy environments: an authorized author executes immediately.
-  if (direct) {
-    await runDirectExecution(wr.id, conn, writeSql.trim(), user, {
+  if (
+    direct &&
+    !(await runDirectExecution(wr.id, conn, writeSql.trim(), user, {
       isMigration,
       noTransaction: noTx,
-    });
+    }))
+  ) {
+    res.status(409).json({ error: changedWhileChecking(connectionId) });
+    return;
   }
 
   res.status(201).json(getWriteRequest(wr.id));
@@ -1145,15 +1172,26 @@ router.post(
       return;
     }
 
-    const plan = planDraftSubmit(user, wr, getWriteDirectEnvs());
-    if (!plan.ok) {
-      res.status(plan.status).json({ error: plan.error });
+    // A draft is bound to its connection when saved. If that moved (another
+    // host, another env), submitting would carry it somewhere its author never
+    // looked; revising is the explicit re-bind.
+    const target = getWriteRequestTarget(wr.id);
+    const conn = connectionIfUnchanged(wr.connectionId, target);
+    if (!conn) {
+      res.status(409).json({
+        error: `Connection ${wr.connectionId} changed since this draft was saved — revise it to bind it to the current connection.`,
+      });
       return;
     }
 
-    const conn = getConnection(wr.connectionId);
-    if (!conn) {
-      res.status(404).json({ error: "Connection not found" });
+    // Rights are judged on the connection's env, which the bound target pins.
+    const plan = planDraftSubmit(
+      user,
+      { ...wr, env: conn.env },
+      getWriteDirectEnvs(),
+    );
+    if (!plan.ok) {
+      res.status(plan.status).json({ error: plan.error });
       return;
     }
 
@@ -1168,6 +1206,10 @@ router.post(
       res.status(400).json({ error: queryError });
       return;
     }
+    if (!connectionIfUnchanged(wr.connectionId, target)) {
+      res.status(409).json({ error: changedWhileChecking(wr.connectionId) });
+      return;
+    }
 
     // Claim it, so a double-click (or two people on the same draft) cannot both
     // reach the execution below on a direct-write environment.
@@ -1177,7 +1219,6 @@ router.post(
         .json({ error: "This draft was already submitted by someone else." });
       return;
     }
-    bindTarget(wr.id, conn);
     if (plan.takeOwnership) {
       updateWriteRequest(wr.id, {
         requestedBy: user.sub,
@@ -1202,11 +1243,15 @@ router.post(
       phiAccessed: false,
     });
 
-    if (plan.runNow) {
-      await runDirectExecution(wr.id, conn, wr.writeSql, user, {
+    if (
+      plan.runNow &&
+      !(await runDirectExecution(wr.id, conn, wr.writeSql, user, {
         isMigration: !!wr.isMigration,
         noTransaction: wr.noTransaction,
-      });
+      }))
+    ) {
+      res.status(409).json({ error: changedWhileChecking(wr.connectionId) });
+      return;
     }
 
     res.json(getWriteRequest(wr.id));
@@ -1348,6 +1393,7 @@ router.post(
     const { isMigration } = classifyWrite(newWrite, conn.type);
     const noTx = isMigration ? !!noTransaction : false;
 
+    const target = connectionTarget(conn);
     const queryError = await validateRequestQueries(conn, newSelect, newWrite, {
       isMigration,
       noTransaction: noTx,
@@ -1356,8 +1402,16 @@ router.post(
       res.status(400).json({ error: queryError });
       return;
     }
+    if (!connectionIfUnchanged(wr.connectionId, target)) {
+      res.status(409).json({ error: changedWhileChecking(wr.connectionId) });
+      return;
+    }
 
+    // Revising re-binds the request to the connection as it is now, so its env
+    // (what approval is judged on) becomes the connection's current env too.
     reviseWriteRequest(wr.id, {
+      env: conn.env,
+      connectionName: conn.name,
       title: newTitle,
       description: newDescription,
       selectSql: isMigration ? undefined : newSelect,
@@ -1385,11 +1439,15 @@ router.post(
 
     // A DIRECT-policy environment re-runs immediately on resubmit — never on a
     // draft edit, which stays saved until a human submits it.
-    if (plan.runNow) {
-      await runDirectExecution(wr.id, conn, newWrite, user, {
+    if (
+      plan.runNow &&
+      !(await runDirectExecution(wr.id, conn, newWrite, user, {
         isMigration,
         noTransaction: noTx,
-      });
+      }))
+    ) {
+      res.status(409).json({ error: changedWhileChecking(wr.connectionId) });
+      return;
     }
 
     res.json(getWriteRequest(wr.id));

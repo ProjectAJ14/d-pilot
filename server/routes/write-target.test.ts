@@ -25,9 +25,18 @@ vi.mock("../services/write-executor.js", async (orig) => ({
   ...(await orig<typeof import("../services/write-executor.js")>()),
   executeWrite,
 }));
+// Runs once during the next request's (awaited) SQL validation.
+const h = vi.hoisted(() => ({
+  duringValidation: undefined as (() => void) | undefined,
+}));
 vi.mock("../services/query-executor.js", async (orig) => ({
   ...(await orig<typeof import("../services/query-executor.js")>()),
-  validateSqlSyntax: async () => ({}),
+  validateSqlSyntax: async () => {
+    const edit = h.duringValidation;
+    h.duringValidation = undefined;
+    edit?.();
+    return {};
+  },
 }));
 
 const store = await import("../services/sqlite-store.js");
@@ -54,14 +63,15 @@ beforeAll(async () => {
   app.use(express.json());
   app.use((req, _res, next) => {
     const sub = req.headers["x-user"] as string;
+    const envs = ((req.headers["x-envs"] as string) || "QA").split(",");
     req.user = {
       sub,
       email: `${sub}@example.com`,
       isAdmin: false,
-      allowedEnvironments: ["QA"],
+      allowedEnvironments: envs,
       unmaskEnvironments: [],
-      writeEnvironments: ["QA"],
-      approveEnvironments: ["QA"],
+      writeEnvironments: envs,
+      approveEnvironments: envs,
     } as any;
     next();
   });
@@ -77,10 +87,19 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-const call = async (user: string, url: string, body: unknown = {}) => {
+const call = async (
+  user: string,
+  url: string,
+  body: unknown = {},
+  envs = "QA",
+) => {
   const res = await fetch(`${base}${url}`, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-user": user },
+    headers: {
+      "content-type": "application/json",
+      "x-user": user,
+      "x-envs": envs,
+    },
     body: JSON.stringify(body),
   });
   return { status: res.status, body: (await res.json()) as any };
@@ -177,5 +196,58 @@ describe("approving a write bound to its connection target", () => {
     store.saveDbConnection(qa);
     expect((await approve(id)).status).toBe(409);
     expect(executeWrite).not.toHaveBeenCalled();
+  });
+});
+
+describe("the request's env follows its connection", () => {
+  const body = {
+    title: "Fix status",
+    connectionId: "qa-core",
+    selectSql: "SELECT * FROM orders WHERE id = 1",
+    writeSql: "UPDATE orders SET status = 'placed' WHERE id = 1",
+  };
+
+  it("refuses to submit a draft whose connection moved since it was saved", async () => {
+    const draft = await call("author", "", { ...body, draft: true });
+    expect(draft.body.status).toBe("DRAFT");
+    store.saveDbConnection({ ...qa, env: "PROD" }, { password: true });
+    const res = await call("author", `/${draft.body.id}/submit`, {}, "QA,PROD");
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/revise it/);
+    expect(store.getWriteRequest(draft.body.id)!.status).toBe("DRAFT");
+    expect(executeWrite).not.toHaveBeenCalled();
+    store.saveDbConnection(qa);
+  });
+
+  it("stores the new env on revise, so approval is judged there", async () => {
+    const id = await submit();
+    await call("author", `/${id}/cancel`);
+    store.saveDbConnection({ ...qa, env: "PROD" }, { password: true });
+    // A QA-only author can no longer revise it...
+    expect((await call("author", `/${id}/revise`, {})).status).toBe(403);
+    // ...one with PROD rights can, and the request is now a PROD request.
+    const revised = await call("author", `/${id}/revise`, {}, "QA,PROD");
+    expect(revised.status).toBe(200);
+    expect(store.getWriteRequest(id)!.env).toBe("PROD");
+    expect((await approve(id)).status).toBe(403);
+    expect(executeWrite).not.toHaveBeenCalled();
+    store.saveDbConnection(qa);
+  });
+
+  it("refuses when the connection is edited while the request is validated", async () => {
+    // DEV is direct-write, so a create would run at once.
+    const dev = { ...qa, id: "dev-core", env: "DEV" };
+    store.saveDbConnection(dev);
+    h.duringValidation = () =>
+      store.saveDbConnection({ ...dev, host: "db-b.example.com" });
+    const res = await call(
+      "author",
+      "",
+      { ...body, connectionId: "dev-core" },
+      "DEV",
+    );
+    expect(res.status).toBe(409);
+    expect(executeWrite).not.toHaveBeenCalled();
+    store.deleteDbConnection("dev-core");
   });
 });

@@ -243,7 +243,8 @@ export function initDatabase(): void {
 
   // The connection target a request was submitted against (connectionTarget).
   // Existing pending requests are bound to their connection as of the upgrade;
-  // one whose connection is already gone gets none, so it can never run.
+  // one whose connection is already gone, or now in another env, gets none,
+  // so it can never run.
   if (!wrColNames.has("target_fingerprint")) {
     db.exec("ALTER TABLE write_requests ADD COLUMN target_fingerprint TEXT");
     const conns = new Map(
@@ -251,12 +252,15 @@ export function initDatabase(): void {
     );
     const pending = db
       .prepare(
-        "SELECT id, connection_id FROM write_requests WHERE status = 'PENDING'",
+        "SELECT id, connection_id, env FROM write_requests WHERE status = 'PENDING'",
       )
-      .all() as { id: string; connection_id: string }[];
+      .all() as { id: string; connection_id: string; env: string }[];
     for (const row of pending) {
       const conn = conns.get(row.connection_id);
-      if (conn) setWriteRequestTarget(row.id, connectionTarget(conn));
+      // A connection already moved to another env would be approved under the
+      // request's stale env — leave that one unbound too.
+      if (conn?.env === row.env)
+        setWriteRequestTarget(row.id, connectionTarget(conn));
     }
   }
 
@@ -1719,6 +1723,9 @@ export function claimWriteRequestForApproval(id: string): boolean {
 export function reviseWriteRequest(
   id: string,
   fields: {
+    /** The connection's env and name now — a revise re-binds the request. */
+    env: string;
+    connectionName?: string;
     title: string;
     description?: string;
     selectSql?: string;
@@ -1731,6 +1738,7 @@ export function reviseWriteRequest(
   const now = new Date().toISOString();
   db.prepare(
     `UPDATE write_requests SET
+       env = ?, connection_name = ?,
        title = ?, description = ?, select_sql = ?, write_sql = ?,
        is_migration = ?, no_transaction = ?,
        status = ?,
@@ -1741,6 +1749,8 @@ export function reviseWriteRequest(
        updated_at = ?
      WHERE id = ?`,
   ).run(
+    fields.env,
+    fields.connectionName ?? null,
     fields.title,
     fields.description ?? null,
     fields.selectSql ?? null,
