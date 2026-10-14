@@ -165,7 +165,12 @@ export function listSettings(): AppSettingView[] {
       secret: !!d.secret,
       source,
       ...(d.secret ? { set: !!value } : { value: value ?? null }),
-      ...(d.max !== undefined && { max: settingMax(key) }),
+      // Limits report what is enforced: clamped to the ceiling, a bad env value
+      // replaced by the default.
+      ...(d.max !== undefined && {
+        value: String(getConfigNumber(key)),
+        max: settingMax(key),
+      }),
     };
   });
 }

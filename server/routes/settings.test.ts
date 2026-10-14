@@ -910,6 +910,9 @@ describe("operator ceilings (*_LIMIT)", () => {
     expect(await maxOf("MCP_MAX_ROWS")).toBe(1_000_000);
     expect(await maxOf("QUERY_TIMEOUT_MS")).toBe(2_147_483_647);
     expect(await maxOf("APP_NAME")).toBeUndefined();
+    // The value shown is the effective one: the 10000 default, clamped.
+    const list = await (await call("GET")).json();
+    expect(list.find((s: any) => s.key === "MAX_ROWS").value).toBe("500");
     vi.stubEnv("SCHEMA_CACHE_TTL_HOURS_LIMIT", "");
   });
 });
