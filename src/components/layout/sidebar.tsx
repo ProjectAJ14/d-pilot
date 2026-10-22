@@ -1,5 +1,11 @@
 import { sortByRecent } from "@src/utils/connection-recency";
 import {
+  canDropPin,
+  dropEdge as pinDropEdge,
+  nudgeTarget,
+  sortPinnedFirst,
+} from "@src/utils/connection-pins";
+import {
   filterGroups,
   nameMatches,
   normalizeQuery,
@@ -43,6 +49,8 @@ import {
   IconCode,
   IconAlignLeft,
   IconPlugConnectedX,
+  IconPin,
+  IconPinFilled,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useStore } from "../../store";
@@ -102,6 +110,12 @@ export function Sidebar() {
   const connections = useStore((s) => s.connections);
   const activeConnectionId = useStore((s) => s.activeConnectionId);
   const lastUsed = useStore((s) => s.connectionLastUsed[s.user?.id ?? ""]);
+  const pins = useStore((s) => s.connectionPins[s.user?.id ?? ""]) ?? NO_PINS;
+  const toggleConnectionPin = useStore((s) => s.toggleConnectionPin);
+  const reorderConnectionPin = useStore((s) => s.reorderConnectionPin);
+  // Pin drag-reorder: dragged id + the pinned row currently hovered.
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
   const markConnectionUsed = useStore((s) => s.markConnectionUsed);
   const setActiveConnection = useStore((s) => s.setActiveConnection);
   const savedQueries = useStore((s) => s.savedQueries);
@@ -159,7 +173,11 @@ export function Sidebar() {
   } | null>(null);
 
   const envOrder = useEnvironments();
-  const grouped = groupByEnv(sortByRecent(connections, lastUsed), envOrder);
+  const grouped = groupByEnv(
+    // Pins win over recency so pinned positions never shift.
+    sortPinnedFirst(sortByRecent(connections, lastUsed), pins),
+    envOrder,
+  );
 
   // Global explorer search: matches connection names and the tables of
   // connections already loaded (never fetches on keystroke).
@@ -612,6 +630,7 @@ export function Sidebar() {
                   <div style={{ padding: "2px 0 2px 8px" }}>
                     {conns.map((conn) => {
                       const isActive = conn.id === activeConnectionId;
+                      const isPinned = pins.includes(conn.id);
                       const sch = schemaByConnection[conn.id] ?? "";
                       const tKey = keyFor(conn.id, sch);
                       const connSchemaList = connSchemas[conn.id];
@@ -619,10 +638,44 @@ export function Sidebar() {
                         SCHEMA_DB_TYPES.includes(conn.type) &&
                         !!connSchemaList &&
                         connSchemaList.length > 0;
+                      // Drag only reorders within this env group's pinned rows.
+                      const canDrop = canDropPin(
+                        dragId,
+                        conn.id,
+                        conns.map((x) => x.id),
+                        pins,
+                      );
+                      const dropEdge =
+                        overId === conn.id && canDrop
+                          ? pinDropEdge(dragId!, conn.id, pins) === "above"
+                            ? "0 -2px 0 var(--accent)"
+                            : "0 2px 0 var(--accent)"
+                          : null;
                       return (
                         <div key={conn.id}>
                           <div
                             onClick={() => selectConn(conn.id)}
+                            draggable={isPinned}
+                            onDragStart={(e) => {
+                              if (!isPinned) return;
+                              e.dataTransfer.effectAllowed = "move";
+                              e.dataTransfer.setData("text/plain", conn.id);
+                              setDragId(conn.id);
+                            }}
+                            onDragOver={(e) => {
+                              if (!canDrop) return;
+                              e.preventDefault();
+                              setOverId(conn.id);
+                            }}
+                            onDrop={(e) => {
+                              if (!canDrop) return;
+                              e.preventDefault();
+                              reorderConnectionPin(dragId!, conn.id);
+                            }}
+                            onDragEnd={() => {
+                              setDragId(null);
+                              setOverId(null);
+                            }}
                             className="dp-row"
                             style={{
                               display: "flex",
@@ -645,9 +698,72 @@ export function Sidebar() {
                               background: isActive
                                 ? "linear-gradient(90deg, color-mix(in srgb, var(--accent) 16%, transparent), color-mix(in srgb, var(--accent) 3%, transparent))"
                                 : undefined,
-                              boxShadow: isActive ? "var(--shadow-1)" : "none",
+                              boxShadow: dropEdge
+                                ? dropEdge
+                                : isActive
+                                  ? "var(--shadow-1)"
+                                  : "none",
+                              opacity: dragId === conn.id ? 0.5 : 1,
                             }}
                           >
+                            <Tooltip
+                              label={
+                                isPinned
+                                  ? "Unpin (drag, or Alt+↑/↓, to reorder)"
+                                  : "Pin to top"
+                              }
+                              openDelay={400}
+                            >
+                              <ActionIcon
+                                variant="subtle"
+                                size="xs"
+                                color="gray"
+                                className="dp-row-actions"
+                                data-pinned={isPinned || undefined}
+                                aria-label={
+                                  isPinned
+                                    ? `Unpin ${conn.name}`
+                                    : `Pin ${conn.name}`
+                                }
+                                aria-pressed={isPinned}
+                                aria-keyshortcuts={
+                                  isPinned
+                                    ? "Alt+ArrowUp Alt+ArrowDown"
+                                    : undefined
+                                }
+                                onKeyDown={(e) => {
+                                  if (
+                                    !isPinned ||
+                                    !e.altKey ||
+                                    (e.key !== "ArrowUp" &&
+                                      e.key !== "ArrowDown")
+                                  )
+                                    return;
+                                  e.preventDefault();
+                                  const to = nudgeTarget(
+                                    conns.map((x) => x.id),
+                                    pins,
+                                    conn.id,
+                                    e.key === "ArrowUp" ? -1 : 1,
+                                  );
+                                  if (!to) return;
+                                  const btn = e.currentTarget;
+                                  reorderConnectionPin(conn.id, to);
+                                  // Re-inserting the keyed row can blur it.
+                                  requestAnimationFrame(() => btn.focus());
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleConnectionPin(conn.id);
+                                }}
+                              >
+                                {isPinned ? (
+                                  <IconPinFilled size={13} />
+                                ) : (
+                                  <IconPin size={13} />
+                                )}
+                              </ActionIcon>
+                            </Tooltip>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div
                                 style={{
@@ -1523,6 +1639,8 @@ export function Sidebar() {
     </div>
   );
 }
+
+const NO_PINS: string[] = [];
 
 function groupByEnv(
   connections: ConnectionInfo[],
