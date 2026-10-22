@@ -42,4 +42,31 @@ describe("runEnvStyle", () => {
     expect(runEnvStyle("SUPER_PROD").label).toBe("SUPER_PROD");
     expect(runEnvStyle("QA").label).toBe("QA");
   });
+
+  it("is case-insensitive about production", () => {
+    for (const env of ["prod", "Prod", "PRODUCTION", "production"]) {
+      expect(runEnvStyle(env).color).toBe("red");
+    }
+  });
+
+  it("keeps STG and UAT on their badge colors", () => {
+    expect(runEnvStyle("STG").color).toBe("orange");
+    expect(runEnvStyle("UAT").color).toBe("blue");
+  });
+
+  it("treats any name containing 'prod' as production (fail-safe)", () => {
+    // isProductionEnv is a /prod/i substring match, so "reproduce" is red too.
+    // Deliberate: a false red costs a glance, a missed red costs a prod write.
+    expect(runEnvStyle("reproduce").color).toBe("red");
+  });
+
+  it("falls back to neutral for an empty env, label unchanged", () => {
+    expect(runEnvStyle("")).toEqual({ label: "", color: "neutral" });
+  });
+
+  it("never rewrites the label (no case or label-map changes)", () => {
+    for (const env of ["prod", "Prod", "PREPROD", "stg", "sandbox"]) {
+      expect(runEnvStyle(env).label).toBe(env);
+    }
+  });
 });

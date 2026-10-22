@@ -1,5 +1,10 @@
 import { sortByRecent } from "@src/utils/connection-recency";
-import { sortPinnedFirst } from "@src/utils/connection-pins";
+import {
+  canDropPin,
+  dropEdge as pinDropEdge,
+  nudgeTarget,
+  sortPinnedFirst,
+} from "@src/utils/connection-pins";
 import {
   filterGroups,
   nameMatches,
@@ -634,15 +639,15 @@ export function Sidebar() {
                         !!connSchemaList &&
                         connSchemaList.length > 0;
                       // Drag only reorders within this env group's pinned rows.
-                      const canDrop =
-                        dragId !== null &&
-                        dragId !== conn.id &&
-                        isPinned &&
-                        conns.some((x) => x.id === dragId) &&
-                        pins.includes(dragId);
+                      const canDrop = canDropPin(
+                        dragId,
+                        conn.id,
+                        conns.map((x) => x.id),
+                        pins,
+                      );
                       const dropEdge =
                         overId === conn.id && canDrop
-                          ? pins.indexOf(dragId!) > pins.indexOf(conn.id)
+                          ? pinDropEdge(dragId!, conn.id, pins) === "above"
                             ? "0 -2px 0 var(--accent)"
                             : "0 2px 0 var(--accent)"
                           : null;
@@ -735,17 +740,15 @@ export function Sidebar() {
                                   )
                                     return;
                                   e.preventDefault();
-                                  const group = conns.filter((x) =>
-                                    pins.includes(x.id),
+                                  const to = nudgeTarget(
+                                    conns.map((x) => x.id),
+                                    pins,
+                                    conn.id,
+                                    e.key === "ArrowUp" ? -1 : 1,
                                   );
-                                  const i = group.findIndex(
-                                    (x) => x.id === conn.id,
-                                  );
-                                  const to =
-                                    group[i + (e.key === "ArrowUp" ? -1 : 1)];
                                   if (!to) return;
                                   const btn = e.currentTarget;
-                                  reorderConnectionPin(conn.id, to.id);
+                                  reorderConnectionPin(conn.id, to);
                                   // Re-inserting the keyed row can blur it.
                                   requestAnimationFrame(() => btn.focus());
                                 }}

@@ -70,3 +70,49 @@ export function sortPinnedFirst(
   const set = new Set(pinned.map((c) => c.id));
   return [...pinned, ...conns.filter((c) => !set.has(c.id))];
 }
+
+/**
+ * Drag-reorder validity: both rows pinned, in the same env group (`groupIds`),
+ * and not the same row. Anything else is ignored by the drop handlers.
+ */
+export function canDropPin(
+  dragId: string | null,
+  targetId: string,
+  groupIds: string[],
+  pins: string[],
+): boolean {
+  return (
+    dragId !== null &&
+    dragId !== targetId &&
+    pins.includes(targetId) &&
+    groupIds.includes(dragId) &&
+    pins.includes(dragId)
+  );
+}
+
+/**
+ * Alt+Arrow nudge: the pinned neighbour to swap with, or null at an end / when
+ * `id` isn't pinned in the group. `groupIds` is the group's VISIBLE order (after
+ * search filtering), so the nudge matches what the user sees; hidden pinned rows
+ * are skipped and unpinned rows are ignored.
+ */
+export function nudgeTarget(
+  groupIds: string[],
+  pins: string[],
+  id: string,
+  dir: -1 | 1,
+): string | null {
+  const pinned = groupIds.filter((x) => pins.includes(x));
+  const i = pinned.indexOf(id);
+  if (i < 0) return null;
+  return pinned[i + dir] ?? null;
+}
+
+/** Which edge of the hovered row the drop indicator sits on: dragging up lands above it. */
+export function dropEdge(
+  dragId: string,
+  targetId: string,
+  pins: string[],
+): "above" | "below" {
+  return pins.indexOf(dragId) > pins.indexOf(targetId) ? "above" : "below";
+}
