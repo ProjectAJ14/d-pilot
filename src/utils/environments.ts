@@ -51,6 +51,16 @@ export const envLabel = (env: string): string => ENV_LABELS[env] ?? env;
 export const isProductionEnv = (env: string): boolean => /prod/i.test(env);
 
 /**
+ * What the Run button and the editor strip show for an environment. Production-like
+ * names (SUPER_PROD, PREPROD...) are red even though envColor() has no entry for
+ * them; label is the raw env string so it matches the sidebar badges.
+ */
+export const runEnvStyle = (env: string): { label: string; color: string } => ({
+  label: env,
+  color: isProductionEnv(env) ? "red" : envColor(env),
+});
+
+/**
  * This deployment's environments in display order — most sensitive first, which
  * is how every picker and the connection tree list them.
  */

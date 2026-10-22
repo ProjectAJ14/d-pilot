@@ -15,6 +15,7 @@ import {
   NumberInput,
   Select,
   Loader,
+  VisuallyHidden,
 } from "@mantine/core";
 import {
   IconPlayerPlay,
@@ -52,6 +53,7 @@ import {
   useEditorTheme,
 } from "../../utils/monaco-editor-options";
 import { useVimMode } from "../../utils/vim-mode";
+import { runEnvStyle } from "../../utils/environments";
 import { queryLimit } from "../../utils/query-limit";
 import { defaultViewMode } from "../../utils/result-view";
 
@@ -850,6 +852,8 @@ export function QueryEditor({
     if (connId) void loadSchemaForConnection(connId, effectiveSchema, dbType);
   };
 
+  const runEnv = activeConn ? runEnvStyle(activeConn.env) : null;
+
   return (
     <>
       <div
@@ -870,15 +874,15 @@ export function QueryEditor({
         >
           <Button
             size="xs"
-            color="green"
+            color={runEnv?.color ?? "green"}
             leftSection={<IconPlayerPlay size={14} />}
             loading={tab.loading}
             onClick={handleRun}
             styles={{
-              root: { fontWeight: 700 },
+              root: { fontWeight: 700, minWidth: 104 },
             }}
           >
-            Run
+            {runEnv ? `Run on ${runEnv.label}` : "Run"}
           </Button>
 
           <Tooltip label="Generate query from plain English">
@@ -1061,10 +1065,19 @@ export function QueryEditor({
             position: "relative",
             margin: "0 14px 12px",
             border: "1px solid var(--border)",
+            // Environment strip: same hue as the Run button, not focusable.
+            borderTop: runEnv
+              ? `3px solid var(--mantine-color-${runEnv.color}-filled)`
+              : "1px solid var(--border)",
             borderRadius: "var(--radius-sm)",
             overflow: "hidden",
           }}
         >
+          {runEnv && (
+            <VisuallyHidden>
+              Connected to {runEnv.label} environment
+            </VisuallyHidden>
+          )}
           {/* Stable placeholder shown until Monaco has mounted (+500ms), then
               fades out — hides the blank → text-pop → layout flicker. */}
           <div

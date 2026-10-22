@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 
 vi.mock("../store", () => ({ useStore: () => [] }));
-const { envPickerOptions } = await import("./environments");
+const { envPickerOptions, runEnvStyle } = await import("./environments");
 
 describe("envPickerOptions", () => {
   it("offers known envs plus saved ones with no connection, marked", () => {
@@ -19,5 +19,27 @@ describe("envPickerOptions", () => {
       "DEV",
       "UAT",
     ]);
+  });
+});
+
+describe("runEnvStyle", () => {
+  it("makes every production-like env red, not just PROD", () => {
+    for (const env of ["PROD", "SUPER_PROD", "PREPROD"]) {
+      expect(runEnvStyle(env).color).toBe("red");
+    }
+  });
+
+  it("keeps the badge colors for known non-prod envs", () => {
+    expect(runEnvStyle("QA").color).toBe("violet");
+    expect(runEnvStyle("DEV").color).toBe("green");
+  });
+
+  it("gives an unknown non-prod env the neutral ramp", () => {
+    expect(runEnvStyle("SANDBOX").color).toBe("neutral");
+  });
+
+  it("labels with the raw env name", () => {
+    expect(runEnvStyle("SUPER_PROD").label).toBe("SUPER_PROD");
+    expect(runEnvStyle("QA").label).toBe("QA");
   });
 });
