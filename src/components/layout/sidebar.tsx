@@ -1,4 +1,5 @@
 import { sortByRecent } from "@src/utils/connection-recency";
+import { sortPinnedFirst } from "@src/utils/connection-pins";
 import {
   filterGroups,
   nameMatches,
@@ -43,6 +44,8 @@ import {
   IconCode,
   IconAlignLeft,
   IconPlugConnectedX,
+  IconPin,
+  IconPinFilled,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useStore } from "../../store";
@@ -102,6 +105,8 @@ export function Sidebar() {
   const connections = useStore((s) => s.connections);
   const activeConnectionId = useStore((s) => s.activeConnectionId);
   const lastUsed = useStore((s) => s.connectionLastUsed[s.user?.id ?? ""]);
+  const pins = useStore((s) => s.connectionPins[s.user?.id ?? ""]) ?? NO_PINS;
+  const toggleConnectionPin = useStore((s) => s.toggleConnectionPin);
   const markConnectionUsed = useStore((s) => s.markConnectionUsed);
   const setActiveConnection = useStore((s) => s.setActiveConnection);
   const savedQueries = useStore((s) => s.savedQueries);
@@ -159,7 +164,11 @@ export function Sidebar() {
   } | null>(null);
 
   const envOrder = useEnvironments();
-  const grouped = groupByEnv(sortByRecent(connections, lastUsed), envOrder);
+  const grouped = groupByEnv(
+    // Pins win over recency so pinned positions never shift.
+    sortPinnedFirst(sortByRecent(connections, lastUsed), pins),
+    envOrder,
+  );
 
   // Global explorer search: matches connection names and the tables of
   // connections already loaded (never fetches on keystroke).
@@ -612,6 +621,7 @@ export function Sidebar() {
                   <div style={{ padding: "2px 0 2px 8px" }}>
                     {conns.map((conn) => {
                       const isActive = conn.id === activeConnectionId;
+                      const isPinned = pins.includes(conn.id);
                       const sch = schemaByConnection[conn.id] ?? "";
                       const tKey = keyFor(conn.id, sch);
                       const connSchemaList = connSchemas[conn.id];
@@ -648,6 +658,34 @@ export function Sidebar() {
                               boxShadow: isActive ? "var(--shadow-1)" : "none",
                             }}
                           >
+                            <Tooltip
+                              label={isPinned ? "Unpin" : "Pin to top"}
+                              openDelay={400}
+                            >
+                              <ActionIcon
+                                variant="subtle"
+                                size="xs"
+                                color="gray"
+                                className="dp-row-actions"
+                                data-pinned={isPinned || undefined}
+                                aria-label={
+                                  isPinned
+                                    ? `Unpin ${conn.name}`
+                                    : `Pin ${conn.name}`
+                                }
+                                aria-pressed={isPinned}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleConnectionPin(conn.id);
+                                }}
+                              >
+                                {isPinned ? (
+                                  <IconPinFilled size={13} />
+                                ) : (
+                                  <IconPin size={13} />
+                                )}
+                              </ActionIcon>
+                            </Tooltip>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div
                                 style={{
@@ -1523,6 +1561,8 @@ export function Sidebar() {
     </div>
   );
 }
+
+const NO_PINS: string[] = [];
 
 function groupByEnv(
   connections: ConnectionInfo[],

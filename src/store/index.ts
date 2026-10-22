@@ -4,6 +4,12 @@ import {
   touch,
   type LastUsedByUser,
 } from "@src/utils/connection-recency";
+import {
+  loadPins,
+  savePins,
+  togglePin,
+  type PinsByUser,
+} from "@src/utils/connection-pins";
 import { create } from "zustand";
 import type { Artifact, ConnectionInfo, QueryTab, SavedQuery } from "../types";
 import {
@@ -62,6 +68,9 @@ interface AppState {
   // (setActiveConnection also runs for defaults and restores).
   connectionLastUsed: LastUsedByUser;
   markConnectionUsed: (id: string) => void;
+  // Per-user pinned connection ids (display preference, localStorage only).
+  connectionPins: PinsByUser;
+  toggleConnectionPin: (id: string) => void;
 
   // Selected schema per connection — single source of truth shared by the
   // sidebar explorer and the editor-toolbar schema dropdowns. Tabs on the
@@ -289,6 +298,14 @@ export const useStore = create<AppState>((set, get) => ({
     const next = touch(connectionLastUsed, user.id, id, Date.now());
     set({ connectionLastUsed: next });
     saveLastUsed(next);
+  },
+  connectionPins: loadPins(),
+  toggleConnectionPin: (id) => {
+    const { user, connectionPins } = get();
+    if (!user) return;
+    const next = togglePin(connectionPins, user.id, id);
+    set({ connectionPins: next });
+    savePins(next);
   },
   setActiveConnection: (id) => {
     set({ activeConnectionId: id });
