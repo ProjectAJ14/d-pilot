@@ -107,6 +107,10 @@ export function Sidebar() {
   const lastUsed = useStore((s) => s.connectionLastUsed[s.user?.id ?? ""]);
   const pins = useStore((s) => s.connectionPins[s.user?.id ?? ""]) ?? NO_PINS;
   const toggleConnectionPin = useStore((s) => s.toggleConnectionPin);
+  const reorderConnectionPin = useStore((s) => s.reorderConnectionPin);
+  // Pin drag-reorder: dragged id + the pinned row currently hovered.
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
   const markConnectionUsed = useStore((s) => s.markConnectionUsed);
   const setActiveConnection = useStore((s) => s.setActiveConnection);
   const savedQueries = useStore((s) => s.savedQueries);
@@ -629,10 +633,44 @@ export function Sidebar() {
                         SCHEMA_DB_TYPES.includes(conn.type) &&
                         !!connSchemaList &&
                         connSchemaList.length > 0;
+                      // Drag only reorders within this env group's pinned rows.
+                      const canDrop =
+                        dragId !== null &&
+                        dragId !== conn.id &&
+                        isPinned &&
+                        conns.some((x) => x.id === dragId) &&
+                        pins.includes(dragId);
+                      const dropEdge =
+                        overId === conn.id && canDrop
+                          ? pins.indexOf(dragId!) > pins.indexOf(conn.id)
+                            ? "0 -2px 0 var(--accent)"
+                            : "0 2px 0 var(--accent)"
+                          : null;
                       return (
                         <div key={conn.id}>
                           <div
                             onClick={() => selectConn(conn.id)}
+                            draggable={isPinned}
+                            onDragStart={(e) => {
+                              if (!isPinned) return;
+                              e.dataTransfer.effectAllowed = "move";
+                              e.dataTransfer.setData("text/plain", conn.id);
+                              setDragId(conn.id);
+                            }}
+                            onDragOver={(e) => {
+                              if (!canDrop) return;
+                              e.preventDefault();
+                              setOverId(conn.id);
+                            }}
+                            onDrop={(e) => {
+                              if (!canDrop) return;
+                              e.preventDefault();
+                              reorderConnectionPin(dragId!, conn.id);
+                            }}
+                            onDragEnd={() => {
+                              setDragId(null);
+                              setOverId(null);
+                            }}
                             className="dp-row"
                             style={{
                               display: "flex",
@@ -655,11 +693,20 @@ export function Sidebar() {
                               background: isActive
                                 ? "linear-gradient(90deg, color-mix(in srgb, var(--accent) 16%, transparent), color-mix(in srgb, var(--accent) 3%, transparent))"
                                 : undefined,
-                              boxShadow: isActive ? "var(--shadow-1)" : "none",
+                              boxShadow: dropEdge
+                                ? dropEdge
+                                : isActive
+                                  ? "var(--shadow-1)"
+                                  : "none",
+                              opacity: dragId === conn.id ? 0.5 : 1,
                             }}
                           >
                             <Tooltip
-                              label={isPinned ? "Unpin" : "Pin to top"}
+                              label={
+                                isPinned
+                                  ? "Unpin (drag, or Alt+↑/↓, to reorder)"
+                                  : "Pin to top"
+                              }
                               openDelay={400}
                             >
                               <ActionIcon
@@ -674,6 +721,34 @@ export function Sidebar() {
                                     : `Pin ${conn.name}`
                                 }
                                 aria-pressed={isPinned}
+                                aria-keyshortcuts={
+                                  isPinned
+                                    ? "Alt+ArrowUp Alt+ArrowDown"
+                                    : undefined
+                                }
+                                onKeyDown={(e) => {
+                                  if (
+                                    !isPinned ||
+                                    !e.altKey ||
+                                    (e.key !== "ArrowUp" &&
+                                      e.key !== "ArrowDown")
+                                  )
+                                    return;
+                                  e.preventDefault();
+                                  const group = conns.filter((x) =>
+                                    pins.includes(x.id),
+                                  );
+                                  const i = group.findIndex(
+                                    (x) => x.id === conn.id,
+                                  );
+                                  const to =
+                                    group[i + (e.key === "ArrowUp" ? -1 : 1)];
+                                  if (!to) return;
+                                  const btn = e.currentTarget;
+                                  reorderConnectionPin(conn.id, to.id);
+                                  // Re-inserting the keyed row can blur it.
+                                  requestAnimationFrame(() => btn.focus());
+                                }}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   toggleConnectionPin(conn.id);

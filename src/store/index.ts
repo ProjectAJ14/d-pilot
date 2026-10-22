@@ -7,6 +7,7 @@ import {
 import {
   loadPins,
   savePins,
+  movePin,
   togglePin,
   type PinsByUser,
 } from "@src/utils/connection-pins";
@@ -71,6 +72,7 @@ interface AppState {
   // Per-user pinned connection ids (display preference, localStorage only).
   connectionPins: PinsByUser;
   toggleConnectionPin: (id: string) => void;
+  reorderConnectionPin: (fromId: string, toId: string) => void;
 
   // Selected schema per connection — single source of truth shared by the
   // sidebar explorer and the editor-toolbar schema dropdowns. Tabs on the
@@ -304,6 +306,14 @@ export const useStore = create<AppState>((set, get) => ({
     const { user, connectionPins } = get();
     if (!user) return;
     const next = togglePin(connectionPins, user.id, id);
+    set({ connectionPins: next });
+    savePins(next);
+  },
+  reorderConnectionPin: (fromId, toId) => {
+    const { user, connectionPins } = get();
+    if (!user) return;
+    const next = movePin(connectionPins, user.id, fromId, toId);
+    if (next === connectionPins) return;
     set({ connectionPins: next });
     savePins(next);
   },

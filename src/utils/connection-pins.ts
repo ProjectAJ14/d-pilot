@@ -43,6 +43,22 @@ export function togglePin(
   return { ...all, [userId]: next };
 }
 
+/** Move `fromId` to `toId`'s slot within the user's pins. No-op unless both are pinned and differ. */
+export function movePin(
+  all: PinsByUser,
+  userId: string,
+  fromId: string,
+  toId: string,
+): PinsByUser {
+  const mine = mineOf(all, userId);
+  const from = mine.indexOf(fromId);
+  const to = mine.indexOf(toId);
+  if (from < 0 || to < 0 || from === to) return all;
+  const next = [...mine];
+  next.splice(to, 0, next.splice(from, 1)[0]);
+  return { ...all, [userId]: next };
+}
+
 /** Pinned first, in pin order; the rest keep their incoming order. Stale ids are ignored. */
 export function sortPinnedFirst(
   conns: ConnectionInfo[],

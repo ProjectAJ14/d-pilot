@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { ConnectionInfo } from "@src/types";
 import {
   loadPins,
+  movePin,
   savePins,
   sortPinnedFirst,
   togglePin,
@@ -73,5 +74,34 @@ describe("storage", () => {
   it.each(["{not json", "[]", "null", '"x"'])("tolerates corrupt %s", (raw) => {
     localStorage.setItem("dbpilot_conn_pins", raw);
     expect(loadPins()).toEqual({});
+  });
+});
+
+describe("movePin", () => {
+  const base = { u1: ["a", "b", "c", "d"], u2: ["a", "b"] };
+  it("moves forward and back", () => {
+    expect(movePin(base, "u1", "a", "c").u1).toEqual(["b", "c", "a", "d"]);
+    expect(movePin(base, "u1", "d", "b").u1).toEqual(["a", "d", "b", "c"]);
+    expect(movePin(base, "u1", "b", "a").u1).toEqual(["b", "a", "c", "d"]);
+  });
+  it("is a no-op for same id, unpinned ids, unknown user", () => {
+    expect(movePin(base, "u1", "a", "a")).toBe(base);
+    expect(movePin(base, "u1", "x", "a")).toBe(base);
+    expect(movePin(base, "u1", "a", "x")).toBe(base);
+    expect(movePin(base, "nobody", "a", "b")).toBe(base);
+  });
+  it("does not mutate and leaves other users alone", () => {
+    const snap = JSON.stringify(base);
+    const next = movePin(base, "u1", "a", "d");
+    expect(JSON.stringify(base)).toBe(snap);
+    expect(next).not.toBe(base);
+    expect(next.u1).not.toBe(base.u1);
+    expect(next.u2).toBe(base.u2);
+  });
+  it("tolerates a corrupt per-user entry", () => {
+    const bad = { u1: "oops" } as unknown as Record<string, string[]>;
+    expect(movePin(bad, "u1", "a", "b")).toBe(bad);
+    const mixed = { u1: ["a", 5, "b"] } as unknown as Record<string, string[]>;
+    expect(movePin(mixed, "u1", "a", "b").u1).toEqual(["b", "a"]);
   });
 });
