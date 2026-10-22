@@ -5,6 +5,15 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [2.2.0](https://github.com/ProjectAJ14/d-pilot/compare/v2.1.0...v2.2.0) (2026-10-22)
+
+
+### Features
+
+* **editor:** show the target environment on Run and the editor ([87f5b93](https://github.com/ProjectAJ14/d-pilot/commit/87f5b93e0a1d5e3eb01b3d131492a1806e0fac41))
+* **sidebar:** pin connections to the top of their environment ([e03fb51](https://github.com/ProjectAJ14/d-pilot/commit/e03fb519836f27149ccb9f9f8fe8faad82fdb6ac))
+* **sidebar:** reorder pinned connections by drag or Alt+arrows ([b166f0e](https://github.com/ProjectAJ14/d-pilot/commit/b166f0ef9b1819aecd2c07e12a8e03f325783103))
+
 # [2.1.0](https://github.com/ProjectAJ14/d-pilot/compare/v2.0.0...v2.1.0) (2026-10-14)
 
 
