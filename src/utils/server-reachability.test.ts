@@ -20,6 +20,7 @@ const {
   isUnreachableRejection,
   isUnreachableStatus,
   loadNetworkHint,
+  loginErrorMessage,
   saveNetworkHint,
 } = await import("./server-reachability");
 const { api, ApiError } = await import("./api-client");
@@ -69,6 +70,30 @@ describe("bannerMessage", () => {
     );
     expect(bannerMessage(true, "  ")).toBe(
       "Can't reach the D-Pilot server. Check your network or VPN connection.",
+    );
+  });
+});
+
+describe("loginErrorMessage", () => {
+  it("gives sign-in the banner's text, hint included, when the server is unreachable", () => {
+    const err = new ApiError(
+      "Can't reach the D-Pilot server.",
+      0,
+      "SERVER_UNREACHABLE",
+    );
+    expect(loginErrorMessage(err, true, "Connect to the VPN.")).toBe(
+      "Can't reach the D-Pilot server. Connect to the VPN.",
+    );
+    expect(loginErrorMessage(err, false, "Connect to the VPN.")).toMatch(
+      /^You're offline/,
+    );
+  });
+  it("keeps any other error's own message", () => {
+    expect(
+      loginErrorMessage(new ApiError("Invalid credentials", 401), true, "x"),
+    ).toBe("Invalid credentials");
+    expect(loginErrorMessage(new Error(""), true, "x")).toBe(
+      "Invalid credentials",
     );
   });
 });

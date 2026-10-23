@@ -30,6 +30,16 @@ export function bannerMessage(online: boolean, hint: string): string {
   return `${SERVER_UNREACHABLE_MESSAGE} ${hint.trim() || "Check your network or VPN connection."}`;
 }
 
+/** Sign-in's error line: the banner's text for an unreachable server (the banner isn't on that screen). */
+export function loginErrorMessage(
+  err: unknown,
+  online: boolean,
+  hint: string,
+): string {
+  if (isServerUnreachable(err)) return bannerMessage(online, hint);
+  return (err as { message?: string } | null)?.message || "Invalid credentials";
+}
+
 /**
  * The last-known hint, kept in localStorage: it is public config (served by
  * /api/config to anyone), and the moment it is needed is exactly when
