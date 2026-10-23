@@ -80,10 +80,11 @@ const SHELLS: Record<SetupOs, Shell> = {
     download: (url) =>
       `mkdir -p ~/.d-pilot && curl -fsSo ~/.d-pilot/mcp-bridge.mjs ${shellQuote(url)}`,
     bridgePath: "~/.d-pilot/mcp-bridge.mjs",
-    quitDesktop: "Cmd+Q",
+    quitDesktop: "Cmd+Q on macOS; quit from the tray or menu on Linux",
     nodePath: "`command -v node`",
+    // Where the bridge's desktopConfigPath writes on each.
     desktopConfig:
-      "~/Library/Application Support/Claude/claude_desktop_config.json",
+      "~/Library/Application Support/Claude/claude_desktop_config.json (macOS) or ~/.config/Claude/claude_desktop_config.json (Linux)",
   },
   windows: {
     quote: psQuote,
@@ -187,4 +188,25 @@ export function setupSteps(
       ? (real?.[i].code ?? null)
       : step.code,
   }));
+}
+
+/** Login and /api/mcp authenticate with the username; the email is the fallback. */
+export function defaultMcpUsername(
+  user: { username?: string; email?: string } | null,
+): string {
+  return user?.username || user?.email || "";
+}
+
+/** A copy button's label: what to copy, or what's still missing to build it. */
+export function copyButtonLabel(
+  label: string,
+  canCopy: boolean,
+  username: string,
+  password: string,
+): string {
+  if (canCopy) return `Copy ${label}`;
+  const missing = [!username && "username", !password && "password"]
+    .filter(Boolean)
+    .join(" and ");
+  return `Enter the ${missing} to copy`;
 }

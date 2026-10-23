@@ -246,7 +246,8 @@ LIGHT_LOGO_URL=/logo/your-logo-light.svg  # light-ink mark, shown on the dark th
 FAVICON_URL=/logo/favicon.svg         # optional
 # LOGIN_TAGLINE="Internal query tool"     # login-page lines under the app name;
 # LOGIN_SUBTITLE="HIPAA · PHI tokenized"  # save one empty in Settings to hide it
-# NETWORK_HINT="Connect to the VPN and retry."  # added when a database can't be reached
+# NETWORK_HINT="Connect to the VPN and retry."  # shown when a database can't be reached, and in
+#                                               # the server-unreachable banner and sign-in error
 EMAIL_DOMAIN=yourcompany.com          # enforced on user creation, used for the default admin seed
 # APP_BASE_URL=https://d-pilot.internal   # origin for artifact links in MCP output
 

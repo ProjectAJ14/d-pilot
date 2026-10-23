@@ -6,6 +6,8 @@ import {
   MASKED_AUTH,
   basicAuthValue,
   bridgeUrl,
+  copyButtonLabel,
+  defaultMcpUsername,
   detectOs,
   psQuote,
   setupSteps,
@@ -172,10 +174,15 @@ describe("macOS / Linux commands", () => {
       `node ~/.d-pilot/mcp-bridge.mjs --install-desktop '${SUBPATH}' '${AUTH}'`,
       undefined,
     ]);
+    // The paths the bridge's desktopConfigPath writes on macOS and Linux.
     expect(steps[1].note).toContain(
       "~/Library/Application Support/Claude/claude_desktop_config.json",
     );
-    expect(steps[2].title).toContain("Cmd+Q");
+    expect(steps[1].note).toContain(
+      "~/.config/Claude/claude_desktop_config.json",
+    );
+    expect(steps[2].title).toContain("Cmd+Q on macOS");
+    expect(steps[2].title).toContain("quit from the tray or menu on Linux");
     // The bridge records process.execPath, so no node-path advice here.
     expect(JSON.stringify(steps)).not.toMatch(/command -v node|<node path/);
   });
@@ -372,3 +379,30 @@ describe.each(["/bin/bash", "/bin/zsh"].filter(existsSync))(
     });
   },
 );
+
+describe("defaultMcpUsername", () => {
+  it("is the username login and /api/mcp authenticate with, else the email", () => {
+    expect(
+      defaultMcpUsername({ username: "jdoe", email: "jdoe@example.com" }),
+    ).toBe("jdoe");
+    expect(
+      defaultMcpUsername({ username: "", email: "jdoe@example.com" }),
+    ).toBe("jdoe@example.com");
+    expect(defaultMcpUsername(null)).toBe("");
+  });
+});
+
+describe("copyButtonLabel", () => {
+  it("says what is missing before the copy can be built", () => {
+    expect(copyButtonLabel("step 2", false, "", "")).toBe(
+      "Enter the username and password to copy",
+    );
+    expect(copyButtonLabel("step 2", false, "", "pw")).toBe(
+      "Enter the username to copy",
+    );
+    expect(copyButtonLabel("step 2", false, "jdoe", "")).toBe(
+      "Enter the password to copy",
+    );
+    expect(copyButtonLabel("step 2", true, "jdoe", "pw")).toBe("Copy step 2");
+  });
+});

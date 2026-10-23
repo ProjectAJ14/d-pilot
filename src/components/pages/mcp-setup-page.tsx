@@ -24,6 +24,8 @@ import { BASE_PATH } from "../../utils/base-path";
 import { copyToClipboard } from "../../utils/clipboard";
 import { Card } from "./profile-page";
 import {
+  copyButtonLabel,
+  defaultMcpUsername,
   detectOs,
   setupSteps,
   type SetupClient,
@@ -46,7 +48,7 @@ export function McpSetupPage() {
   const navigate = useNavigate();
   const appName = useStore((s) => s.config.appName);
   const user = useStore((s) => s.user);
-  const [username, setUsername] = useState(user?.email || user?.username || "");
+  const [username, setUsername] = useState(() => defaultMcpUsername(user));
   const [password, setPassword] = useState("");
   const [os, setOs] = useState<SetupOs>(() => detectOs(platform()));
 
@@ -166,7 +168,10 @@ export function McpSetupPage() {
                 come back by themselves once it is reachable again. Run these in{" "}
                 {shell}.
               </Text>
-              <Steps steps={steps("bridge")} />
+              <Steps
+                steps={steps("bridge")}
+                creds={[username.trim(), password]}
+              />
             </Tabs.Panel>
             <Tabs.Panel value="http">
               <Text size="xs" c="dimmed" mb="md">
@@ -174,7 +179,10 @@ export function McpSetupPage() {
                 and no automatic recovery: you reconnect the server by hand. Run
                 these in {shell}.
               </Text>
-              <Steps steps={steps("http")} />
+              <Steps
+                steps={steps("http")}
+                creds={[username.trim(), password]}
+              />
             </Tabs.Panel>
             <Tabs.Panel value="desktop">
               <Text size="xs" c="dimmed" mb="md">
@@ -182,7 +190,10 @@ export function McpSetupPage() {
                 bridge, and the bridge adds itself to Desktop's config — no
                 paths to look up. Run these in {shell}.
               </Text>
-              <Steps steps={steps("desktop")} />
+              <Steps
+                steps={steps("desktop")}
+                creds={[username.trim(), password]}
+              />
             </Tabs.Panel>
           </Tabs>
         </Card>
@@ -216,7 +227,13 @@ export function McpSetupPage() {
 }
 
 /** Numbered steps; each code block copies `step.copy`, the real credential behind the masked one. */
-function Steps({ steps }: { steps: SetupStep[] }) {
+function Steps({
+  steps,
+  creds: [username, password],
+}: {
+  steps: SetupStep[];
+  creds: [string, string];
+}) {
   return (
     <List type="ordered" size="sm" spacing="md" c="var(--text)">
       {steps.map((step, i) => (
@@ -229,6 +246,12 @@ function Steps({ steps }: { steps: SetupStep[] }) {
               label={`step ${i + 1}`}
               shown={step.code}
               copy={step.copy ?? null}
+              buttonLabel={copyButtonLabel(
+                `step ${i + 1}`,
+                !!step.copy,
+                username,
+                password,
+              )}
             />
           )}
           {step.note && (
@@ -247,10 +270,12 @@ function Snippet({
   label,
   shown,
   copy,
+  buttonLabel,
 }: {
   label: string;
   shown: string;
   copy: string | null;
+  buttonLabel: string;
 }) {
   return (
     <div>
@@ -268,7 +293,7 @@ function Snippet({
         disabled={!copy}
         onClick={() => copy && copyToClipboard(copy, label, shown)}
       >
-        {copy ? `Copy ${label}` : "Enter the password to copy"}
+        {buttonLabel}
       </Button>
     </div>
   );
