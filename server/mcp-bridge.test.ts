@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import http from "node:http";
+import https from "node:https";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
@@ -76,12 +77,14 @@ const jsonRpc = (msg: any) => {
 
 /**
  * A fake D-Pilot answering only `${prefix}/api/health` and `${prefix}/api/mcp`
- * (anything else 404s, so a wrongly derived health URL reads as "down").
+ * (anything else 404s).
  * `mcp` and `health` override the answers; leaving a response unended hangs.
  */
 async function fakeDpilot(
   opts: {
     prefix?: string;
+    /** Where the MCP endpoint is, when not `${prefix}/api/mcp`. */
+    mcpPath?: string;
     port?: number;
     mcp?: (msg: any, res: Res) => void;
     health?: (res: Res) => void;
@@ -95,7 +98,8 @@ async function fakeDpilot(
       healthHits.push(req.url);
       return opts.health ? opts.health(res) : res.end('{"status":"ok"}');
     }
-    if (req.url !== `${prefix}/api/mcp`) return res.writeHead(404).end();
+    if (req.url !== (opts.mcpPath ?? `${prefix}/api/mcp`))
+      return res.writeHead(404).end();
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {
@@ -350,6 +354,96 @@ describe("mcp-bridge: D-Pilot unreachable", () => {
     expect(b.out).toEqual([]);
   });
 
+  // A captive portal or VPN login page answers in place of D-Pilot.
+  it.each([
+    [200, "text/html", "<html>Sign in to the network</html>"],
+    [200, "application/json", "null"],
+    [202, undefined, ""],
+  ])(
+    "treats HTTP %i (%s) with no JSON-RPC answer as unreachable",
+    async (status, type, body) => {
+      const portal = (res: Res) =>
+        res.writeHead(status, type ? { "content-type": type } : {}).end(body);
+      const { port } = await fakeDpilot({
+        mcp: (_m, res) => portal(res),
+        health: portal,
+      });
+      const b = bridge(urlFor(port));
+      const r = await run(b);
+      expect(r.result.isError).toBe(true);
+      expect(callText(r)).toMatch(UNREACHABLE);
+      expect(callText(r)).toContain(
+        "unexpected non-MCP response; a captive portal or VPN login page?",
+      );
+      expect(toolNames(await b.request("tools/list"))).toEqual([
+        "dpilot_status",
+      ]);
+      // The health check gets the same page: still down, so no flapping.
+      const status_ = await b.request("tools/call", { name: "dpilot_status" });
+      expect(callText(status_)).toMatch(UNREACHABLE);
+      expect(b.listChanged()).toBe(0);
+    },
+  );
+
+  // A TLS-inspecting proxy or a private CA: configuration, not an outage.
+  it("reports an untrusted certificate as configuration, and stops polling", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dpilot-tls-"));
+    try {
+      const gen = spawnSync(
+        "openssl",
+        [
+          "req",
+          "-x509",
+          "-newkey",
+          "rsa:2048",
+          "-nodes",
+          "-days",
+          "1",
+          "-subj",
+          "/CN=127.0.0.1",
+          "-keyout",
+          join(dir, "key.pem"),
+          "-out",
+          join(dir, "cert.pem"),
+        ],
+        { encoding: "utf8" },
+      );
+      expect(gen.status, gen.stderr).toBe(0);
+      let healthHits = 0;
+      const server = https.createServer(
+        {
+          key: readFileSync(join(dir, "key.pem")),
+          cert: readFileSync(join(dir, "cert.pem")),
+        },
+        (req, res) => {
+          if (req.url === "/api/health") healthHits++;
+          res.end("{}");
+        },
+      );
+      servers.push(server as unknown as http.Server);
+      await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+      const { port } = server.address() as AddressInfo;
+      const b = bridge(`https://127.0.0.1:${port}/api/mcp`);
+      const TLS = /certificate.*not trusted.*NODE_EXTRA_CA_CERTS/s;
+      const list = await b.request("tools/list");
+      expect(list.error.message).toMatch(TLS);
+      const call = await run(b);
+      expect(call.result.isError).toBe(true);
+      expect(callText(call)).toMatch(TLS);
+      expect(callText(call)).not.toMatch(UNREACHABLE);
+      const st = await b.request("tools/call", { name: "dpilot_status" });
+      expect(callText(st)).toMatch(TLS);
+      // No poll: only the startup probe and the dpilot_status one.
+      await new Promise((r) => setTimeout(r, 350));
+      expect(healthHits).toBe(0); // the handshake fails before any request
+      expect(b.stderr()).not.toMatch(/poll/);
+      // Node's own text never reaches the agent.
+      expect(JSON.stringify(b.out)).not.toMatch(/self[- ]signed/i);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("answers other requests with a JSON-RPC error", async () => {
     const b = bridge(urlFor(await freePort()));
     const r = await b.request("resources/list");
@@ -414,6 +508,26 @@ describe("mcp-bridge: D-Pilot reachable", () => {
     expect(callText(await run(b))).toBe("1 row");
   });
 
+  it("joins an event's data lines with newlines, as SSE specifies", async () => {
+    const { port } = await fakeDpilot({
+      mcp: (msg, res) =>
+        res
+          .writeHead(200, { "content-type": "text/event-stream" })
+          .end(
+            [
+              "event: message",
+              'data: {"jsonrpc":"2.0",',
+              `data: "id":${msg.id},`,
+              'data:"result":{"content":[{"type":"text","text":"1 row"}]}}',
+              "",
+              "",
+            ].join("\n"),
+          ),
+    });
+    const b = bridge(urlFor(port));
+    expect(callText(await run(b))).toBe("1 row");
+  });
+
   it("forwards tool calls and other requests", async () => {
     const { port, posts } = await fakeDpilot();
     const b = bridge(urlFor(port));
@@ -459,8 +573,7 @@ describe("mcp-bridge: D-Pilot reachable", () => {
   it.each([
     [500, "text/html", "<h1>oops</h1>"],
     [500, "application/json", '{"error":"MCP request failed"}'],
-    [202, undefined, ""],
-    [200, "application/json", "null"],
+    [404, "text/html", "<h1>Not Found</h1>"],
   ])(
     "reports HTTP %i (%s) with no JSON-RPC answer as an error, not an outage",
     async (status, type, body) => {
@@ -517,6 +630,31 @@ describe("mcp-bridge: state changes", () => {
     await fakeDpilot({ port });
     await b.waitFor((m) => m.method === LIST_CHANGED);
     expect(toolNames(await b.request("tools/list"))).toEqual(["run_query"]);
+  });
+
+  // A proxy remap or a typo in the path: /api/health 404s, D-Pilot is there.
+  it("keeps the tools when the health check 404s but D-Pilot answers", async () => {
+    const { port, healthHits } = await fakeDpilot({ mcpPath: "/tools/mcp" });
+    // Health is derived as /tools/mcp/api/health, which 404s.
+    const b = bridge(`http://127.0.0.1:${port}/tools/mcp`);
+    const st = await b.request("tools/call", { name: "dpilot_status" });
+    expect(callText(st)).toMatch(/is reachable/);
+    expect(toolNames(await b.request("tools/list"))).toEqual(["run_query"]);
+    expect(healthHits).toEqual([]);
+    expect(b.listChanged()).toBe(0);
+  });
+
+  it("tries D-Pilot on tools/list even while the health check says it is down", async () => {
+    // Health answers 503 forever; the MCP endpoint is fine.
+    const { port, posts } = await fakeDpilot({
+      health: (res) => res.writeHead(503).end(),
+    });
+    const b = bridge(urlFor(port), { DPILOT_BRIDGE_POLL_MS: "60000" });
+    const st = await b.request("tools/call", { name: "dpilot_status" });
+    expect(callText(st)).toMatch(UNREACHABLE);
+    expect(toolNames(await b.request("tools/list"))).toEqual(["run_query"]);
+    expect(posts.map((p) => p.msg.method)).toEqual(["tools/list"]);
+    expect(b.listChanged()).toBe(1);
   });
 
   it("derives the health URL under a BASE_PATH prefix", async () => {

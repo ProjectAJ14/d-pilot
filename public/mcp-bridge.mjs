@@ -82,6 +82,32 @@ export function desktopConfigPath(platform, env, home) {
 
 const isObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 
+/** The JSON-RPC messages in an SSE body: an event's `data:` lines joined by "\n". */
+function sseMessages(text) {
+  const messages = [];
+  let data = [];
+  for (const line of `${text}\n\n`.split(/\r\n|\r|\n/)) {
+    if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
+    else if (!line && data.length) {
+      messages.push(JSON.parse(data.join("\n")));
+      data = [];
+    }
+  }
+  return messages;
+}
+
+// Node's codes for a certificate it does not trust (err.cause.code from fetch).
+const TLS_CODES = new Set([
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "CERT_HAS_EXPIRED",
+  "CERT_NOT_YET_VALID",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
+]);
+
 /**
  * `--install-desktop <url> <authorization>`: points Claude Desktop at this
  * file, run by this node — absolute paths, so the user never types one. Any
@@ -151,6 +177,16 @@ function serve() {
   const HEALTH_URL = `${BASE}/api/health`;
   const CREDENTIALS_MSG =
     "D-Pilot rejected the credentials in DPILOT_MCP_AUTH. Check the username and password.";
+  // Fixed text: Node's own message is not echoed (it can quote the request).
+  const TLS_MSG =
+    `D-Pilot's HTTPS certificate at ${BASE} is not trusted by Node on this machine. This is ` +
+    "configuration, not an outage: if your organisation uses its own certificate authority " +
+    "(or a TLS-inspecting proxy), set NODE_EXTRA_CA_CERTS to that CA's PEM file in this " +
+    "server's env, then restart the MCP client.";
+  // A 2xx from something that is not D-Pilot: it answered in its place.
+  const NOT_MCP =
+    "unexpected non-MCP response; a captive portal or VPN login page?";
+  const GATEWAY = [502, 503, 504];
 
   const send = (m) => process.stdout.write(`${JSON.stringify(m)}\n`);
   const reply = (id, result) => send({ jsonrpc: "2.0", id, result });
@@ -187,15 +223,32 @@ function serve() {
   // time out. Anything else (a malformed URL or header) is configuration: undefined.
   const why = (err) =>
     err.name === "TimeoutError" ? "no response" : err.cause?.code;
+  const untrusted = (err) => TLS_CODES.has(err.cause?.code);
 
+  /**
+   * Any answer but a gateway error means the network path works, so a health
+   * path a proxy remaps (404) does not hide the tools. Except a 2xx that is not
+   * D-Pilot's JSON: something else (a captive portal) answered for it. An
+   * untrusted certificate is configuration: shown, never polled.
+   */
   async function probe() {
     try {
       const res = await fetch(HEALTH_URL, {
         signal: AbortSignal.timeout(5000),
       });
-      setState(res.ok, `HTTP ${res.status}`);
+      let body;
+      try {
+        body = JSON.parse(await res.text());
+      } catch {
+        // not D-Pilot's JSON (an HTML page): checked below
+      }
+      if (res.ok && !isObject(body)) setState(false, NOT_MCP);
+      else if (GATEWAY.includes(res.status))
+        setState(false, `HTTP ${res.status}`);
+      else setState(true, "");
     } catch (err) {
-      setState(false, why(err));
+      if (untrusted(err)) setState(true, TLS_MSG);
+      else setState(false, why(err));
     }
   }
 
@@ -217,6 +270,10 @@ function serve() {
       });
       text = await res.text();
     } catch (err) {
+      if (untrusted(err)) {
+        setState(true, TLS_MSG);
+        throw new Error(TLS_MSG);
+      }
       if (!why(err)) {
         // fetch's message can quote the header value: log it without the
         // credential, and keep it out of the reply, which an AI reads.
@@ -231,28 +288,29 @@ function serve() {
       setState(false, why(err));
       throw new Unreachable(downMsg());
     }
-    if ([502, 503, 504].includes(res.status)) {
+    if (GATEWAY.includes(res.status)) {
       setState(false, `HTTP ${res.status}`);
       throw new Unreachable(downMsg());
     }
-    setState(true, "");
-    if (res.status === 401 || res.status === 403)
-      throw new Error(CREDENTIALS_MSG);
     // Stateless Streamable HTTP answers with JSON or an SSE stream of `data:` lines.
     let found;
     try {
       const messages = (res.headers.get("content-type") || "").includes(
         "text/event-stream",
       )
-        ? text
-            .split("\n") // a CRLF's "\r" is JSON whitespace
-            .filter((l) => l.startsWith("data:"))
-            .map((l) => JSON.parse(l.slice(5)))
+        ? sseMessages(text)
         : [JSON.parse(text)].flat();
       found = messages.find((m) => m.id === msg.id);
     } catch {
-      // not JSON-RPC (an HTML error page, an empty body, `null`) — reported below
+      // not JSON-RPC (an HTML page, an empty body, `null`) — handled below
     }
+    if (res.ok && !found) {
+      setState(false, NOT_MCP);
+      throw new Unreachable(downMsg());
+    }
+    setState(true, "");
+    if (res.status === 401 || res.status === 403)
+      throw new Error(CREDENTIALS_MSG);
     if (!found)
       throw new Error(
         `D-Pilot answered HTTP ${res.status} without an MCP response`,
@@ -279,15 +337,15 @@ function serve() {
     if (method === "tools/call" && params?.name === STATUS_TOOL.name) {
       await probe();
       const text = reachable
-        ? `D-Pilot at ${BASE} is reachable; its tools are available.`
+        ? reason || `D-Pilot at ${BASE} is reachable; its tools are available.`
         : downMsg();
       return reply(id, { content: [{ type: "text", text }] });
     }
-    if (method === "tools/list" && reachable === false)
-      return reply(id, { tools: [STATUS_TOOL] });
     try {
       send(await forward(msg));
     } catch (err) {
+      // tools/list always tries D-Pilot first: a wrong guess from the health
+      // check must never hide the tools for good.
       if (method === "tools/list" && err instanceof Unreachable)
         return reply(id, { tools: [STATUS_TOOL] });
       if (method === "tools/call")
