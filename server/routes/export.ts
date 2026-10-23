@@ -3,6 +3,10 @@ import { resolveReadableConnection } from "../middleware/auth.js";
 import { validateQuery, executeQuery } from "../services/query-executor.js";
 import { maskQueryResults } from "../services/phi-masking.js";
 import { logAudit, getPhiMaskedEnvs } from "../services/sqlite-store.js";
+import {
+  connectionFailedMessage,
+  isConnectionError,
+} from "../services/connection-errors.js";
 import type { Environment } from "../types/index.js";
 
 function resolvePhiEnabled(req: Request, connEnv: string): boolean {
@@ -14,6 +18,21 @@ function resolvePhiEnabled(req: Request, connEnv: string): boolean {
   if (!req.user!.canUnmaskPhi) return true; // unauthorized, keep masked
   if (envRequiresMasking && !req.headers["x-phi-unmask-reason"]) return true; // no reason
   return false; // allowed to unmask
+}
+
+function sendExportError(
+  res: Response,
+  conn: { name: string; env: string },
+  err: any,
+): void {
+  if (isConnectionError(err)) {
+    res.status(503).json({
+      error: connectionFailedMessage(conn),
+      code: "CONNECTION_FAILED",
+    });
+    return;
+  }
+  res.status(500).json({ error: err.message });
 }
 
 const router = Router();
@@ -84,7 +103,7 @@ router.post("/csv", async (req: Request, res: Response) => {
     );
     res.send(csvLines.join("\n"));
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendExportError(res, conn, err);
   }
 });
 
@@ -138,7 +157,7 @@ router.post("/json", async (req: Request, res: Response) => {
     );
     res.json(maskedRows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendExportError(res, conn, err);
   }
 });
 

@@ -23,8 +23,13 @@ vi.mock("../services/query-executor.js", () => ({
   executeQuery,
 }));
 vi.mock("../middleware/auth.js", () => ({
-  resolveReadableConnection: () => ({ id: "qa-core", env: "QA" }),
+  resolveReadableConnection: () => ({
+    id: "qa-core",
+    name: "Orders",
+    env: "QA",
+  }),
 }));
+vi.mock("../config/settings.js", () => ({ getConfig: () => undefined }));
 vi.mock("../services/sqlite-store.js", () => ({
   logAudit: () => {},
   getPhiMaskedEnvs: () => [],
@@ -79,5 +84,36 @@ describe.each(["csv", "json"])("POST /export/%s", (format) => {
       "select 1",
       defaultLimit,
     );
+  });
+});
+
+describe.each(["csv", "json"])("POST /export/%s failures", (format) => {
+  const post = () =>
+    fetch(`${base}/export/${format}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ connectionId: "qa-core", sql: "select 1" }),
+    });
+
+  it("answers an unreachable database with 503 CONNECTION_FAILED", async () => {
+    executeQuery.mockRejectedValueOnce(
+      Object.assign(new AggregateError([], ""), { code: "ECONNREFUSED" }),
+    );
+    const res = await post();
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.code).toBe("CONNECTION_FAILED");
+    expect(body.error).toContain("the Orders (QA) database");
+  });
+
+  it("keeps a query error a 500 with the driver's message", async () => {
+    executeQuery.mockRejectedValueOnce(
+      Object.assign(new Error('relation "x" does not exist'), {
+        code: "42P01",
+      }),
+    );
+    const res = await post();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'relation "x" does not exist' });
   });
 });

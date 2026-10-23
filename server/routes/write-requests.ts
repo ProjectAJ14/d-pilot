@@ -33,6 +33,10 @@ import {
 } from "../services/azure-openai.js";
 import { requireAdmin } from "../middleware/auth.js";
 import {
+  connectionFailedMessage,
+  isConnectionError,
+} from "../services/connection-errors.js";
+import {
   createWriteRequest,
   getWriteRequest,
   listWriteRequests,
@@ -895,6 +899,13 @@ router.post("/:id/preview", async (req: Request, res: Response) => {
 
     res.json(result);
   } catch (err: any) {
+    if (isConnectionError(err)) {
+      res.status(503).json({
+        error: connectionFailedMessage(conn),
+        code: "CONNECTION_FAILED",
+      });
+      return;
+    }
     res.status(500).json({ error: err?.message || "Preview query failed" });
   }
 });

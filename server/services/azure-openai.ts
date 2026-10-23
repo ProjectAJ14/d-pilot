@@ -147,8 +147,10 @@ export function aiErrorResponse(
 ): { status: number; error: string } {
   if (err instanceof AzureOpenAIError && err.contentFiltered)
     return { status: 422, error: CONTENT_FILTER_MESSAGE };
+  // Not 502, even for an error the provider returned: the browser reads a 502
+  // as a proxy saying D-Pilot itself is down.
   return {
-    status: err instanceof AzureOpenAIError && err.status ? 502 : 500,
+    status: 500,
     error: err?.message || fallback,
   };
 }
