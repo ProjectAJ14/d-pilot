@@ -341,10 +341,19 @@ const changedWhileChecking = (id: string) =>
  * author self-serves), transitioning it to EXECUTED or FAILED and recording the
  * events + audit. Used by create, submit and revise.
  *
- * Returns false when the database could not be reached at all: nothing ran, so
+ * The run claims the request PENDING → APPROVED first, exactly as approve
+ * does, so an approve, override or cancel arriving mid-run finds it no longer
+ * PENDING and is refused: the write runs once. APPROVED is the status every
+ * execution runs under (the timeline shows AUTO_APPROVED; analytics count only
+ * PENDING/EXECUTED/FAILED/REJECTED), so the brief claim reads as what it is.
+ *
+ * "not-reached": the database could not be reached at all, nothing ran, so
  * the request is not FAILED but handed back as a DRAFT, which its author
  * submits again to retry — the one-step retry a FAILED request's revise gives
  * today, without parking a direct-write request in an approval queue.
+ * "taken": someone else claimed it first; nothing was run here.
+ * "moved": nothing ran, but the release back to DRAFT lost its claim — the
+ * request is not a draft, and the caller must not say it is.
  */
 async function runDirectExecution(
   id: string,
@@ -354,7 +363,8 @@ async function runDirectExecution(
   opts: { isMigration: boolean; noTransaction?: boolean } = {
     isMigration: false,
   },
-): Promise<boolean> {
+): Promise<"ran" | "not-reached" | "taken" | "moved"> {
+  if (!claimWriteRequestForApproval(id)) return "taken";
   const now = new Date().toISOString();
   addWriteRequestEvent(
     id,
@@ -395,7 +405,7 @@ async function runDirectExecution(
       executionMs: result.executionMs,
       phiAccessed: false,
     });
-    return true;
+    return "ran";
   } catch (err: any) {
     logAudit({
       userId: user.sub,
@@ -406,15 +416,16 @@ async function runDirectExecution(
       phiAccessed: false,
     });
     if (isPreConnectError(err)) {
-      claimWriteRequestStatus(id, "PENDING", "DRAFT");
-      return false;
+      return claimWriteRequestStatus(id, "APPROVED", "DRAFT")
+        ? "not-reached"
+        : "moved";
     }
     updateWriteRequest(id, {
       status: "FAILED",
       executionError: err?.message || "Write failed",
     });
     addWriteRequestEvent(id, user.sub, user.email, "FAILED", err?.message);
-    return true;
+    return "ran";
   }
 }
 
@@ -432,6 +443,33 @@ function sendNotReached(
   res.status(503).json({
     error,
     code: "CONNECTION_FAILED",
+    request: getWriteRequest(id),
+  });
+}
+
+/** Answers a direct execution that did not run; `outcome` is runDirectExecution's. */
+function sendDirectNotRun(
+  res: Response,
+  outcome: "not-reached" | "taken" | "moved",
+  id: string,
+  conn: { name: string; env: string },
+  user: { sub: string; email: string },
+): void {
+  if (outcome === "not-reached") return sendNotReached(res, id, conn, user);
+  if (outcome === "moved") {
+    addWriteRequestEvent(
+      id,
+      user.sub,
+      user.email,
+      "NOT_RUN",
+      connectionFailedMessage(conn),
+    );
+  }
+  res.status(409).json({
+    error:
+      outcome === "taken"
+        ? "This request was already actioned by someone else."
+        : "This request was changed by someone else while it was running — nothing ran; check its current status.",
     request: getWriteRequest(id),
   });
 }
@@ -584,14 +622,15 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
 
   // DIRECT-policy environments: an authorized author executes immediately.
   if (direct) {
-    const reached = await runDirectExecution(
+    const outcome = await runDirectExecution(
       wr.id,
       conn,
       writeSql.trim(),
       user,
       { isMigration, noTransaction: noTx },
     );
-    if (!reached) return sendNotReached(res, wr.id, conn, user);
+    if (outcome !== "ran")
+      return sendDirectNotRun(res, outcome, wr.id, conn, user);
   }
 
   res.status(201).json(getWriteRequest(wr.id));
@@ -1191,8 +1230,13 @@ router.post("/:id/reject", requireWriteMode, (req: Request, res: Response) => {
     return;
   }
 
+  if (!claimWriteRequestStatus(wr.id, "PENDING", "REJECTED")) {
+    res
+      .status(409)
+      .json({ error: "This request was already actioned by someone else." });
+    return;
+  }
   updateWriteRequest(wr.id, {
-    status: "REJECTED",
     reviewedBy: user.sub,
     reviewedByEmail: user.email,
     reviewedAt: new Date().toISOString(),
@@ -1297,11 +1341,12 @@ router.post(
     });
 
     if (plan.runNow) {
-      const reached = await runDirectExecution(wr.id, conn, wr.writeSql, user, {
+      const outcome = await runDirectExecution(wr.id, conn, wr.writeSql, user, {
         isMigration: !!wr.isMigration,
         noTransaction: wr.noTransaction,
       });
-      if (!reached) return sendNotReached(res, wr.id, conn, user);
+      if (outcome !== "ran")
+        return sendDirectNotRun(res, outcome, wr.id, conn, user);
     }
 
     res.json(getWriteRequest(wr.id));
@@ -1321,13 +1366,17 @@ router.post("/:id/cancel", (req: Request, res: Response) => {
       .json({ error: "Only the requester can cancel this request" });
     return;
   }
-  if (wr.status !== "PENDING" && wr.status !== "DRAFT") {
+  // Claimed from the status just read, so a request that moved meanwhile (a
+  // direct run claiming it, an approval) is never overwritten with CANCELLED.
+  if (
+    (wr.status !== "PENDING" && wr.status !== "DRAFT") ||
+    !claimWriteRequestStatus(wr.id, wr.status, "CANCELLED")
+  ) {
     res.status(409).json({
-      error: `Request is ${wr.status} and can no longer be cancelled`,
+      error: `Request is ${getWriteRequest(wr.id)?.status ?? wr.status} and can no longer be cancelled`,
     });
     return;
   }
-  updateWriteRequest(wr.id, { status: "CANCELLED" });
   addWriteRequestEvent(wr.id, user.sub, user.email, "CANCELLED");
   res.json(getWriteRequest(wr.id));
 });
@@ -1490,11 +1539,12 @@ router.post(
     // A DIRECT-policy environment re-runs immediately on resubmit — never on a
     // draft edit, which stays saved until a human submits it.
     if (plan.runNow) {
-      const reached = await runDirectExecution(wr.id, conn, newWrite, user, {
+      const outcome = await runDirectExecution(wr.id, conn, newWrite, user, {
         isMigration,
         noTransaction: noTx,
       });
-      if (!reached) return sendNotReached(res, wr.id, conn, user);
+      if (outcome !== "ran")
+        return sendDirectNotRun(res, outcome, wr.id, conn, user);
     }
 
     res.json(getWriteRequest(wr.id));

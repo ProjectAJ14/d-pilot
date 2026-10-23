@@ -163,7 +163,18 @@ errors tagged at the executor's connect/acquire/begin/ping steps _and_ network-s
 those, approve/override release the claim back to `PENDING`, and direct execution
 (create/submit/revise) returns the request to `DRAFT`; the route answers 503
 `CONNECTION_FAILED` with `request` (its current state) audits `WRITE_EXECUTE_ERROR`, and appends a `NOT_RUN` timeline event.
-Anything after a statement was sent has an unknown outcome and is `FAILED`. Elasticsearch writes
+Anything after a statement was sent has an unknown outcome and is `FAILED`.
+
+**Execute-once covers direct execution too.** `runDirectExecution` claims the request
+`PENDING → APPROVED` (`claimWriteRequestForApproval`, the same claim approve takes) before
+it sends anything, so an approve, override or cancel that arrives mid-run 409s instead of
+running it again or overwriting the result. `APPROVED` is the status every execution runs
+under; the timeline shows `AUTO_APPROVED` and analytics never count `APPROVED`, so the brief
+claim is not misreported. A pre-connect failure releases it `APPROVED → DRAFT`; if that
+release loses its claim the route answers 409 with the request as it is, never a silent
+"back to draft". `cancel` claims from the status it read (`PENDING`/`DRAFT`) and 409s if
+the row moved. Every status change goes through `claimWriteRequestStatus` — never an
+unconditional `updateWriteRequest({ status })` on a row someone else can act on. Elasticsearch writes
 use `maxRetries: 0` (a driver retry could run one twice); Mongo writes ping before sending.
 
 **Admin override** (`POST /:id/override`, `planDecision` — exported, unit-tested) runs a
