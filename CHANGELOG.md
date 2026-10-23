@@ -5,6 +5,46 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [2.4.0](https://github.com/ProjectAJ14/d-pilot/compare/v2.3.0...v2.4.0) (2026-10-23)
+
+
+### Bug Fixes
+
+* **client:** check a 504 with a health ping before calling the server unreachable ([f45a4fd](https://github.com/ProjectAJ14/d-pilot/commit/f45a4fd4883a4847427d08201d9945f50e081a31))
+* **client:** don't call a request fetch refuses to send an unreachable server ([96ed419](https://github.com/ProjectAJ14/d-pilot/commit/96ed4196765ebdea88e65a226ee32694039899a7))
+* **client:** offer no bug report for an unreachable database ([9df3dd4](https://github.com/ProjectAJ14/d-pilot/commit/9df3dd4d232c39804333fa89041d93e01e7170aa))
+* **client:** reload the app's data when the server comes back ([9260e62](https://github.com/ProjectAJ14/d-pilot/commit/9260e62457692ffc66f085b913e5543ef9d6f016))
+* **client:** show the network hint on sign-in when the server is unreachable ([6f69483](https://github.com/ProjectAJ14/d-pilot/commit/6f6948391e7d50614e3aeb5bdca0b9deef0559be))
+* **mcp-bridge:** find the Microsoft Store Claude Desktop config and trust the system CA ([939e993](https://github.com/ProjectAJ14/d-pilot/commit/939e99311f4b63d338fa30ec29806127b8dcd355))
+* **mcp-bridge:** install through symlinks, with a node path that survives upgrades ([373ec1c](https://github.com/ProjectAJ14/d-pilot/commit/373ec1c93b9cb750cf2c04fd7d1642df39a591ad))
+* **mcp-bridge:** match node.EXE to node.exe on Windows ([9f838d3](https://github.com/ProjectAJ14/d-pilot/commit/9f838d3cade20fe8636a7a841a4ddb43d0378a5a))
+* **mcp-bridge:** trust any real answer, and name portals and bad certificates ([3d0c020](https://github.com/ProjectAJ14/d-pilot/commit/3d0c020d424d676ac89a7bc571e0dcbefb1213a3))
+* **mcp-bridge:** write the Claude Desktop backup owner-only ([726c605](https://github.com/ProjectAJ14/d-pilot/commit/726c605243fff3a22f3032105e106ce88df6ab64))
+* **mcp-setup:** keep the password prompt waiting when step 2 is pasted ([d7ee10d](https://github.com/ProjectAJ14/d-pilot/commit/d7ee10d8197c1e02d84053ef4e798f61fd8963ab))
+* **mcp-setup:** prefill the username, name what's missing, and show the Linux path ([89d68df](https://github.com/ProjectAJ14/d-pilot/commit/89d68dfc6129280bca4da2b4103e9138fae0428b))
+* **mcp:** keep the credential out of bridge errors ([80a77a5](https://github.com/ProjectAJ14/d-pilot/commit/80a77a545d8c04b9fca39747411ccea23f339490))
+* **mcp:** parse DPILOT_MCP_URL the way fetch does ([a2367a2](https://github.com/ProjectAJ14/d-pilot/commit/a2367a2250adb31217f5bc4e21256cb5d6fc544d))
+* **phi:** send unmask reason and notes URI-encoded ([ee0cd85](https://github.com/ProjectAJ14/d-pilot/commit/ee0cd8522518ac7e41b09e9b5ed5d9f8cc959d1e))
+* **server:** answer unreachable databases with 503 everywhere, never 502 ([80f8e74](https://github.com/ProjectAJ14/d-pilot/commit/80f8e7481e303556c25df8b708626f34c20f0b4c))
+* **server:** stop calling slow queries and refused logins network problems ([6f9b105](https://github.com/ProjectAJ14/d-pilot/commit/6f9b10568bbb63d95da88b7b38d480caa73ce9e1))
+* **server:** survive a database dropping an introspection pool's connection ([745c06c](https://github.com/ProjectAJ14/d-pilot/commit/745c06c228692e370ff01612e030efb9b2cd3490))
+* **server:** survive a database dropping its idle pooled connections ([e431541](https://github.com/ProjectAJ14/d-pilot/commit/e431541e0a5396cac7ab29ae5b58ea73006600ed))
+* **write-requests:** claim a direct-write run so it executes once ([73120ee](https://github.com/ProjectAJ14/d-pilot/commit/73120ee1e550db40411564e8d1aa25eaa771c290))
+* **write-requests:** keep a write that never reached its database runnable ([34a567b](https://github.com/ProjectAJ14/d-pilot/commit/34a567b5a33c548fe5d2d5b99ab2bb02c0284d2f))
+* **write-requests:** only treat failures before the statement is sent as retryable ([70eb3c0](https://github.com/ProjectAJ14/d-pilot/commit/70eb3c0079514a7f5adf5003ef6dbff6420fb3ef))
+* **write-requests:** record NOT_RUN when a write never reached its database ([5c8972c](https://github.com/ProjectAJ14/d-pilot/commit/5c8972c4dc12182961bad28632a6ab6653895dbe))
+* **write-requests:** revise only from the status it checked ([860a619](https://github.com/ProjectAJ14/d-pilot/commit/860a61974d169c0896ae8e6598664909b1a63eb6))
+* **write-requests:** show a write that never reached its database as it is ([451d024](https://github.com/ProjectAJ14/d-pilot/commit/451d024447d1833c0196a4ffe5d587c99a8f35d6))
+
+
+### Features
+
+* **client:** show one banner when the D-Pilot server is unreachable ([4c15c0e](https://github.com/ProjectAJ14/d-pilot/commit/4c15c0e2d22382f3eeb10aa3f43999fa8a3b3804))
+* **mcp-bridge:** let the bridge add itself to Claude Desktop's config ([a8ef61a](https://github.com/ProjectAJ14/d-pilot/commit/a8ef61a2a43f31b85125af290c57d52d5250e1a3))
+* **mcp-setup:** build the token on the page, with macOS and Windows commands ([f759348](https://github.com/ProjectAJ14/d-pilot/commit/f759348acced1092c43d002737a5f44b379234cd))
+* **mcp:** add a local stdio bridge that explains an unreachable server ([6dfda11](https://github.com/ProjectAJ14/d-pilot/commit/6dfda110a5a3bfd50fc14e10d1cb2c280b250e42))
+* **server:** explain unreachable databases and add a network hint setting ([004f8ac](https://github.com/ProjectAJ14/d-pilot/commit/004f8ac8dadd245b16aa700bec6893b051c2d27f))
+
 # [2.3.0](https://github.com/ProjectAJ14/d-pilot/compare/v2.2.0...v2.3.0) (2026-10-23)
 
 
