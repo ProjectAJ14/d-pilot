@@ -8,6 +8,7 @@ import {
   summarizeTables,
   dropPhiValues,
   getCachedFullSchema,
+  getSchemas,
   clearSchemaCache,
   type FullSchema,
 } from "./schema-introspector.js";
@@ -23,14 +24,21 @@ const h = vi.hoisted(() => ({
   valuesOn: true,
   sql: [] as string[],
   gate: undefined as Promise<void> | undefined,
+  // Every pool built, so a test can make one report a dropped connection.
+  pools: [] as import("node:events").EventEmitter[],
 }));
 vi.mock("./sqlite-store.js", () => ({
   getAiColumnValuesEnabled: () => h.valuesOn,
   getSetting: () => null,
 }));
-vi.mock("pg", () => ({
+// EventEmitters like the real pools, so an unheard 'error' throws as it would.
+vi.mock("pg", async () => ({
   default: {
-    Pool: class {
+    Pool: class extends (await import("node:events")).EventEmitter {
+      constructor() {
+        super();
+        h.pools.push(this);
+      }
       async query(sql: string) {
         h.sql.push(sql);
         await h.gate;
@@ -40,7 +48,8 @@ vi.mock("pg", () => ({
     },
   },
 }));
-vi.mock("mssql", () => {
+vi.mock("mssql", async () => {
+  const { EventEmitter } = await import("node:events");
   const recordset = (sql: string) =>
     sql.includes("INFORMATION_SCHEMA.TABLES")
       ? [{ TABLE_NAME: "orders", TABLE_TYPE: "BASE TABLE" }]
@@ -68,7 +77,11 @@ vi.mock("mssql", () => {
   return {
     default: {
       VarChar: "varchar",
-      ConnectionPool: class {
+      ConnectionPool: class extends EventEmitter {
+        constructor() {
+          super();
+          h.pools.push(this);
+        }
         async connect() {}
         request = request;
         async close() {}
@@ -500,4 +513,28 @@ describe("clearSchemaCache", () => {
     // The old definition's schema must not be served from cache.
     expect((await getCachedFullSchema(conn)).cached).toBe(false);
   });
+});
+
+// The database restarting, or the VPN dropping, while an introspection pool is
+// open: the pool reports it as an 'error' event, which unheard would crash the server.
+describe("an introspection pool whose connection drops", () => {
+  it.each(["postgres", "mssql"] as const)(
+    "is logged, not fatal, for %s",
+    async (type) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      h.pools.length = 0;
+      await getSchemas({ id: "c1", name: "c", env: "DEV", type, host: "db" });
+      expect(h.pools).toHaveLength(1);
+      expect(() =>
+        h.pools[0].emit(
+          "error",
+          new Error("Connection terminated unexpectedly"),
+        ),
+      ).not.toThrow();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("Connection terminated unexpectedly"),
+      );
+      warn.mockRestore();
+    },
+  );
 });

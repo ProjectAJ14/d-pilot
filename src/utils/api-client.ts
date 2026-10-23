@@ -11,6 +11,13 @@ import type {
   ConnectionAdminView,
 } from "../types";
 import { BASE_PATH } from "./base-path";
+import {
+  PROXY_TIMEOUT_MESSAGE,
+  SERVER_UNREACHABLE_MESSAGE,
+  isDpilotErrorBody,
+  isUnreachableRejection,
+  isUnreachableStatus,
+} from "./server-reachability";
 
 /** Body for creating/updating a connection. A blank password/uri keeps the stored one. */
 export type ConnectionInput = Omit<
@@ -37,13 +44,81 @@ const BASE_URL = `${BASE_PATH}/api`;
 export class ApiError extends Error {
   status: number;
   code?: ApiErrorCode;
+  /** A write route's 503: the request as it now is (see write-not-reached.ts). */
+  request?: WriteRequest;
 
-  constructor(message: string, status: number, code?: ApiErrorCode) {
+  constructor(
+    message: string,
+    status: number,
+    code?: ApiErrorCode,
+    request?: WriteRequest,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.request = request;
   }
+}
+
+// What the store's serverUnreachable flag was last set to from here, so a
+// healthy response only touches the store when the state actually changes.
+let lastUnreachable = false;
+
+async function setServerUnreachable(unreachable: boolean): Promise<void> {
+  if (unreachable === lastUnreachable) return;
+  lastUnreachable = unreachable;
+  // Lazy, like logout below: the store has import-time side effects.
+  const { useStore } = await import("../store");
+  useStore.getState().setServerUnreachable(unreachable);
+}
+
+/**
+ * fetch, but "the D-Pilot server can't be reached" — no response at all, or a
+ * proxy's 502 — becomes one ApiError (code SERVER_UNREACHABLE) and raises the
+ * banner; any other response lowers it. A 503 is D-Pilot answering about a
+ * database, so it passes through to the caller untouched. A 504 is an ordinary
+ * error plus one health ping, which raises the banner only if it fails; the
+ * ping itself (`probe`) reads a 504 as unreachable, so it never loops.
+ */
+async function send(
+  url: string,
+  init?: RequestInit,
+  probe = false,
+): Promise<Response> {
+  // Built outside the try: a request fetch refuses to send (a header that
+  // isn't Latin-1, say) throws here as the bug it is, not as an outage.
+  const req = new Request(url, init);
+  let res: Response;
+  try {
+    res = await fetch(req);
+  } catch (err) {
+    if (!isUnreachableRejection(err)) throw err;
+    await setServerUnreachable(true);
+    throw new ApiError(SERVER_UNREACHABLE_MESSAGE, 0, "SERVER_UNREACHABLE");
+  }
+  if (res.status === 504 && !probe) {
+    void api.ping();
+    throw new ApiError(PROXY_TIMEOUT_MESSAGE, 504);
+  }
+  if (
+    isUnreachableStatus(res.status) &&
+    !isDpilotErrorBody(
+      await res
+        .clone()
+        .json()
+        .catch(() => null),
+    )
+  ) {
+    await setServerUnreachable(true);
+    throw new ApiError(
+      SERVER_UNREACHABLE_MESSAGE,
+      res.status,
+      "SERVER_UNREACHABLE",
+    );
+  }
+  await setServerUnreachable(false);
+  return res;
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -64,11 +139,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers["X-PHI-Shield"] = "off";
     const reason = localStorage.getItem("phi_unmask_reason");
     const notes = localStorage.getItem("phi_unmask_notes");
-    if (reason) headers["X-PHI-Unmask-Reason"] = reason;
-    if (notes) headers["X-PHI-Unmask-Notes"] = notes;
+    // Encoded: a header carries only Latin-1, and these are free text (an em
+    // dash, a name, a newline). The server decodes them for the audit log.
+    if (reason) headers["X-PHI-Unmask-Reason"] = encodeURIComponent(reason);
+    if (notes) headers["X-PHI-Unmask-Notes"] = encodeURIComponent(notes);
   }
 
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await send(`${BASE_URL}${path}`, {
     ...options,
     headers,
   });
@@ -87,6 +164,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       body.error || `Request failed: ${res.status}`,
       res.status,
       body.code,
+      body.request,
     );
   }
 
@@ -103,7 +181,7 @@ export const api = {
   getConfig: () =>
     // Public endpoint, so it skips `request()` and its auth headers — but it
     // still has to be based like everything else.
-    fetch(`${BASE_URL}/config`).then((r) => r.json()) as Promise<{
+    send(`${BASE_URL}/config`).then((r) => r.json()) as Promise<{
       appName: string;
       logoUrl: string | null;
       lightLogoUrl: string | null;
@@ -111,9 +189,17 @@ export const api = {
       emailDomain: string | null;
       loginTagline: string;
       loginSubtitle: string;
+      networkHint: string;
       phiMaskedEnvironments: string[];
       environments: string[];
     }>,
+
+  /** Liveness probe for the unreachable banner's retry loop; never throws. */
+  ping: () =>
+    send(`${BASE_URL}/health`, undefined, true).then(
+      (r) => r.ok,
+      () => false,
+    ),
 
   // Auth
   login: (username: string, password: string) =>

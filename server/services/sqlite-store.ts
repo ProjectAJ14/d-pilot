@@ -1720,6 +1720,10 @@ export function claimWriteRequestForApproval(id: string): boolean {
  * `status` is the caller's: a resubmit goes back to PENDING, a draft edit stays
  * DRAFT. Passing PENDING for a draft would submit it as a side effect of an
  * edit, which is exactly what the draft gate exists to prevent.
+ *
+ * Applied only while the request is still in `from`, the status the caller
+ * checked; null otherwise. Two revises racing through validation must not both
+ * resubmit it — the second would put a running request back to PENDING.
  */
 export function reviseWriteRequest(
   id: string,
@@ -1735,10 +1739,12 @@ export function reviseWriteRequest(
     noTransaction?: boolean;
     status: WriteRequestStatus;
   },
+  from: WriteRequestStatus,
 ): WriteRequest | null {
   const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE write_requests SET
+  const { changes } = db
+    .prepare(
+      `UPDATE write_requests SET
        env = ?, connection_name = ?,
        title = ?, description = ?, select_sql = ?, write_sql = ?,
        is_migration = ?, no_transaction = ?,
@@ -1748,21 +1754,23 @@ export function reviseWriteRequest(
        rows_affected = NULL, execution_ms = NULL, execution_error = NULL, transactional = NULL,
        ai_verdict = NULL, ai_review_json = NULL,
        updated_at = ?
-     WHERE id = ?`,
-  ).run(
-    fields.env,
-    fields.connectionName ?? null,
-    fields.title,
-    fields.description ?? null,
-    fields.selectSql ?? null,
-    fields.writeSql,
-    fields.isMigration ? 1 : 0,
-    fields.noTransaction ? 1 : 0,
-    fields.status,
-    now,
-    id,
-  );
-  return getWriteRequest(id);
+     WHERE id = ? AND status = ?`,
+    )
+    .run(
+      fields.env,
+      fields.connectionName ?? null,
+      fields.title,
+      fields.description ?? null,
+      fields.selectSql ?? null,
+      fields.writeSql,
+      fields.isMigration ? 1 : 0,
+      fields.noTransaction ? 1 : 0,
+      fields.status,
+      now,
+      id,
+      from,
+    );
+  return changes === 1 ? getWriteRequest(id) : null;
 }
 
 /**

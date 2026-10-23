@@ -25,6 +25,8 @@ docs {
 
   Same connection check as Approve: 409 if the request's connection changed since it was submitted, or no longer exists. Nothing runs and the request stays PENDING.
 
+  503 `CONNECTION_FAILED` when the database can't be reached before anything is sent: nothing ran, the request stays PENDING, and the body carries it as `request`. Audited as `WRITE_EXECUTE_ERROR`.
+
   Requires a valid Bearer JWT ({{token}}).
   Requires **write mode** to be enabled.
 }

@@ -46,17 +46,17 @@ queries**, **UI** (`sidebarOpen`, `phiPanelOpen`, `aiAssistantOpen`), **write ha
 
 ## Routing (`App.tsx`, React Router v7)
 
-| Path                  | View                                                                                        |
-| --------------------- | ------------------------------------------------------------------------------------------- |
-| `/`                   | Query workspace (`query/query-workspace.tsx`)                                               |
-| `/write`              | Write composer workspace (`write/write-workspace.tsx`)                                      |
-| `/requests`           | Write requests list (`write/requests-page.tsx`)                                             |
-| `/write-requests/:id` | Write request detail + timeline (`write/write-request-detail.tsx`)                          |
-| `/saved-queries/:id`  | Saved-query share link — opens the query in a new editor tab (`query/saved-query-link.tsx`) |
-| `/artifacts/:id`      | Artifact share link — opens the document as a tab (`query/artifact-link.tsx`)               |
-| `/profile`            | Profile / password (`pages/profile-page.tsx`)                                               |
-| `/docs/mcp`           | Connect an AI agent — MCP setup prompt generator (`pages/mcp-setup-page.tsx`)               |
-| `/settings`           | Admin settings, sidebar-nav (`pages/settings-page.tsx`)                                     |
+| Path                  | View                                                                                                                                                                                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/`                   | Query workspace (`query/query-workspace.tsx`)                                                                                                                                                                                                                      |
+| `/write`              | Write composer workspace (`write/write-workspace.tsx`)                                                                                                                                                                                                             |
+| `/requests`           | Write requests list (`write/requests-page.tsx`)                                                                                                                                                                                                                    |
+| `/write-requests/:id` | Write request detail + timeline (`write/write-request-detail.tsx`)                                                                                                                                                                                                 |
+| `/saved-queries/:id`  | Saved-query share link — opens the query in a new editor tab (`query/saved-query-link.tsx`)                                                                                                                                                                        |
+| `/artifacts/:id`      | Artifact share link — opens the document as a tab (`query/artifact-link.tsx`)                                                                                                                                                                                      |
+| `/profile`            | Profile / password (`pages/profile-page.tsx`)                                                                                                                                                                                                                      |
+| `/docs/mcp`           | Connect an AI agent — manual macOS/Linux + Windows (PowerShell) MCP setup commands; username prefilled from `user.username`, credential built in the browser and only in the copied text, never an agent prompt (`pages/mcp-setup-page.tsx`, `utils/mcp-setup.ts`) |
+| `/settings`           | Admin settings, sidebar-nav (`pages/settings-page.tsx`)                                                                                                                                                                                                            |
 
 Unknown paths redirect to `/`.
 
@@ -100,10 +100,29 @@ writing to the tab in the store.
 ## Utils (`utils/`)
 
 - **`api-client.ts`** — fetch wrapper. Injects `Authorization: Bearer` and PHI headers
-  (`X-PHI-Shield`, `X-PHI-Unmask-Reason`, `X-PHI-Unmask-Notes`). Auto-logout on 401 (calls
+  (`X-PHI-Shield`, `X-PHI-Unmask-Reason`, `X-PHI-Unmask-Notes`). Reason and notes go through
+  `encodeURIComponent`: a header carries only Latin-1, and a raw em dash, name or newline
+  makes `new Request` throw on every call. Auto-logout on 401 (calls
   store `logout`). Its base is `${BASE_PATH}/api`, so every call is sub-path-correct —
   **add new endpoints here rather than calling `fetch("/api/...")` directly**, which is the
   one thing that silently breaks a sub-path deployment.
+- **`server-reachability.ts`** — no response from fetch (or a proxy's 502 that isn't
+  D-Pilot's JSON error) means the D-Pilot server itself is unreachable — typically the VPN is
+  off while the PWA shell still loads from cache. `api-client` turns that into one `ApiError`
+  with code `SERVER_UNREACHABLE` and raises the store's `serverUnreachable`; any response
+  lowers it. The `Request` is built before the `try`, so a request fetch refuses to send (a
+  non-Latin-1 header) is an ordinary error, not an outage. A 504 is usually a proxy timing
+  out one long query: an ordinary `ApiError` plus one `api.ping()`, and the banner only if
+  that fails. A 503 is **not** in the set either: it is the server's `CONNECTION_FAILED` for
+  an unreachable _database_ (write routes add `request`, see `write-not-reached.ts`).
+  `layout/server-unreachable-banner.tsx` shows one sticky line (with the last-known
+  `networkHint`, persisted in `localStorage` because it is needed exactly when `/api/config`
+  can't load; sign-in shows the same text via `loginErrorMessage`) and retries through
+  `startReachabilityWatch` — every 10 s and on `online`, one ping at a time. When the flag
+  falls, `reloadOnRecovery` (`app-config.ts`) re-runs `App.tsx`'s boot loaders, so an app
+  opened with the VPN off fills in without a reload. `notifyError` drops
+  `SERVER_UNREACHABLE` so there is no toast per call — a bare
+  `notifications.show(err.message)` must check `isServerUnreachable(err)` itself.
 - **`base-path.ts`** — `BASE_URL` (trailing slash) and `BASE_PATH` (none, empty at root),
   read from Vite's `import.meta.env.BASE_URL`, which `vite.config.ts` sets from the
   `BASE_PATH` env var at build time. Needed only for URLs assembled at runtime: the API

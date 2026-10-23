@@ -81,7 +81,8 @@ Naming conventions for the Action word:
 - **PHI** — endpoints that return maskable data (Execute Query, Export CSV/JSON, Preview
   Write Request) carry three **disabled** headers: `X-PHI-Shield: off`,
   `X-PHI-Unmask-Reason`, `X-PHI-Unmask-Notes`. Enable them to request unmasking where you
-  hold the capability; PROD is always tokenized regardless.
+  hold the capability; PROD is always tokenized regardless. Reason and notes are free text
+  sent URI-encoded (`encodeURIComponent`), since a header carries only Latin-1.
 - **Bodies** are example payloads showing the shape the handler reads — adjust values, keep
   the keys aligned with the route's `req.body` destructuring.
 - **`docs`** on every request states what it does and its auth/admin/write-mode/PHI notes.

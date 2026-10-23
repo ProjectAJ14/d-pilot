@@ -32,8 +32,9 @@ import {
 import { notifications } from "@mantine/notifications";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../../store";
-import { api, ApiError } from "../../utils/api-client";
+import { api } from "../../utils/api-client";
 import { isReportable, notifyError } from "../../utils/notify-error";
+import { isServerUnreachable } from "../../utils/server-reachability";
 import { copySavedQueryShareLink } from "../../utils/share-links";
 import { downloadTextFile } from "../../utils/download-file";
 import type {
@@ -560,14 +561,12 @@ export function QueryEditor({
       .catch((err) => {
         if (cancelled) return;
         setSchemas([]);
+        if (isServerUnreachable(err)) return; // the banner says it
         notifications.show({
           id: `schemas-failed-${connId}`,
           color: "red",
           title: "Unable to load schemas",
-          message:
-            err instanceof ApiError && err.code === "CONNECTION_FAILED"
-              ? "The database host could not be reached. Check your network connection."
-              : err.message,
+          message: err.message,
         });
       });
     return () => {
@@ -671,7 +670,9 @@ export function QueryEditor({
         loading: false,
         result: null,
       });
-      notifications.show({ message: err.message, color: "red" });
+      // The error stays inline in the results panel; the banner covers the toast.
+      if (!isServerUnreachable(err))
+        notifications.show({ message: err.message, color: "red" });
     }
   }, [
     tab.sql,

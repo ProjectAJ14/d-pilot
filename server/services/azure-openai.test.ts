@@ -161,8 +161,9 @@ describe("content filter", () => {
     expect(
       aiErrorResponse(new AzureOpenAIError("raw", 400, true), "fallback"),
     ).toEqual({ status: 422, error: CONTENT_FILTER_MESSAGE });
+    // Not 502: the browser reads that as "D-Pilot is unreachable".
     expect(aiErrorResponse(new AzureOpenAIError("raw", 400), "f")).toEqual({
-      status: 502,
+      status: 500,
       error: "raw",
     });
     expect(aiErrorResponse(new Error(""), "fallback")).toEqual({

@@ -64,6 +64,7 @@ async function boot(basePath: string): Promise<Booted> {
       // .env fallback for the login text; LOGIN_SUBTITLE keeps its default.
       LOGIN_TAGLINE: "Env tagline",
       LOGIN_SUBTITLE: "",
+      NETWORK_HINT: "Connect to the VPN and retry.",
       DEFAULT_ADMIN_PASSWORD,
       JWT_SECRET: "integration-test-secret",
     },
@@ -178,5 +179,6 @@ describe.each([
     const config = await fetch(url("/api/config")).then((r) => r.json());
     expect(config.loginTagline).toBe("Env tagline");
     expect(config.loginSubtitle).toBe("HIPAA · PHI tokenized");
+    expect(config.networkHint).toBe("Connect to the VPN and retry.");
   });
 });

@@ -3444,6 +3444,10 @@ const SETTING_META: Record<
     label: "Login subtitle",
     hint: "e.g. a compliance note; empty hides it",
   },
+  NETWORK_HINT: {
+    label: "Network hint",
+    hint: "Shown when a database or the D-Pilot server can't be reached, e.g. 'Connect to the VPN and retry.'",
+  },
   APP_BASE_URL: {
     label: "Public base URL",
     hint: "Used in links the server builds",

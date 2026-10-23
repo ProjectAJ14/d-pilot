@@ -75,6 +75,8 @@ router.get("/api/config", (_req, res) => {
     // The login page renders before auth, hence public. "" hides the line.
     loginTagline: getConfig("LOGIN_TAGLINE") ?? "",
     loginSubtitle: getConfig("LOGIN_SUBTITLE") ?? "",
+    // Shown when a database or the server itself can't be reached; "" = none.
+    networkHint: getConfig("NETWORK_HINT") ?? "",
     phiMaskedEnvironments: getPhiMaskedEnvs(),
     // The deployment's environments, derived from its connections. The
     // client renders its env pickers from this — never a hardcoded list.
