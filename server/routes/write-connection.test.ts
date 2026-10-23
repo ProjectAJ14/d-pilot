@@ -19,6 +19,8 @@ vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "");
 
 const refused = () =>
   Object.assign(new AggregateError([], ""), { code: "ECONNREFUSED" });
+// What the write executor throws when its connect step is refused.
+const refusedAtConnect = () => Object.assign(refused(), { preConnect: true });
 
 const h = vi.hoisted(() => ({
   executeQuery: vi.fn(),
@@ -137,7 +139,7 @@ describe("a write that never reached its database", () => {
     async (action, who, body) => {
       const id = await submit();
       const audited = auditCount();
-      h.executeWrite.mockRejectedValueOnce(refused());
+      h.executeWrite.mockRejectedValueOnce(refusedAtConnect());
       const res = await call(who, `/${id}/${action}`, body);
       expect(res.status).toBe(503);
       expect(res.body.code).toBe("CONNECTION_FAILED");
@@ -156,20 +158,17 @@ describe("a write that never reached its database", () => {
   it("a timeout after connecting is FAILED: it may have run", async () => {
     const id = await submit();
     const audited = auditCount();
-    h.executeWrite.mockRejectedValueOnce(
-      Object.assign(new Error("Query read timeout"), { afterSend: true }),
-    );
+    h.executeWrite.mockRejectedValueOnce(new Error("Query read timeout"));
     const res = await call("approver", `/${id}/approve`);
     expect(res.status).toBe(500);
     expect(status(id)).toBe("FAILED");
     expect(auditCount()).toBe(audited + 1);
   });
 
-  it("even a refused connect is FAILED when raised after the statement was sent", async () => {
+  // Fail closed: only the executor's connect steps can say "nothing ran".
+  it("a refused connect from anywhere but a connect step is FAILED", async () => {
     const id = await submit();
-    h.executeWrite.mockRejectedValueOnce(
-      Object.assign(refused(), { afterSend: true }),
-    );
+    h.executeWrite.mockRejectedValueOnce(refused());
     expect((await call("approver", `/${id}/approve`)).status).toBe(500);
     expect(status(id)).toBe("FAILED");
   });
@@ -187,7 +186,7 @@ describe("a write that never reached its database", () => {
 
     it("create: comes back a DRAFT its author submits again to retry", async () => {
       const audited = auditCount();
-      h.executeWrite.mockRejectedValueOnce(refused());
+      h.executeWrite.mockRejectedValueOnce(refusedAtConnect());
       const res = await call("author", "", body);
       expect(res.status).toBe(503);
       expect(res.body.code).toBe("CONNECTION_FAILED");
@@ -204,7 +203,7 @@ describe("a write that never reached its database", () => {
 
     it("submit: the draft stays a draft", async () => {
       const draft = await call("author", "", { ...body, draft: true });
-      h.executeWrite.mockRejectedValueOnce(refused());
+      h.executeWrite.mockRejectedValueOnce(refusedAtConnect());
       const res = await call("author", `/${draft.body.id}/submit`);
       expect(res.status).toBe(503);
       expect(status(draft.body.id)).toBe("DRAFT");
@@ -214,7 +213,7 @@ describe("a write that never reached its database", () => {
       h.executeWrite.mockRejectedValueOnce(new Error("syntax error"));
       const failed = await call("author", "", body);
       expect(failed.body.status).toBe("FAILED");
-      h.executeWrite.mockRejectedValueOnce(refused());
+      h.executeWrite.mockRejectedValueOnce(refusedAtConnect());
       const res = await call("author", `/${failed.body.id}/revise`, {});
       expect(res.status).toBe(503);
       expect(status(failed.body.id)).toBe("DRAFT");

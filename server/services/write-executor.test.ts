@@ -34,6 +34,9 @@ const fail = vi.hoisted(() => ({
   mongoOp: null as unknown,
   mssqlBegin: null as unknown,
   mssqlQuery: null as unknown,
+  mssqlPool: null as unknown,
+  mongoConnect: null as unknown,
+  es: null as unknown,
 }));
 // Only the transaction surface the write path uses.
 vi.mock("mssql", () => ({
@@ -63,17 +66,29 @@ vi.mock("./query-executor.js", async (orig) => ({
         get:
           (_t, api: string) => async (_params: unknown, options: unknown) => {
             esCalls.push({ api, options });
+            if (fail.es) throw fail.es;
             return { updated: 1, deleted: 1 };
           },
       },
     ),
-  getMssqlPool: async () => ({}),
+  getMssqlPool: async () => {
+    if (fail.mssqlPool) throw fail.mssqlPool;
+    return {
+      request: () => ({
+        query: async () => {
+          if (fail.mssqlQuery) throw fail.mssqlQuery;
+          return { rowsAffected: [1] };
+        },
+      }),
+    };
+  },
   getPgPool: async () => ({
     connect: async () => {
       if (fail.pgConnect) throw fail.pgConnect;
       return {
         query: async (sql: string) => {
-          if (fail.pgQuery && sql !== "ROLLBACK") throw fail.pgQuery;
+          // The statement itself, not BEGIN/SET/ROLLBACK around it.
+          if (fail.pgQuery && /^(UPDATE|ALTER)/.test(sql)) throw fail.pgQuery;
           pgQueries.push(sql);
           return { rowCount: 1 };
         },
@@ -81,32 +96,35 @@ vi.mock("./query-executor.js", async (orig) => ({
       };
     },
   }),
-  getMongoClient: async () => ({
-    db: () => ({
-      collection: () =>
-        fail.mongoOp
-          ? new Proxy(
-              {},
-              {
-                get: () => async () => {
-                  throw fail.mongoOp;
+  getMongoClient: async () => {
+    if (fail.mongoConnect) throw fail.mongoConnect;
+    return {
+      db: () => ({
+        collection: () =>
+          fail.mongoOp
+            ? new Proxy(
+                {},
+                {
+                  get: () => async () => {
+                    throw fail.mongoOp;
+                  },
                 },
-              },
-            )
-          : fakeCollection,
-      command: async () => {
-        if (fail.mongoPing) throw fail.mongoPing;
-        return { ok: 1 };
-      },
-    }),
-    startSession: () => ({
-      withTransaction: async (fn: () => Promise<void>) => {
-        if (!replicaSet) throw new Error(txError);
-        await fn();
-      },
-      endSession: async () => {},
-    }),
-  }),
+              )
+            : fakeCollection,
+        command: async () => {
+          if (fail.mongoPing) throw fail.mongoPing;
+          return { ok: 1 };
+        },
+      }),
+      startSession: () => ({
+        withTransaction: async (fn: () => Promise<void>) => {
+          if (!replicaSet) throw new Error(txError);
+          await fn();
+        },
+        endSession: async () => {},
+      }),
+    };
+  },
 }));
 
 const { validateWriteQuery, parseMongoArgs, executeWrite, executeMigration } =
@@ -371,6 +389,9 @@ describe("pre-connect failures on the write path", () => {
       mongoOp: null,
       mssqlBegin: null,
       mssqlQuery: null,
+      mssqlPool: null,
+      mongoConnect: null,
+      es: null,
     });
     replicaSet = true;
   });
@@ -398,10 +419,16 @@ describe("pre-connect failures on the write path", () => {
   ])(
     "pg: an error raised once connected is not pre-connect (%s)",
     async (_n, run) => {
-      fail.pgQuery = refused();
-      const err = await caught(run());
-      expect(err).toBeTruthy();
-      expect(isPreConnectError(err)).toBe(false);
+      for (const e of [
+        refused(),
+        new Error("Connection terminated unexpectedly"),
+      ]) {
+        fail.pgQuery = e;
+        // (a no-transaction migration rewraps it, saying what was committed)
+        const err = await caught(run());
+        expect(err).toBeInstanceOf(Error);
+        expect(isPreConnectError(err)).toBe(false);
+      }
     },
   );
 
@@ -416,10 +443,21 @@ describe("pre-connect failures on the write path", () => {
       code: "ETIMEOUT",
     });
 
-  it("mssql: a connection that can't be acquired for the transaction is pre-connect", async () => {
-    fail.mssqlBegin = connectFailed();
+  it.each([
+    ["the pool's connect", "mssqlPool"],
+    ["the transaction's begin", "mssqlBegin"],
+  ] as const)("mssql: a failure in %s is pre-connect", async (_n, step) => {
+    fail[step] = connectFailed();
     expect(
       isPreConnectError(await caught(executeWrite(mssqlConn, update))),
+    ).toBe(true);
+    fail[step] = connectFailed(); // a fresh, untagged one
+    expect(
+      isPreConnectError(
+        await caught(
+          executeMigration(mssqlConn, "ALTER TABLE orders ADD note int"),
+        ),
+      ),
     ).toBe(true);
   });
 
@@ -430,22 +468,39 @@ describe("pre-connect failures on the write path", () => {
       () =>
         executeMigration(mssqlConn, "ALTER TABLE orders ADD note nvarchar(10)"),
     ],
+    [
+      // No separate acquire here: the query is the first call, so nothing it
+      // throws can be told apart from a failure after sending.
+      "a no-transaction migration",
+      () =>
+        executeMigration(mssqlConn, "ALTER TABLE orders ADD note int", {
+          noTransaction: true,
+        }),
+    ],
   ])(
     "mssql: an error once the transaction began is not (%s)",
     async (_n, run) => {
-      fail.mssqlQuery = connectFailed();
-      const err = await caught(run());
-      expect(err).toBeTruthy();
-      expect(isPreConnectError(err)).toBe(false);
+      for (const e of [
+        connectFailed(),
+        new Error("Connection lost - read ECONNRESET"),
+      ]) {
+        fail.mssqlQuery = e;
+        const err = await caught(run());
+        expect(err).toBe(e);
+        expect(isPreConnectError(err)).toBe(false);
+      }
     },
   );
 
-  it("mongo: a server that can't be selected for the ping is pre-connect", async () => {
-    fail.mongoPing = selection();
-    expect(
-      isPreConnectError(await caught(executeWrite(conn, mongoWrite))),
-    ).toBe(true);
-  });
+  it.each(["mongoConnect", "mongoPing"] as const)(
+    "mongo: a selection failure in %s is pre-connect",
+    async (step) => {
+      fail[step] = selection();
+      expect(
+        isPreConnectError(await caught(executeWrite(conn, mongoWrite))),
+      ).toBe(true);
+    },
+  );
 
   // The driver's retryable write selects a server again after the first
   // attempt was sent — that selection error says nothing about the first.
@@ -479,5 +534,63 @@ describe("pre-connect failures on the write path", () => {
       await executeWrite(es, sql);
     expect(esCalls).toHaveLength(6);
     for (const c of esCalls) expect(c.options).toEqual({ maxRetries: 0 });
+  });
+});
+
+describe("pre-connect failures on the Elasticsearch write path", () => {
+  const es = {
+    id: "es-w",
+    type: "elasticsearch",
+    env: "QA",
+  } as ConnectionConfig;
+  const write = 'POST orders/_doc {"a": 1}';
+  const esErr = (name: string, message: string, statusCode: number | null) =>
+    Object.assign(new Error(message), {
+      name,
+      meta: { body: null, statusCode },
+    });
+  beforeEach(() => {
+    fail.es = null;
+  });
+
+  it.each([
+    [
+      "a refused connect",
+      esErr("ConnectionError", "connect ECONNREFUSED 127.0.0.1:9200", null),
+    ],
+    [
+      "no living node to send to",
+      esErr(
+        "NoLivingConnectionsError",
+        "There are no living connections",
+        null,
+      ),
+    ],
+  ])("%s is pre-connect", async (_n, e) => {
+    fail.es = e;
+    const err = await executeWrite(es, write).catch((x) => x);
+    expect(isPreConnectError(err)).toBe(true);
+  });
+
+  it.each([
+    // A server answer is never pre-connect, whatever its text says.
+    [
+      "a ResponseError",
+      esErr("ResponseError", "connect ECONNREFUSED (remote reindex)", 502),
+    ],
+    [
+      "a ConnectionError that carries a response",
+      esErr("ConnectionError", "connect ECONNREFUSED", 503),
+    ],
+    [
+      "a socket closed after sending",
+      esErr("ConnectionError", "other side closed", null),
+    ],
+    ["a request timeout", esErr("TimeoutError", "Request timed out", null)],
+  ])("%s is not", async (_n, e) => {
+    fail.es = e;
+    const err = await executeWrite(es, write).catch((x) => x);
+    expect(err).toBe(e);
+    expect(isPreConnectError(err)).toBe(false);
   });
 });

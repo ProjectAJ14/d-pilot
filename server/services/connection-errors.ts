@@ -40,17 +40,31 @@ const PRE_CONNECT_PATTERN =
   /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|EAI_AGAIN|getaddrinfo|timeout exceeded when trying to connect/i;
 
 /**
+ * Tags an error thrown by a step that sends no statement (connect, pool
+ * acquire, begin, ping). Only the write executor's connect call sites use it.
+ */
+export function markPreConnect(err: unknown): unknown {
+  if (err && typeof err === "object")
+    (err as { preConnect?: boolean }).preConnect = true;
+  return err;
+}
+
+/**
  * True only when nothing reached the database, so a write that failed this way
- * can safely run again. A timeout or a reset after connecting has an unknown
- * outcome and is not pre-connect. The write executor sets `afterSend` on
- * anything raised once a statement may have been sent: a driver's own retry
- * can fail with a refused connect after its first attempt already landed.
+ * can safely run again. Fails closed: the error must come from a connect step
+ * (markPreConnect) AND look like a network failure there. Anything else — a
+ * timeout or reset after connecting, a driver's own retry, a server response
+ * whose text mentions ECONNREFUSED — has an unknown outcome and is not.
  */
 export function isPreConnectError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
-  const e = err as NonNullable<ErrShape> & { afterSend?: unknown };
-  if (e.afterSend || e.code === "ELOGIN") return false;
-  if (e.name === "MongoServerSelectionError") return true;
+  const e = err as NonNullable<ErrShape> & { preConnect?: unknown };
+  if (e.preConnect !== true || e.code === "ELOGIN") return false;
+  if (
+    e.name === "MongoServerSelectionError" ||
+    e.name === "NoLivingConnectionsError" // elasticsearch: nothing to send to
+  )
+    return true;
   // mssql raises ConnectionError only while acquiring a connection (a failure
   // mid-request is a RequestError); Elasticsearch's has no code.
   if (e.name === "ConnectionError" && typeof e.code === "string") return true;

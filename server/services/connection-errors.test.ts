@@ -3,8 +3,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const getConfig = vi.fn<(key: string) => string | undefined>();
 vi.mock("../config/settings.js", () => ({ getConfig }));
 
-const { connectionFailedMessage, isConnectionError, isPreConnectError } =
-  await import("./connection-errors.js");
+const {
+  connectionFailedMessage,
+  isConnectionError,
+  isPreConnectError,
+  markPreConnect,
+} = await import("./connection-errors.js");
 
 const coded = (err: Error, code: string, name?: string) =>
   Object.assign(err, { code }, name ? { name } : {});
@@ -110,8 +114,17 @@ describe("isPreConnectError", () => {
         coded(new Error(`connect ${code}`), code),
       ],
     ),
-  ])("nothing reached the database: %s", (_n, err) => {
-    expect(isPreConnectError(err)).toBe(true);
+  ])("nothing reached the database: %s, from a connect step", (_n, err) => {
+    // Tag a stand-in: the fixtures are shared with the untagged cases.
+    expect(
+      isPreConnectError(markPreConnect(Object.create(err as object))),
+    ).toBe(true);
+  });
+
+  // Fail closed: the same shapes from anywhere but a connect step may have
+  // followed a statement the server received (a driver's own retry, say).
+  it.each(CONNECT_FAILURES)("untagged, it may have run: %s", (_n, err) => {
+    expect(isPreConnectError(err)).toBe(false);
   });
 
   it.each([
@@ -130,15 +143,17 @@ describe("isPreConnectError", () => {
     ],
     ["a query error", coded(new Error('relation "x" does not exist'), "42P01")],
     ["null", null],
-  ] as [string, unknown][])("may have reached the database: %s", (_n, err) => {
-    expect(isPreConnectError(err)).toBe(false);
-  });
+  ] as [string, unknown][])(
+    "not a network failure, even from a connect step: %s",
+    (_n, err) => {
+      const tagged = err && markPreConnect(Object.create(err as object));
+      expect(isPreConnectError(tagged)).toBe(false);
+    },
+  );
 
-  it("is never true for an error raised after the statement was sent", () => {
-    const err = coded(new Error("connect ECONNREFUSED"), "ECONNREFUSED");
-    expect(isPreConnectError(Object.assign(err, { afterSend: true }))).toBe(
-      false,
-    );
+  it("only tags objects", () => {
+    expect(markPreConnect("ECONNREFUSED")).toBe("ECONNREFUSED");
+    expect(isPreConnectError(markPreConnect("ECONNREFUSED"))).toBe(false);
   });
 });
 

@@ -16,17 +16,22 @@ import {
   holdClient,
 } from "./query-executor.js";
 import { scanSql } from "./sql-scan.js";
+import { markPreConnect } from "./connection-errors.js";
 import type { ConnectionConfig, DatabaseType } from "../types/index.js";
 
 /**
- * Marks an error raised once a statement may have reached the server, so
- * isPreConnectError never reads it as "nothing ran" and the request is not
- * offered for a second run of a write that may have landed.
+ * Runs one connect / acquire / begin / ping step of a write — a call that
+ * sends no statement — tagging whatever it throws as pre-connect. Only these
+ * steps can produce an error isPreConnectError accepts: anything raised
+ * elsewhere may have followed a statement the server received, so it is
+ * "outcome unknown" by default whatever its message says (fail closed).
  */
-function sent(err: unknown): unknown {
-  if (err && typeof err === "object")
-    (err as { afterSend?: boolean }).afterSend = true;
-  return err;
+async function beforeSend<T>(step: () => Promise<T>): Promise<T> {
+  try {
+    return await step();
+  } catch (err) {
+    throw markPreConnect(err);
+  }
 }
 
 // DML verbs permitted for SQL engines. DDL and everything else is blocked.
@@ -302,7 +307,7 @@ async function executePgMigration(
   // into SQL, so anything but a plain identifier is refused, never run.
   const schema = conn.schema ? quoteSchemaIdent(conn.schema) : undefined;
   const pool = await getPgPool(conn);
-  const client = await pool.connect();
+  const client = await beforeSend(() => pool.connect());
   try {
     if (schema) await client.query(`SET search_path TO ${schema}`);
 
@@ -340,8 +345,6 @@ async function executePgMigration(
       }
     }
     return { rowsAffected: rows, transactional: false };
-  } catch (err) {
-    throw sent(err);
   } finally {
     client.release();
   }
@@ -352,7 +355,7 @@ async function executeMssqlMigration(
   script: string,
   noTransaction: boolean,
 ): Promise<{ rowsAffected: number; transactional: boolean }> {
-  const pool = await getMssqlPool(conn);
+  const pool = await beforeSend(() => getMssqlPool(conn));
   return holdClient(pool, async () => {
     const sumAffected = (affected: number | number[] | undefined) =>
       Array.isArray(affected)
@@ -370,7 +373,7 @@ async function executeMssqlMigration(
     }
 
     const tx = new mssql.Transaction(pool);
-    await tx.begin();
+    await beforeSend(() => tx.begin());
     try {
       const result = await new mssql.Request(tx).query(script);
       await tx.commit();
@@ -384,7 +387,7 @@ async function executeMssqlMigration(
       } catch {
         /* ignore rollback failure */
       }
-      throw sent(err);
+      throw err;
     }
   });
 }
@@ -439,7 +442,7 @@ async function executePgWrite(
 ): Promise<number> {
   const schema = conn.schema ? quoteSchemaIdent(conn.schema) : undefined; // see executePgMigration
   const pool = await getPgPool(conn);
-  const client = await pool.connect();
+  const client = await beforeSend(() => pool.connect());
   try {
     await client.query("BEGIN");
     if (schema) await client.query(`SET search_path TO ${schema}`);
@@ -452,7 +455,7 @@ async function executePgWrite(
     } catch {
       /* ignore rollback failure */
     }
-    throw sent(err);
+    throw err;
   } finally {
     client.release();
   }
@@ -462,10 +465,10 @@ async function executeMssqlWrite(
   conn: ConnectionConfig,
   sql: string,
 ): Promise<number> {
-  const pool = await getMssqlPool(conn);
+  const pool = await beforeSend(() => getMssqlPool(conn));
   return holdClient(pool, async () => {
     const tx = new mssql.Transaction(pool);
-    await tx.begin();
+    await beforeSend(() => tx.begin());
     try {
       const request = new mssql.Request(tx);
       const result = await request.query(sql);
@@ -480,7 +483,7 @@ async function executeMssqlWrite(
       } catch {
         /* ignore rollback failure */
       }
-      throw sent(err);
+      throw err;
     }
   });
 }
@@ -607,7 +610,7 @@ async function executeMongoWrite(
   conn: ConnectionConfig,
   sql: string,
 ): Promise<{ rowsAffected: number; transactional: boolean }> {
-  const client = await getMongoClient(conn);
+  const client = await beforeSend(() => getMongoClient(conn));
   return holdClient(client, async () => {
     const dbName =
       conn.database || conn.uri?.split("/").pop()?.split("?")[0] || "test";
@@ -616,8 +619,9 @@ async function executeMongoWrite(
     const collection = db.collection(collName);
     // A cached client connects nothing up front, and the write's own server
     // selection can come from a retry after its first attempt was sent. The
-    // ping settles "reachable" first, so only its failure is pre-connect.
-    await db.command({ ping: 1 });
+    // ping settles "reachable" first; only its failure is pre-connect, and a
+    // selection error from the operation itself stays "may have run".
+    await beforeSend(() => db.command({ ping: 1 }));
 
     // Prefer a real transaction; fall back to a direct op if the deployment is not
     // a replica set (transactions require one).
@@ -638,14 +642,10 @@ async function executeMongoWrite(
           msg,
         )
       ) {
-        try {
-          const rows = await runMongoOp(collection, verb, args);
-          return { rowsAffected: rows, transactional: false };
-        } catch (retryErr) {
-          throw sent(retryErr);
-        }
+        const rows = await runMongoOp(collection, verb, args);
+        return { rowsAffected: rows, transactional: false };
       }
-      throw sent(err);
+      throw err;
     } finally {
       await session.endSession();
     }
@@ -661,6 +661,22 @@ async function executeEsWrite(
   // have landed (an id-less _doc twice), and its refused connect would then
   // read as "nothing ran". With one attempt, a refused connect means just that.
   const once = { maxRetries: 0 };
+  // There is no separate connect: the write request is the first call. Only
+  // a transport failure with no response (a ConnectionError, or no living
+  // node to send to) can be pre-connect; isPreConnectError then still wants
+  // a refused/unresolved connect. A ResponseError (meta.statusCode) never is.
+  const send = async <T>(call: () => Promise<T>): Promise<T> => {
+    try {
+      return await call();
+    } catch (err: any) {
+      const transport =
+        err?.name === "ConnectionError" ||
+        err?.name === "NoLivingConnectionsError";
+      throw transport && err.meta?.statusCode == null
+        ? markPreConnect(err)
+        : err;
+    }
+  };
   return holdClient(client, async () => {
     const m = sql.trim().match(/^(POST|PUT|DELETE)\s+\/?(\S+)\s*([\s\S]*)?$/i);
     if (!m) throw new Error("Could not parse Elasticsearch write request");
@@ -672,28 +688,32 @@ async function executeEsWrite(
     const id = segments[2];
 
     if (endpoint === "_update_by_query") {
-      const r = await client.updateByQuery({ index, ...(body || {}) }, once);
+      const r = await send(() =>
+        client.updateByQuery({ index, ...(body || {}) }, once),
+      );
       return (r.updated as number) ?? 0;
     }
     if (endpoint === "_delete_by_query") {
-      const r = await client.deleteByQuery({ index, ...(body || {}) }, once);
+      const r = await send(() =>
+        client.deleteByQuery({ index, ...(body || {}) }, once),
+      );
       return (r.deleted as number) ?? 0;
     }
     if (endpoint === "_update" && id) {
-      await client.update({ index, id, ...(body || {}) }, once);
+      await send(() => client.update({ index, id, ...(body || {}) }, once));
       return 1;
     }
     if (endpoint === "_create" && id) {
-      await client.create({ index, id, document: body }, once);
+      await send(() => client.create({ index, id, document: body }, once));
       return 1;
     }
     if (endpoint === "_doc") {
       if (method.toUpperCase() === "DELETE") {
         if (!id) throw new Error("DELETE /index/_doc requires a document id");
-        await client.delete({ index, id }, once);
+        await send(() => client.delete({ index, id }, once));
         return 1;
       }
-      await client.index({ index, id, document: body }, once);
+      await send(() => client.index({ index, id, document: body }, once));
       return 1;
     }
     throw new Error(`Unsupported Elasticsearch write endpoint: ${endpoint}`);
