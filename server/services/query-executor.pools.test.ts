@@ -16,6 +16,24 @@ vi.mock("mongodb", async (orig) => ({
   },
 }));
 
+// An EventEmitter like the real pool, so an unheard 'error' throws as it would.
+vi.mock("mssql", async (orig) => {
+  const { EventEmitter } = await import("node:events");
+  const real = (await orig<{ default: object }>()).default;
+  return {
+    default: {
+      ...real,
+      ConnectionPool: class extends EventEmitter {
+        connected = true;
+        async connect() {
+          return this;
+        }
+        async close() {}
+      },
+    },
+  };
+});
+
 const esOptions: Record<string, unknown>[] = [];
 vi.mock("@elastic/elasticsearch", () => ({
   Client: class {
@@ -35,6 +53,7 @@ const {
   closeAllConnections,
   closeConnectionPool,
   getPgPool,
+  getMssqlPool,
   getMongoClient,
   getPoolStatus,
 } = await import("./query-executor.js");
@@ -247,5 +266,37 @@ describe("disconnectPool", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     await expect(disconnectPool("mongo-kick-2")).resolves.toBe(true);
     expect(log).toHaveBeenCalled();
+  });
+});
+
+// The database restarting, or the VPN dropping, closes idle pooled
+// connections. The pool reports that as an 'error' event; with no listener
+// Node throws it as an uncaught exception and the whole server exits.
+describe("an idle pooled connection that drops", () => {
+  const dropped = () => new Error("Connection terminated unexpectedly");
+  afterEach(() => closeAllConnections());
+
+  it("is logged, not fatal, for pg", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const pool = await getPgPool({ ...pgConn, id: "pg-drop" });
+    expect(() => pool.emit("error", dropped())).not.toThrow();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("Connection terminated unexpectedly"),
+    );
+    warn.mockRestore();
+  });
+
+  it("is logged, not fatal, for mssql", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const pool = await getMssqlPool({
+      ...pgConn,
+      id: "mssql-drop",
+      type: "mssql",
+    });
+    expect(() => pool.emit("error", dropped())).not.toThrow();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("Connection terminated unexpectedly"),
+    );
+    warn.mockRestore();
   });
 });
