@@ -8,6 +8,7 @@ import {
   Code,
   List,
   Alert,
+  SegmentedControl,
 } from "@mantine/core";
 import {
   IconArrowLeft,
@@ -23,20 +24,23 @@ import { BASE_PATH } from "../../utils/base-path";
 import { copyToClipboard } from "../../utils/clipboard";
 import { Card } from "./profile-page";
 import {
-  basicAuthValue,
-  claudeCodeBridgeSteps,
-  claudeCodeHttpSteps,
-  claudeDesktopConfig,
-  claudeDesktopSteps,
+  detectOs,
+  setupSteps,
+  type SetupClient,
+  type SetupOs,
   type SetupStep,
 } from "../../utils/mcp-setup";
 
+/** Chromium's client hint where there is one, else the user agent. */
+const platform = () =>
+  (navigator as Navigator & { userAgentData?: { platform?: string } })
+    .userAgentData?.platform || navigator.userAgent;
+
 /**
  * Manual, numbered steps for connecting an agent to `/api/mcp`, run by the user
- * in their own terminal. Nothing here is meant to be pasted into an AI chat:
- * the Claude Code commands carry no password (the shell reads it), and only the
- * Claude Desktop config — pasted into a file by hand — carries the credential,
- * encoded here in the browser and never sent anywhere.
+ * in their own terminal. Nothing here is meant to be pasted into an AI chat.
+ * The credential is encoded in this browser, never sent anywhere, and only
+ * ever in the copied text — the screen shows it masked.
  */
 export function McpSetupPage() {
   const navigate = useNavigate();
@@ -44,16 +48,13 @@ export function McpSetupPage() {
   const user = useStore((s) => s.user);
   const [username, setUsername] = useState(user?.email || user?.username || "");
   const [password, setPassword] = useState("");
+  const [os, setOs] = useState<SetupOs>(() => detectOs(platform()));
 
   // Assembled at runtime, so it has to carry the sub-path itself.
   const mcpUrl = `${window.location.origin}${BASE_PATH}/api/mcp`;
-  const name = username.trim() || "<username>";
-  const ready = !!username.trim() && !!password;
-  const masked = ready ? "Basic ••••••••" : "Basic <enter the password above>";
-  const desktopShown = claudeDesktopConfig(mcpUrl, masked);
-  const desktopCopy = ready
-    ? claudeDesktopConfig(mcpUrl, basicAuthValue(username.trim(), password))
-    : null;
+  const steps = (client: SetupClient) =>
+    setupSteps(client, os, mcpUrl, username.trim(), password);
+  const shell = os === "windows" ? "PowerShell" : "a terminal";
 
   return (
     <div style={{ flex: 1, minWidth: 0, overflow: "auto" }}>
@@ -104,12 +105,23 @@ export function McpSetupPage() {
         <Card
           icon={<IconKey size={16} color="var(--accent)" />}
           title="Account"
-          desc="Your own login, or a service account's. The Claude Code commands ask for its password in your terminal."
+          desc="Your own login, or a service account's. The password is encoded in this browser, never sent anywhere, and only goes into the text you copy."
         >
           <TextInput
             label="Username"
             value={username}
             onChange={(e) => setUsername(e.currentTarget.value)}
+            autoComplete="off"
+            mb="sm"
+          />
+          {/* Typed on purpose, never autofilled: a saved login is not
+              necessarily the account the agent should use. */}
+          <PasswordInput
+            label="Password"
+            placeholder="Password for this account"
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.currentTarget.value)}
           />
         </Card>
 
@@ -125,6 +137,21 @@ export function McpSetupPage() {
               its context and its transcript.
             </Text>
           </Alert>
+          <SegmentedControl
+            size="xs"
+            mb="md"
+            value={os}
+            onChange={(v) => setOs(v as SetupOs)}
+            aria-label="Operating system"
+            styles={{
+              root: { "--sc-color": "var(--selected)", "--sc-shadow": "none" },
+              indicator: { border: "1px solid var(--accent)" },
+            }}
+            data={[
+              { value: "posix", label: "macOS / Linux" },
+              { value: "windows", label: "Windows" },
+            ]}
+          />
           <Tabs defaultValue="bridge">
             <Tabs.List mb="md">
               <Tabs.Tab value="bridge">Claude Code (recommended)</Tabs.Tab>
@@ -136,37 +163,25 @@ export function McpSetupPage() {
                 Goes through a small local bridge (Node 18+, no dependencies).
                 When {appName} is unreachable — the VPN is off, say — the agent
                 is told why instead of the server just failing, and the tools
-                come back by themselves once it is reachable again. On Windows,
-                run these in Git Bash.
+                come back by themselves once it is reachable again. Run these in{" "}
+                {shell}.
               </Text>
-              <Steps steps={claudeCodeBridgeSteps(mcpUrl, name)} />
+              <Steps steps={steps("bridge")} />
             </Tabs.Panel>
             <Tabs.Panel value="http">
               <Text size="xs" c="dimmed" mb="md">
                 No Node needed, but no explanation when {appName} is unreachable
-                and no automatic recovery: you reconnect the server by hand. On
-                Windows, run these in Git Bash.
+                and no automatic recovery: you reconnect the server by hand. Run
+                these in {shell}.
               </Text>
-              <Steps steps={claudeCodeHttpSteps(mcpUrl, name)} />
+              <Steps steps={steps("http")} />
             </Tabs.Panel>
             <Tabs.Panel value="desktop">
-              <Text size="xs" c="dimmed" mb="sm">
+              <Text size="xs" c="dimmed" mb="md">
                 Claude Desktop launches local servers only, so it runs the same
-                bridge. Its config file holds the credential, so enter the
-                password here to build it — it is encoded in this browser and
-                never sent anywhere.
+                bridge. Run step 1 in {shell}.
               </Text>
-              <PasswordInput
-                label="Password"
-                placeholder="Password for this account"
-                value={password}
-                onChange={(e) => setPassword(e.currentTarget.value)}
-                mb="md"
-              />
-              <Steps
-                steps={claudeDesktopSteps(mcpUrl, desktopShown)}
-                copyOverride={{ [desktopShown]: desktopCopy }}
-              />
+              <Steps steps={steps("desktop")} />
             </Tabs.Panel>
           </Tabs>
         </Card>
@@ -177,8 +192,10 @@ export function McpSetupPage() {
         >
           <List size="sm" spacing={4} c="var(--text)">
             <List.Item>
-              The Claude Desktop config contains a credential equivalent to the
-              password. Don't commit it or share it.
+              The copied commands and the Claude Desktop config contain a
+              credential equivalent to the password, and so do your shell
+              history and Claude's config afterwards. Don't commit or share
+              them.
             </List.Item>
             <List.Item>
               Serve {appName} over HTTPS — the credential is sent on every
@@ -198,18 +215,8 @@ export function McpSetupPage() {
   );
 }
 
-/**
- * Numbered steps. A step's code is copied as shown unless `copyOverride` maps
- * it to something else — the real credential behind a masked one — or to null,
- * which disables the copy until that can be built.
- */
-function Steps({
-  steps,
-  copyOverride = {},
-}: {
-  steps: SetupStep[];
-  copyOverride?: Record<string, string | null>;
-}) {
+/** Numbered steps; each code block copies `step.copy`, the real credential behind the masked one. */
+function Steps({ steps }: { steps: SetupStep[] }) {
   return (
     <List type="ordered" size="sm" spacing="md" c="var(--text)">
       {steps.map((step, i) => (
@@ -221,9 +228,7 @@ function Steps({
             <Snippet
               label={`step ${i + 1}`}
               shown={step.code}
-              copy={
-                step.code in copyOverride ? copyOverride[step.code] : step.code
-              }
+              copy={step.copy ?? null}
             />
           )}
           {step.note && (
@@ -261,7 +266,7 @@ function Snippet({
         variant="light"
         leftSection={<IconCopy size={14} />}
         disabled={!copy}
-        onClick={() => copy && copyToClipboard(copy, label)}
+        onClick={() => copy && copyToClipboard(copy, label, shown)}
       >
         {copy ? `Copy ${label}` : "Enter the password to copy"}
       </Button>

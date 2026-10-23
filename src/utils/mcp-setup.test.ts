@@ -1,14 +1,18 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import {
+  MASKED_AUTH,
   basicAuthValue,
   bridgeUrl,
-  claudeCodeBridgeSteps,
-  claudeCodeHttpSteps,
   claudeDesktopConfig,
-  claudeDesktopSteps,
+  detectOs,
+  psQuote,
+  setupSteps,
   shellQuote,
+  type SetupClient,
+  type SetupOs,
 } from "./mcp-setup";
 // The endpoint's real gate, so a header this page builds is proven to be one
 // the server accepts — not just one a copy of its logic accepts.
@@ -21,17 +25,13 @@ const decode = (auth: string) => {
 
 const HTTPS = "https://d-pilot.example.com/api/mcp";
 const SUBPATH = "https://d-pilot.example.com/d-pilot/api/mcp";
-const HTTP = "http://10.0.0.5:3101/api/mcp";
 const TRICKY_USER = "o'brien@example.com";
 // Spaces (leading/trailing too), both quotes, $, backtick, backslash, ':',
 // shell syntax and non-ASCII — everything that breaks naive quoting.
 const TRICKY_PASSWORD = ` p"a's $HOME \`id\` \\n ; | & * pässwörd-密码-🔑 : `;
-
-const codeOf = (steps: { code?: string }[]) =>
-  steps.map((s) => s.code ?? "").join("\n");
-/** The step that registers the server (the one with the password prompt). */
-const registerStep = (steps: { code?: string }[]) =>
-  steps.find((s) => s.code?.includes("claude mcp add"))!.code!;
+const AUTH = basicAuthValue("agent@example.com", "pw");
+const codes = (client: SetupClient, os: SetupOs, url = SUBPATH) =>
+  setupSteps(client, os, url, "agent@example.com", "pw").map((s) => s.copy);
 
 describe("basicAuthValue", () => {
   it("round-trips an ASCII login", () => {
@@ -55,6 +55,65 @@ describe("shellQuote", () => {
   it("escapes a single quote so the word stays literal", () => {
     expect(shellQuote("o'brien")).toBe(`'o'\\''brien'`);
   });
+
+  it.each(["/bin/bash", "/bin/zsh"].filter(existsSync))(
+    "round-trips a tricky string in %s",
+    (shell) => {
+      for (const s of [TRICKY_USER, TRICKY_PASSWORD, "'", "''", "a'b'c"]) {
+        const r = spawnSync(shell, ["-c", `printf '%s' ${shellQuote(s)}`], {
+          encoding: "utf8",
+        });
+        expect(r.stdout).toBe(s);
+      }
+    },
+  );
+});
+
+/**
+ * PowerShell's single-quoted string, as its tokenizer reads it: any of the
+ * four single-quote characters ends it unless doubled. pwsh isn't installed
+ * here, so this is the reference psQuote is checked against.
+ */
+function psUnquote(word: string): string {
+  const Q = /['‘’‚‛]/;
+  expect(Q.test(word[0])).toBe(true);
+  let out = "";
+  for (let i = 1; i < word.length; i++) {
+    if (Q.test(word[i])) {
+      if (i + 1 < word.length && Q.test(word[i + 1])) {
+        out += word[i];
+        i++;
+      } else {
+        expect(i, "the string ends early").toBe(word.length - 1);
+        return out;
+      }
+    } else out += word[i];
+  }
+  throw new Error("unterminated");
+}
+
+describe("psQuote", () => {
+  it("doubles a single quote", () => {
+    expect(psQuote("o'brien")).toBe("'o''brien'");
+    expect(psQuote("DPILOT_MCP_URL=https://x/api/mcp")).toBe(
+      "'DPILOT_MCP_URL=https://x/api/mcp'",
+    );
+  });
+
+  it("doubles the typographic quotes PowerShell also treats as quotes", () => {
+    expect(psQuote("o’brien")).toBe("'o’’brien'");
+  });
+
+  it("round-trips tricky strings and expands nothing", () => {
+    for (const s of [
+      TRICKY_USER,
+      TRICKY_PASSWORD,
+      "‘curly’ ‚low‛",
+      "'",
+      "$env:APPDATA `n",
+    ])
+      expect(psUnquote(psQuote(s))).toBe(s);
+  });
 });
 
 describe("bridgeUrl", () => {
@@ -66,158 +125,230 @@ describe("bridgeUrl", () => {
   });
 });
 
-describe("Claude Code steps", () => {
-  it("bridge: downloads from the sub-path and registers URL + shell-encoded auth", () => {
-    const steps = claudeCodeBridgeSteps(SUBPATH, "agent@example.com");
-    expect(steps[0].code).toBe(
-      "mkdir -p ~/.d-pilot && curl -fsSo ~/.d-pilot/mcp-bridge.mjs 'https://d-pilot.example.com/d-pilot/mcp-bridge.mjs'",
-    );
-    expect(steps[1].code).toContain(
-      `claude mcp add d-pilot -s user -e DPILOT_MCP_URL='${SUBPATH}' -e "DPILOT_MCP_AUTH=Basic $(printf '%s' 'agent@example.com:'"$DP" | base64 | tr -d '\\n')" -- node ~/.d-pilot/mcp-bridge.mjs`,
-    );
-    expect(steps[1].note).toMatch(/command -v node/);
-    expect(steps[1].note).toMatch(/claude mcp remove d-pilot -s user/);
-    expect(steps[2].code).toBe("claude mcp list");
-  });
-
-  it("direct HTTP: registers the URL with a shell-encoded header", () => {
-    const code = codeOf(claudeCodeHttpSteps(SUBPATH, "agent@example.com"));
-    expect(code).toContain(
-      `claude mcp add --scope user --transport http d-pilot '${SUBPATH}' --header "Authorization: Basic $(printf '%s' 'agent@example.com:'"$DP" | base64 | tr -d '\\n')"`,
-    );
-  });
-
-  it("hides the typed password and clears it afterwards", () => {
-    for (const steps of [
-      claudeCodeBridgeSteps(HTTPS, "u@example.com"),
-      claudeCodeHttpSteps(HTTPS, "u@example.com"),
-    ]) {
-      const code = codeOf(steps);
-      expect(code).toContain("IFS= read -rs DP");
-      expect(code.split("\n")).toContain("unset DP");
-    }
-  });
-
-  it("escapes a quote in the username", () => {
-    const code = codeOf(claudeCodeBridgeSteps(HTTPS, TRICKY_USER));
-    expect(code).toContain(`printf '%s' 'o'\\''brien@example.com:'"$DP"`);
-  });
-
-  it("uses an http URL as given, with no extra flags", () => {
-    for (const steps of [
-      claudeCodeBridgeSteps(HTTP, "u@example.com"),
-      claudeCodeHttpSteps(HTTP, "u@example.com"),
-    ]) {
-      const code = codeOf(steps);
-      expect(code).toContain(`'${HTTP}'`);
-      expect(code).not.toContain("--allow-http");
-    }
+describe("detectOs", () => {
+  it.each([
+    ["Windows", "windows"],
+    ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "windows"],
+    ["Win32", "windows"],
+    ["macOS", "posix"],
+    [
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605",
+      "posix",
+    ],
+    ["Darwin", "posix"],
+    ["Linux", "posix"],
+    ["Mozilla/5.0 (X11; Linux x86_64)", "posix"],
+    ["", "posix"],
+  ])("%s → %s", (platform, os) => {
+    expect(detectOs(platform)).toBe(os);
   });
 });
 
-// The real thing: run step 2 in bash and zsh with a stub `claude` that prints
-// its argv, feed the password on stdin, and decode what would be registered.
-describe.each(["/bin/bash", "/bin/zsh"])("step 2 in %s", (shell) => {
-  const argvOf = (code: string, password: string, prelude = "") => {
-    const stub = `${prelude}claude() { printf '%s\\0' "$@"; }\n`;
-    const after = `\nprintf 'DP after: [%s]' "$DP"`;
-    const r = spawnSync(shell, ["-c", stub + code + after], {
-      input: `${password}\n`,
-      encoding: "utf8",
-    });
-    expect(r.status, r.stderr).toBe(0);
-    return r.stdout.split("\0");
-  };
+describe("macOS / Linux commands", () => {
+  it("bridge", () => {
+    expect(codes("bridge", "posix")).toEqual([
+      "mkdir -p ~/.d-pilot && curl -fsSo ~/.d-pilot/mcp-bridge.mjs 'https://d-pilot.example.com/d-pilot/mcp-bridge.mjs'",
+      `claude mcp add -s user -e 'DPILOT_MCP_URL=${SUBPATH}' -e 'DPILOT_MCP_AUTH=${AUTH}' -t stdio d-pilot node ~/.d-pilot/mcp-bridge.mjs`,
+      "claude mcp list",
+    ]);
+  });
 
-  it.skipIf(!existsSync(shell)).each([
-    ["bridge", claudeCodeBridgeSteps, /^DPILOT_MCP_AUTH=(.*)$/s],
-    ["direct HTTP", claudeCodeHttpSteps, /^Authorization: (.*)$/s],
-  ] as const)("%s: a tricky login round-trips exactly", (_n, build, re) => {
-    const args = argvOf(
-      registerStep(build(HTTPS, TRICKY_USER)),
-      TRICKY_PASSWORD,
+  it("direct HTTP", () => {
+    expect(codes("http", "posix")).toEqual([
+      `claude mcp add --scope user --transport http d-pilot '${SUBPATH}' --header 'Authorization: ${AUTH}'`,
+      "claude mcp list",
+    ]);
+  });
+
+  it("Claude Desktop", () => {
+    const steps = setupSteps(
+      "desktop",
+      "posix",
+      SUBPATH,
+      "agent@example.com",
+      "pw",
     );
-    const auth = args.map((a) => a.match(re)?.[1]).find(Boolean)!;
-    expect(auth).toBe(basicAuthValue(TRICKY_USER, TRICKY_PASSWORD));
-    expect(decode(auth)).toEqual([TRICKY_USER, TRICKY_PASSWORD]);
-    expect(args.join(" ")).toContain(HTTPS);
-    // `unset DP` really ran.
-    expect(args.at(-1)).toMatch(/DP after: \[\]$/);
+    expect(steps[0].copy).toBe(
+      "mkdir -p ~/.d-pilot && curl -fsSo ~/.d-pilot/mcp-bridge.mjs 'https://d-pilot.example.com/d-pilot/mcp-bridge.mjs' && command -v node && echo ~/.d-pilot/mcp-bridge.mjs",
+    );
+    expect(steps[1].note).toContain(
+      "~/Library/Application Support/Claude/claude_desktop_config.json",
+    );
+    expect(steps[2].copy).toBe(claudeDesktopConfig(SUBPATH, AUTH));
   });
 
-  // Pasting the block puts every line on the terminal's input at once, ahead of
-  // the password: unless the shell reads the whole block before running it,
-  // `read` takes the next pasted line as the password.
-  it.skipIf(!existsSync(shell)).each([
-    ["bridge", claudeCodeBridgeSteps, /^DPILOT_MCP_AUTH=(.*)$/s],
-    ["direct HTTP", claudeCodeHttpSteps, /^Authorization: (.*)$/s],
-  ] as const)("%s: survives being pasted as one block", (_n, build, re) => {
-    const stub = `claude() { printf '%s\\0' "$@"; }\n`;
-    const r = spawnSync(shell, [], {
-      input: `${stub}${registerStep(build(HTTPS, "u@example.com"))}\n${TRICKY_PASSWORD}\n`,
-      encoding: "utf8",
-    });
-    const auth = r.stdout
-      .split("\0")
-      .map((a) => a.match(re)?.[1])
-      .find(Boolean);
-    expect(auth).toBe(basicAuthValue("u@example.com", TRICKY_PASSWORD));
+  it("notes say how to find node", () => {
+    const [, register] = setupSteps("bridge", "posix", HTTPS, "u", "p");
+    expect(register.note).toContain("`command -v node`");
+    expect(register.note).toMatch(/claude mcp remove d-pilot -s user/);
+  });
+});
+
+describe("Windows (PowerShell) commands", () => {
+  const PS_DOWNLOAD = `New-Item -ItemType Directory -Force "$HOME\\.d-pilot" | Out-Null; Invoke-WebRequest -UseBasicParsing -Uri 'https://d-pilot.example.com/d-pilot/mcp-bridge.mjs' -OutFile "$HOME\\.d-pilot\\mcp-bridge.mjs"`;
+
+  it("bridge", () => {
+    expect(codes("bridge", "windows")).toEqual([
+      PS_DOWNLOAD,
+      `claude mcp add -s user -e 'DPILOT_MCP_URL=${SUBPATH}' -e 'DPILOT_MCP_AUTH=${AUTH}' -t stdio d-pilot node "$HOME\\.d-pilot\\mcp-bridge.mjs"`,
+      "claude mcp list",
+    ]);
   });
 
-  it.skipIf(!existsSync(shell))(
-    "a login long enough for GNU base64 to wrap stays on one line",
-    () => {
-      const password = "x".repeat(200);
-      const code = registerStep(claudeCodeBridgeSteps(HTTPS, "u@example.com"));
-      // macOS base64 never wraps, so wrap like GNU does (76 columns) everywhere.
-      const gnu = "base64() { command base64 | fold -w 76; echo; }\n";
-      const auth = argvOf(code, password, gnu)
-        .find((a) => a.startsWith("DPILOT_MCP_AUTH="))!
-        .slice("DPILOT_MCP_AUTH=".length);
-      expect(auth).toBe(basicAuthValue("u@example.com", password));
+  it("direct HTTP", () => {
+    expect(codes("http", "windows")).toEqual([
+      `claude mcp add --scope user --transport http d-pilot '${SUBPATH}' --header 'Authorization: ${AUTH}'`,
+      "claude mcp list",
+    ]);
+  });
+
+  it("Claude Desktop prints the paths JSON-escaped", () => {
+    const steps = setupSteps(
+      "desktop",
+      "windows",
+      SUBPATH,
+      "agent@example.com",
+      "pw",
+    );
+    expect(steps[0].copy).toBe(
+      `${PS_DOWNLOAD}; (Get-Command node).Source.Replace('\\','\\\\'); "$HOME\\.d-pilot\\mcp-bridge.mjs".Replace('\\','\\\\')`,
+    );
+    expect(steps[1].note).toContain(
+      "$env:APPDATA\\Claude\\claude_desktop_config.json",
+    );
+    expect(steps[2].copy).toBe(claudeDesktopConfig(SUBPATH, AUTH));
+  });
+
+  it("notes say how to find node", () => {
+    const [, register] = setupSteps("bridge", "windows", HTTPS, "u", "p");
+    expect(register.note).toContain("`(Get-Command node).Source`");
+  });
+
+  // What PowerShell 5.1 gets wrong: curl is Invoke-WebRequest, there is no
+  // `&&`, `~` is not expanded for native programs, embedded double quotes are
+  // mangled, and `--` has not always reached native programs.
+  it.each(["bridge", "http", "desktop"] as const)(
+    "%s avoids what PowerShell 5.1 breaks",
+    (client) => {
+      const text = codes(client, "windows").join("\n");
+      expect(text).not.toMatch(/\bcurl\b|&&|~|\s--\s/);
+      for (const line of text.split("\n").filter((l) => l.startsWith("claude")))
+        // Double quotes only around a whole "$HOME\…" path, never inside a value.
+        expect(
+          line.replaceAll('"$HOME\\.d-pilot\\mcp-bridge.mjs"', ""),
+        ).not.toContain('"');
     },
   );
-});
 
-describe("no Claude Code command carries a credential", () => {
-  it.each([
-    ["bridge", claudeCodeBridgeSteps],
-    ["direct HTTP", claudeCodeHttpSteps],
-  ])("%s", (_n, build) => {
-    // The builders never take a password, so they cannot leak one.
-    expect(build.length).toBe(2);
-    const text = JSON.stringify(build(HTTPS, "agent@example.com"));
-    expect(text).not.toMatch(/Basic [A-Za-z0-9+/=]{8,}/);
-  });
-});
-
-describe("Claude Desktop", () => {
-  const auth = basicAuthValue("agent@example.com", "pw");
-  const entry = (url: string) =>
-    JSON.parse(claudeDesktopConfig(url, auth))["d-pilot"];
-
-  it("runs the bridge with URL and credential in env", () => {
-    expect(entry(SUBPATH)).toEqual({
-      command: "<node path from step 1>",
-      args: ["<bridge path from step 1>"],
-      env: { DPILOT_MCP_URL: SUBPATH, DPILOT_MCP_AUTH: auth },
-    });
-  });
-
-  it("takes an http URL as given, with no mcp-remote flags", () => {
-    expect(entry(HTTP).env.DPILOT_MCP_URL).toBe(HTTP);
-    expect(JSON.stringify(entry(HTTP))).not.toContain("--allow-http");
-  });
-
-  it("steps download from the sub-path in both shells and include the config", () => {
-    const config = claudeDesktopConfig(SUBPATH, "Basic ••••");
-    const steps = claudeDesktopSteps(SUBPATH, config);
-    const url = "https://d-pilot.example.com/d-pilot/mcp-bridge.mjs";
-    expect(steps[0].code).toContain(
-      `curl -fsSo ~/.d-pilot/mcp-bridge.mjs '${url}'`,
+  it("quotes a ' in a value by doubling it", () => {
+    const url = "https://d-pilot.example.com/o'brien/api/mcp";
+    const [, register] = codes("bridge", "windows", url);
+    expect(register).toContain(
+      `-e 'DPILOT_MCP_URL=https://d-pilot.example.com/o''brien/api/mcp'`,
     );
-    expect(steps[1].code).toContain(`Invoke-WebRequest -Uri '${url}'`);
-    expect(steps.map((s) => s.code)).toContain(config);
-    expect(JSON.stringify(steps)).toMatch(/claude_desktop_config\.json/);
   });
 });
+
+describe("the credential is only in the copied text", () => {
+  const OSES: SetupOs[] = ["posix", "windows"];
+  const CLIENTS: SetupClient[] = ["bridge", "http", "desktop"];
+  const real = basicAuthValue(TRICKY_USER, TRICKY_PASSWORD).slice(6);
+
+  it.each(OSES.flatMap((os) => CLIENTS.map((c) => [c, os] as const)))(
+    "%s on %s",
+    (client, os) => {
+      const steps = setupSteps(client, os, HTTPS, TRICKY_USER, TRICKY_PASSWORD);
+      const withCred = steps.filter((s) => s.code?.includes(MASKED_AUTH));
+      expect(withCred).toHaveLength(1);
+      for (const s of steps) {
+        expect(JSON.stringify([s.code, s.note, s.title])).not.toContain(real);
+        if (s.code?.includes(MASKED_AUTH)) {
+          expect(s.copy).toContain(real);
+          expect(s.copy).toBe(s.code!.replace(MASKED_AUTH, `Basic ${real}`));
+        } else expect(s.copy).toBe(s.code);
+      }
+    },
+  );
+
+  it.each([
+    ["no password", "agent@example.com", ""],
+    ["no username", "", "pw"],
+  ])("credential steps can't be copied with %s", (_n, user, password) => {
+    for (const client of CLIENTS) {
+      const steps = setupSteps(client, "posix", HTTPS, user, password);
+      for (const s of steps)
+        expect(s.copy).toBe(s.code?.includes(MASKED_AUTH) ? null : s.code);
+    }
+  });
+});
+
+// The real thing: run the copied macOS commands in bash and zsh with a stub
+// `claude` that prints its argv, and decode what would be registered.
+describe.each(["/bin/bash", "/bin/zsh"].filter(existsSync))(
+  "in %s",
+  (shell) => {
+    const argv = (code: string) => {
+      const r = spawnSync(
+        shell,
+        ["-c", `claude() { printf '%s\\0' "$@"; }\n${code}`],
+        {
+          encoding: "utf8",
+        },
+      );
+      expect(r.status, r.stderr).toBe(0);
+      return r.stdout.split("\0").slice(0, -1);
+    };
+    const register = (client: SetupClient) =>
+      setupSteps(client, "posix", SUBPATH, TRICKY_USER, TRICKY_PASSWORD).find(
+        (s) => s.copy?.startsWith("claude mcp add"),
+      )!.copy!;
+    const auth = basicAuthValue(TRICKY_USER, TRICKY_PASSWORD);
+
+    it("bridge: a tricky login and the bridge path arrive intact", () => {
+      expect(decode(auth)).toEqual([TRICKY_USER, TRICKY_PASSWORD]);
+      expect(argv(register("bridge"))).toEqual([
+        "mcp",
+        "add",
+        "-s",
+        "user",
+        "-e",
+        `DPILOT_MCP_URL=${SUBPATH}`,
+        "-e",
+        `DPILOT_MCP_AUTH=${auth}`,
+        "-t",
+        "stdio",
+        "d-pilot",
+        "node",
+        `${homedir()}/.d-pilot/mcp-bridge.mjs`,
+      ]);
+    });
+
+    it("direct HTTP: the header is one argument", () => {
+      expect(argv(register("http"))).toEqual([
+        "mcp",
+        "add",
+        "--scope",
+        "user",
+        "--transport",
+        "http",
+        "d-pilot",
+        SUBPATH,
+        "--header",
+        `Authorization: ${auth}`,
+      ]);
+    });
+
+    it("a URL with shell syntax and a ' stays one literal word", () => {
+      const url = "https://d-pilot.example.com/o'brien $HOME;`id`/api/mcp";
+      for (const client of ["bridge", "http"] as const) {
+        const code = setupSteps(client, "posix", url, "u", "p").find((s) =>
+          s.copy?.startsWith("claude mcp add"),
+        )!.copy!;
+        const args = argv(code);
+        expect(
+          args.includes(url) || args.includes(`DPILOT_MCP_URL=${url}`),
+        ).toBe(true);
+      }
+    });
+  },
+);

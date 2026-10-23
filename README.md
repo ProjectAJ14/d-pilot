@@ -433,63 +433,66 @@ paths.
 2. **Connect the agent — by hand, in your own terminal.** Not through an agent: don't use
    Claude Code's `!` prefix or paste these into a chat, because anything an AI sees ends up in
    its context and its transcript. The in-app **`/docs/mcp`** page (account menu → _Connect an
-   AI agent_) shows the same steps with your URL and username filled in.
+   AI agent_) builds these commands for you: your URL and username are filled in, you type the
+   password on the page, and the browser encodes it (it is never sent anywhere). The screen
+   shows the credential masked; only the copied text carries it. It picks macOS / Linux or
+   Windows from your browser, and you can switch.
+
+   Below, `<base64 of user:password>` is `base64("username:password")` — the setup page builds
+   it for you. The commands contain that credential, so it ends up in your shell history and in
+   Claude's config: don't share them.
 
    **Claude Code, through the local bridge (recommended — see
-   [Behind a VPN?](#behind-a-vpn-use-the-local-bridge)).** Needs Node 18+. On Windows, use
-   Git Bash.
-   1. Download the bridge:
+   [Behind a VPN?](#behind-a-vpn-use-the-local-bridge)).** Needs Node 18+. Download the
+   bridge, register it, then restart Claude Code and check that `claude mcp list` shows d-pilot
+   as Connected.
 
-      ```bash
-      mkdir -p ~/.d-pilot && curl -fsSo ~/.d-pilot/mcp-bridge.mjs https://d-pilot.example.com/mcp-bridge.mjs
-      ```
+   macOS / Linux (bash, zsh):
 
-   2. Register it. The password is read at a hidden prompt and encoded by your shell, so it
-      never reaches shell history, a browser or an AI:
+   ```bash
+   mkdir -p ~/.d-pilot && curl -fsSo ~/.d-pilot/mcp-bridge.mjs 'https://d-pilot.example.com/mcp-bridge.mjs'
+   claude mcp add -s user -e 'DPILOT_MCP_URL=https://d-pilot.example.com/api/mcp' \
+     -e 'DPILOT_MCP_AUTH=Basic <base64 of user:password>' -t stdio d-pilot node ~/.d-pilot/mcp-bridge.mjs
+   ```
 
-      ```bash
-      {
-      printf 'D-Pilot password: '; IFS= read -rs DP; echo
-      claude mcp add d-pilot -s user -e DPILOT_MCP_URL='https://d-pilot.example.com/api/mcp' \
-        -e "DPILOT_MCP_AUTH=Basic $(printf '%s' 'agent@example.com:'"$DP" | base64 | tr -d '\n')" \
-        -- node ~/.d-pilot/mcp-bridge.mjs
-      unset DP
-      }
-      ```
+   Windows (PowerShell 5.1 or 7):
 
-   3. Restart Claude Code and check that `claude mcp list` shows d-pilot as Connected.
+   ```powershell
+   New-Item -ItemType Directory -Force "$HOME\.d-pilot" | Out-Null; Invoke-WebRequest -UseBasicParsing -Uri 'https://d-pilot.example.com/mcp-bridge.mjs' -OutFile "$HOME\.d-pilot\mcp-bridge.mjs"
+   claude mcp add -s user -e 'DPILOT_MCP_URL=https://d-pilot.example.com/api/mcp' -e 'DPILOT_MCP_AUTH=Basic <base64 of user:password>' -t stdio d-pilot node "$HOME\.d-pilot\mcp-bridge.mjs"
+   ```
 
    Then ask the agent to "call the d-pilot whoami tool" — a prompt like that carries no
    credential. If Node comes from nvm or another version manager, use the absolute path from
-   `command -v node` instead of `node`. If `d-pilot` already exists, run
-   `claude mcp remove d-pilot -s user` first. Paste the block whole: the `{ … }` makes the
-   shell read all of it before running, so the hidden prompt waits for you instead of taking
-   the next pasted line as the password. (`tr -d '\n'` is there because GNU `base64` wraps
-   long output at 76 columns.)
+   `command -v node` (Windows: `(Get-Command node).Source`) instead of `node`. If `d-pilot`
+   already exists, run `claude mcp remove d-pilot -s user` first. `-t stdio` ends the list of
+   `-e` values, so the command needs no `--` (which PowerShell has not always passed on to
+   native programs).
 
-   **Claude Code, direct HTTP (no Node).** The same hidden prompt, registering the endpoint
-   itself. Simpler, but while D-Pilot is unreachable the server just fails with no reason
-   given, and you reconnect it by hand.
+   **Claude Code, direct HTTP (no Node).** Registers the endpoint itself. Simpler, but while
+   D-Pilot is unreachable the server just fails with no reason given, and you reconnect it by
+   hand. The same line works in bash, zsh and PowerShell:
 
    ```bash
-   {
-   printf 'D-Pilot password: '; IFS= read -rs DP; echo
-   claude mcp add --scope user --transport http d-pilot 'https://d-pilot.example.com/api/mcp' \
-     --header "Authorization: Basic $(printf '%s' 'agent@example.com:'"$DP" | base64 | tr -d '\n')"
-   unset DP
-   }
+   claude mcp add --scope user --transport http d-pilot 'https://d-pilot.example.com/api/mcp' --header 'Authorization: Basic <base64 of user:password>'
    ```
 
-   **Claude Desktop** launches local servers only, so it runs the same bridge. Download it as
-   in step 1 above (on Windows, in PowerShell:
-   `Invoke-WebRequest -Uri https://d-pilot.example.com/mcp-bridge.mjs -OutFile "$HOME\.d-pilot\mcp-bridge.mjs"`
-   after creating the folder), then open `claude_desktop_config.json` (Settings → Developer →
-   Edit Config; macOS `~/Library/Application Support/Claude/`, Windows `%APPDATA%\Claude\`)
-   and merge in the entry below by hand. Desktop does not use your shell's `PATH` or `~`, so
-   both paths must be absolute (`command -v node`, `echo ~/.d-pilot/mcp-bridge.mjs`; on
-   Windows double the backslashes). Fully quit and reopen Claude Desktop afterwards. The
-   `/docs/mcp` page builds this entry with your credential encoded in the browser — it
-   contains the credential, so paste it into the file yourself and don't share it.
+   **Claude Desktop** launches local servers only, so it runs the same bridge. Desktop does not
+   use your shell's `PATH` or `~`, so it needs absolute paths; download the bridge and print
+   them:
+
+   ```bash
+   mkdir -p ~/.d-pilot && curl -fsSo ~/.d-pilot/mcp-bridge.mjs 'https://d-pilot.example.com/mcp-bridge.mjs' && command -v node && echo ~/.d-pilot/mcp-bridge.mjs
+   ```
+
+   ```powershell
+   New-Item -ItemType Directory -Force "$HOME\.d-pilot" | Out-Null; Invoke-WebRequest -UseBasicParsing -Uri 'https://d-pilot.example.com/mcp-bridge.mjs' -OutFile "$HOME\.d-pilot\mcp-bridge.mjs"; (Get-Command node).Source.Replace('\','\\'); "$HOME\.d-pilot\mcp-bridge.mjs".Replace('\','\\')
+   ```
+
+   (The PowerShell one prints the paths with backslashes already doubled, as JSON needs.) Open
+   `claude_desktop_config.json` (Settings → Developer → Edit Config; macOS
+   `~/Library/Application Support/Claude/`, Windows `$env:APPDATA\Claude\`), merge in the entry
+   below with the printed paths, and fully quit and reopen Claude Desktop.
 
    ```json
    {
@@ -499,7 +502,7 @@ paths.
          "args": ["/Users/you/.d-pilot/mcp-bridge.mjs"],
          "env": {
            "DPILOT_MCP_URL": "https://d-pilot.example.com/api/mcp",
-           "DPILOT_MCP_AUTH": "Basic YWdlbnRAZXhhbXBsZS5jb206dGhlLXBhc3N3b3Jk"
+           "DPILOT_MCP_AUTH": "Basic <base64 of user:password>"
          }
        }
      }

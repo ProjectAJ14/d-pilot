@@ -46,17 +46,17 @@ queries**, **UI** (`sidebarOpen`, `phiPanelOpen`, `aiAssistantOpen`), **write ha
 
 ## Routing (`App.tsx`, React Router v7)
 
-| Path                  | View                                                                                             |
-| --------------------- | ------------------------------------------------------------------------------------------------ |
-| `/`                   | Query workspace (`query/query-workspace.tsx`)                                                    |
-| `/write`              | Write composer workspace (`write/write-workspace.tsx`)                                           |
-| `/requests`           | Write requests list (`write/requests-page.tsx`)                                                  |
-| `/write-requests/:id` | Write request detail + timeline (`write/write-request-detail.tsx`)                               |
-| `/saved-queries/:id`  | Saved-query share link — opens the query in a new editor tab (`query/saved-query-link.tsx`)      |
-| `/artifacts/:id`      | Artifact share link — opens the document as a tab (`query/artifact-link.tsx`)                    |
-| `/profile`            | Profile / password (`pages/profile-page.tsx`)                                                    |
-| `/docs/mcp`           | Connect an AI agent — manual MCP setup steps, never an agent prompt (`pages/mcp-setup-page.tsx`) |
-| `/settings`           | Admin settings, sidebar-nav (`pages/settings-page.tsx`)                                          |
+| Path                  | View                                                                                                                                                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`                   | Query workspace (`query/query-workspace.tsx`)                                                                                                                                                                             |
+| `/write`              | Write composer workspace (`write/write-workspace.tsx`)                                                                                                                                                                    |
+| `/requests`           | Write requests list (`write/requests-page.tsx`)                                                                                                                                                                           |
+| `/write-requests/:id` | Write request detail + timeline (`write/write-request-detail.tsx`)                                                                                                                                                        |
+| `/saved-queries/:id`  | Saved-query share link — opens the query in a new editor tab (`query/saved-query-link.tsx`)                                                                                                                               |
+| `/artifacts/:id`      | Artifact share link — opens the document as a tab (`query/artifact-link.tsx`)                                                                                                                                             |
+| `/profile`            | Profile / password (`pages/profile-page.tsx`)                                                                                                                                                                             |
+| `/docs/mcp`           | Connect an AI agent — manual macOS/Linux + Windows (PowerShell) MCP setup commands, credential built in the browser and only in the copied text, never an agent prompt (`pages/mcp-setup-page.tsx`, `utils/mcp-setup.ts`) |
+| `/settings`           | Admin settings, sidebar-nav (`pages/settings-page.tsx`)                                                                                                                                                                   |
 
 Unknown paths redirect to `/`.
 
