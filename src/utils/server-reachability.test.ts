@@ -17,6 +17,7 @@ vi.stubGlobal("window", { addEventListener: () => {} });
 
 const {
   bannerMessage,
+  isDpilotErrorBody,
   isServerUnreachable,
   isUnreachableRejection,
   isUnreachableStatus,
@@ -48,6 +49,13 @@ describe("classifying a fetch outcome", () => {
   it("treats a proxy's 502/504 as the server being unreachable", () => {
     expect(isUnreachableStatus(502)).toBe(true);
     expect(isUnreachableStatus(504)).toBe(true);
+  });
+
+  it("knows D-Pilot's own error body from a proxy's page", () => {
+    expect(isDpilotErrorBody({ error: "boom" })).toBe(true);
+    expect(isDpilotErrorBody({})).toBe(false);
+    expect(isDpilotErrorBody(null)).toBe(false);
+    expect(isDpilotErrorBody("<html>")).toBe(false);
   });
 
   it("leaves 503 (an unreachable database) and other errors to the caller", () => {
@@ -150,12 +158,73 @@ describe("api-client when the server is unreachable", () => {
     expect(flagged()).toBe(true);
   });
 
-  it("does the same for a proxy 502/504, and for the public config fetch", async () => {
-    vi.stubGlobal("fetch", reply(504));
+  it("does the same for a proxy's 502, and for the public config fetch", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response("<html>Bad Gateway</html>", { status: 502 }),
+      ),
+    );
     const err = await api.getConfig().catch((e) => e);
     expect(err.code).toBe("SERVER_UNREACHABLE");
-    expect(err.status).toBe(504);
+    expect(err.status).toBe(502);
     expect(flagged()).toBe(true);
+  });
+
+  it("reads a 502 carrying D-Pilot's own JSON error as an ordinary error", async () => {
+    vi.stubGlobal("fetch", reply(502, { error: "The AI provider failed" }));
+    const err = await api.getConnections().catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(502);
+    expect(err.message).toBe("The AI provider failed");
+    expect(isServerUnreachable(err)).toBe(false);
+    expect(flagged()).toBe(false);
+  });
+
+  // A proxy timing out a long query says nothing about the server's health.
+  const timeoutThenHealth = (health: () => Promise<Response>) =>
+    vi.fn(async (req: Request) =>
+      req.url.endsWith("/api/health")
+        ? health()
+        : new Response("<html>Gateway Timeout</html>", { status: 504 }),
+    );
+
+  it("reads a 504 as the proxy giving up, and keeps the banner down while health answers", async () => {
+    const fetchMock = timeoutThenHealth(async () => new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    const err = await api.getConnections().catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(504);
+    expect(err.message).toMatch(/took too long/);
+    expect(isServerUnreachable(err)).toBe(false);
+    await vi.waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([r]) => r.url.endsWith("/api/health")),
+      ).toHaveLength(1),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(flagged()).toBe(false);
+  });
+
+  it("counts a 504 on the health check itself as unreachable, once", async () => {
+    const fetchMock = reply(504);
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await api.ping()).toBe(false);
+    expect(flagged()).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("raises the banner after a 504 only when the health check fails too", async () => {
+    vi.stubGlobal(
+      "fetch",
+      timeoutThenHealth(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+    const err = await api.getConnections().catch((e) => e);
+    expect(isServerUnreachable(err)).toBe(false);
+    await vi.waitFor(() => expect(flagged()).toBe(true));
   });
 
   it("keeps a 503 as the server's own CONNECTION_FAILED, banner down", async () => {

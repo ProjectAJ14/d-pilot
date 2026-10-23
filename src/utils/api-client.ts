@@ -12,7 +12,9 @@ import type {
 } from "../types";
 import { BASE_PATH } from "./base-path";
 import {
+  PROXY_TIMEOUT_MESSAGE,
   SERVER_UNREACHABLE_MESSAGE,
+  isDpilotErrorBody,
   isUnreachableRejection,
   isUnreachableStatus,
 } from "./server-reachability";
@@ -65,11 +67,17 @@ async function setServerUnreachable(unreachable: boolean): Promise<void> {
 
 /**
  * fetch, but "the D-Pilot server can't be reached" — no response at all, or a
- * proxy's 502/504 — becomes one ApiError (code SERVER_UNREACHABLE) and raises
- * the banner; any other response lowers it. A 503 is D-Pilot answering about a
- * database, so it passes through to the caller untouched.
+ * proxy's 502 — becomes one ApiError (code SERVER_UNREACHABLE) and raises the
+ * banner; any other response lowers it. A 503 is D-Pilot answering about a
+ * database, so it passes through to the caller untouched. A 504 is an ordinary
+ * error plus one health ping, which raises the banner only if it fails; the
+ * ping itself (`probe`) reads a 504 as unreachable, so it never loops.
  */
-async function send(url: string, init?: RequestInit): Promise<Response> {
+async function send(
+  url: string,
+  init?: RequestInit,
+  probe = false,
+): Promise<Response> {
   // Built outside the try: a request fetch refuses to send (a header that
   // isn't Latin-1, say) throws here as the bug it is, not as an outage.
   const req = new Request(url, init);
@@ -81,7 +89,19 @@ async function send(url: string, init?: RequestInit): Promise<Response> {
     await setServerUnreachable(true);
     throw new ApiError(SERVER_UNREACHABLE_MESSAGE, 0, "SERVER_UNREACHABLE");
   }
-  if (isUnreachableStatus(res.status)) {
+  if (res.status === 504 && !probe) {
+    void api.ping();
+    throw new ApiError(PROXY_TIMEOUT_MESSAGE, 504);
+  }
+  if (
+    isUnreachableStatus(res.status) &&
+    !isDpilotErrorBody(
+      await res
+        .clone()
+        .json()
+        .catch(() => null),
+    )
+  ) {
     await setServerUnreachable(true);
     throw new ApiError(
       SERVER_UNREACHABLE_MESSAGE,
@@ -166,7 +186,7 @@ export const api = {
 
   /** Liveness probe for the unreachable banner's retry loop; never throws. */
   ping: () =>
-    send(`${BASE_URL}/health`).then(
+    send(`${BASE_URL}/health`, undefined, true).then(
       (r) => r.ok,
       () => false,
     ),

@@ -10,10 +10,23 @@ export const SERVER_UNREACHABLE_MESSAGE = "Can't reach the D-Pilot server.";
 /**
  * 502/504: a reverse proxy answered, but D-Pilot behind it did not. Not 503 —
  * that is D-Pilot itself saying a target *database* is unreachable
- * (CONNECTION_FAILED), which has its own message.
+ * (CONNECTION_FAILED), which has its own message. D-Pilot never sends 502/504
+ * itself, but a 502 with its JSON error body is still read as its answer, and
+ * api-client checks a 504 with a health ping first (see PROXY_TIMEOUT_MESSAGE).
  */
 export const isUnreachableStatus = (status: number): boolean =>
   status === 502 || status === 504;
+
+/** D-Pilot's error shape, `{ error: string }` — not a proxy's HTML page. */
+export const isDpilotErrorBody = (body: unknown): boolean =>
+  typeof (body as { error?: unknown } | null)?.error === "string";
+
+/**
+ * A 504 is usually a proxy timing out one long query while D-Pilot is fine,
+ * so it is an ordinary error; the banner waits for a health check to fail.
+ */
+export const PROXY_TIMEOUT_MESSAGE =
+  "The request took too long and the proxy gave up. D-Pilot may still be running it.";
 
 /** A rejected fetch got no HTTP response at all — unless we aborted it ourselves. */
 export const isUnreachableRejection = (err: unknown): boolean =>
