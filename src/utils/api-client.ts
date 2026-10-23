@@ -11,6 +11,11 @@ import type {
   ConnectionAdminView,
 } from "../types";
 import { BASE_PATH } from "./base-path";
+import {
+  SERVER_UNREACHABLE_MESSAGE,
+  isUnreachableRejection,
+  isUnreachableStatus,
+} from "./server-reachability";
 
 /** Body for creating/updating a connection. A blank password/uri keeps the stored one. */
 export type ConnectionInput = Omit<
@@ -46,6 +51,45 @@ export class ApiError extends Error {
   }
 }
 
+// What the store's serverUnreachable flag was last set to from here, so a
+// healthy response only touches the store when the state actually changes.
+let lastUnreachable = false;
+
+async function setServerUnreachable(unreachable: boolean): Promise<void> {
+  if (unreachable === lastUnreachable) return;
+  lastUnreachable = unreachable;
+  // Lazy, like logout below: the store has import-time side effects.
+  const { useStore } = await import("../store");
+  useStore.getState().setServerUnreachable(unreachable);
+}
+
+/**
+ * fetch, but "the D-Pilot server can't be reached" — no response at all, or a
+ * proxy's 502/504 — becomes one ApiError (code SERVER_UNREACHABLE) and raises
+ * the banner; any other response lowers it. A 503 is D-Pilot answering about a
+ * database, so it passes through to the caller untouched.
+ */
+async function send(url: string, init?: RequestInit): Promise<Response> {
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch (err) {
+    if (!isUnreachableRejection(err)) throw err;
+    await setServerUnreachable(true);
+    throw new ApiError(SERVER_UNREACHABLE_MESSAGE, 0, "SERVER_UNREACHABLE");
+  }
+  if (isUnreachableStatus(res.status)) {
+    await setServerUnreachable(true);
+    throw new ApiError(
+      SERVER_UNREACHABLE_MESSAGE,
+      res.status,
+      "SERVER_UNREACHABLE",
+    );
+  }
+  await setServerUnreachable(false);
+  return res;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem("dbpilot_token");
 
@@ -68,7 +112,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     if (notes) headers["X-PHI-Unmask-Notes"] = notes;
   }
 
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await send(`${BASE_URL}${path}`, {
     ...options,
     headers,
   });
@@ -103,7 +147,7 @@ export const api = {
   getConfig: () =>
     // Public endpoint, so it skips `request()` and its auth headers — but it
     // still has to be based like everything else.
-    fetch(`${BASE_URL}/config`).then((r) => r.json()) as Promise<{
+    send(`${BASE_URL}/config`).then((r) => r.json()) as Promise<{
       appName: string;
       logoUrl: string | null;
       lightLogoUrl: string | null;
@@ -115,6 +159,13 @@ export const api = {
       phiMaskedEnvironments: string[];
       environments: string[];
     }>,
+
+  /** Liveness probe for the unreachable banner's retry loop; never throws. */
+  ping: () =>
+    send(`${BASE_URL}/health`).then(
+      (r) => r.ok,
+      () => false,
+    ),
 
   // Auth
   login: (username: string, password: string) =>

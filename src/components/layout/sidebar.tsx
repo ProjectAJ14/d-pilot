@@ -56,6 +56,7 @@ import { notifications } from "@mantine/notifications";
 import { useStore } from "../../store";
 import { api, ApiError } from "../../utils/api-client";
 import { notifyError } from "../../utils/notify-error";
+import { isServerUnreachable } from "../../utils/server-reachability";
 import { copyToClipboard } from "../../utils/clipboard";
 import {
   copyArtifactShareLink,
@@ -304,6 +305,7 @@ export function Sidebar() {
         .getColumns(connId, tableName, schema || undefined)
         // Don't cache on failure — re-clicking the table retries.
         .catch((err) => {
+          if (isServerUnreachable(err)) return null; // the banner says it
           notifications.show({
             id: `columns-failed-${key}`,
             color: "red",

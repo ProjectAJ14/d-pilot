@@ -104,6 +104,16 @@ writing to the tab in the store.
   store `logout`). Its base is `${BASE_PATH}/api`, so every call is sub-path-correct —
   **add new endpoints here rather than calling `fetch("/api/...")` directly**, which is the
   one thing that silently breaks a sub-path deployment.
+- **`server-reachability.ts`** — no response from fetch (or a proxy's 502/504) means the
+  D-Pilot server itself is unreachable — typically the VPN is off while the PWA shell still
+  loads from cache. `api-client` turns that into one `ApiError` with code
+  `SERVER_UNREACHABLE` and raises the store's `serverUnreachable`; any response lowers it.
+  A 503 is **not** in that set: it is the server's `CONNECTION_FAILED` for an unreachable
+  _database_ and keeps its own message. `layout/server-unreachable-banner.tsx` shows one
+  sticky line (with the last-known `networkHint`, persisted in `localStorage` because it
+  is needed exactly when `/api/config` can't load) and retries `api.ping()` every 10 s and
+  on `online`. `notifyError` drops `SERVER_UNREACHABLE` so there is no toast per call — a
+  bare `notifications.show(err.message)` must check `isServerUnreachable(err)` itself.
 - **`base-path.ts`** — `BASE_URL` (trailing slash) and `BASE_PATH` (none, empty at root),
   read from Vite's `import.meta.env.BASE_URL`, which `vite.config.ts` sets from the
   `BASE_PATH` env var at build time. Needed only for URLs assembled at runtime: the API

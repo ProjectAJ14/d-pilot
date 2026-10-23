@@ -9,6 +9,7 @@ import { TopBar } from "./components/layout/top-bar";
 import { Sidebar } from "./components/layout/sidebar";
 import { Footer } from "./components/layout/footer";
 import { PwaUpdatePrompt } from "./components/layout/pwa-prompts";
+import { ServerUnreachableBanner } from "./components/layout/server-unreachable-banner";
 import { QueryWorkspace } from "./components/query/query-workspace";
 import { PhiConfigPanel } from "./components/phi/phi-config-panel";
 import { PhiUnmaskModal } from "./components/phi/phi-unmask-modal";
@@ -60,6 +61,7 @@ function AuthenticatedApp() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+      <ServerUnreachableBanner />
       <TopBar />
       <div
         style={{

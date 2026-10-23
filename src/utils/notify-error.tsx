@@ -2,6 +2,7 @@ import { Anchor } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { ApiError } from "./api-client";
 import { issueUrl, type Failure } from "./report-issue";
+import { isServerUnreachable } from "./server-reachability";
 
 const APP_VERSION =
   typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "0.0.0";
@@ -18,21 +19,27 @@ export function reportUrl(
   });
 }
 
-/** A 4xx is the server saying no — permissions, validation, the production rails — not a bug. */
+/**
+ * A 4xx is the server saying no — permissions, validation, the production
+ * rails — not a bug. Nor is an unreachable server: that is the user's network.
+ */
 export function isReportable(err: unknown): boolean {
+  if (isServerUnreachable(err)) return false;
   return !(err instanceof ApiError && err.status < 500);
 }
 
 /**
  * A caught error as a red toast, with a Report link when it looks like a bug.
  * A 4xx is the server saying no — permissions, validation, the production
- * rails — so there is nothing to report.
+ * rails — so there is nothing to report. An unreachable server shows nothing:
+ * the banner already says so once, instead of a toast per failed call.
  */
 export function notifyError(
   err: unknown,
   where: string,
   opts: { title?: string; autoClose?: number } = {},
 ) {
+  if (isServerUnreachable(err)) return;
   const message = err instanceof Error ? err.message : String(err);
   const reportable = isReportable(err);
   const code = (err as { code?: unknown } | null)?.code;

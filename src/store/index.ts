@@ -11,6 +11,10 @@ import {
   togglePin,
   type PinsByUser,
 } from "@src/utils/connection-pins";
+import {
+  loadNetworkHint,
+  saveNetworkHint,
+} from "@src/utils/server-reachability";
 import { create } from "zustand";
 import type { Artifact, ConnectionInfo, QueryTab, SavedQuery } from "../types";
 import {
@@ -54,6 +58,9 @@ interface AppState {
   // Config
   config: AppConfig;
   setConfig: (config: AppConfig) => void;
+  /** No response from the D-Pilot server (set/cleared by api-client); drives the banner. */
+  serverUnreachable: boolean;
+  setServerUnreachable: (v: boolean) => void;
 
   // Auth
   token: string | null;
@@ -248,13 +255,19 @@ export const useStore = create<AppState>((set, get) => ({
     // Server defaults, shown until /api/config answers.
     loginTagline: "Internal query tool",
     loginSubtitle: "HIPAA · PHI tokenized",
-    networkHint: "",
+    // Last-known, so the unreachable banner has it when /api/config can't load.
+    networkHint: loadNetworkHint(),
     phiMaskedEnvironments: ["PROD"],
     // Empty until /api/config answers — an env picker must never offer an
     // environment this deployment may not have.
     environments: [],
   },
-  setConfig: (config) => set({ config }),
+  setConfig: (config) => {
+    saveNetworkHint(config.networkHint);
+    set({ config });
+  },
+  serverUnreachable: false,
+  setServerUnreachable: (serverUnreachable) => set({ serverUnreachable }),
 
   // Auth
   token: savedToken,

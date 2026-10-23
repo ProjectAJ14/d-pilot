@@ -46,6 +46,14 @@ export default defineConfig(({ mode }) => {
         [`${basePath}/api`]: {
           target: `http://localhost:${serverPort}`,
           changeOrigin: true,
+          // Answer like a real reverse proxy (502) when the API is down, not
+          // Vite's default 500, so the client's "server unreachable" banner
+          // (utils/server-reachability.ts) behaves in dev as it does in prod.
+          configure: (proxy) =>
+            proxy.on("error", (_err, _req, res) => {
+              if ("headersSent" in res && !res.headersSent)
+                res.writeHead(502).end();
+            }),
         },
         // The web manifest is rendered by Express from APP_NAME, so the dev
         // server has to proxy it too or the install metadata 404s.
