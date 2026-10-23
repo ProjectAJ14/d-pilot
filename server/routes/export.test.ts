@@ -30,8 +30,9 @@ vi.mock("../middleware/auth.js", () => ({
   }),
 }));
 vi.mock("../config/settings.js", () => ({ getConfig: () => undefined }));
+const logAudit = vi.fn();
 vi.mock("../services/sqlite-store.js", () => ({
-  logAudit: () => {},
+  logAudit,
   getPhiMaskedEnvs: () => [],
 }));
 vi.mock("../services/phi-masking.js", () => ({
@@ -52,7 +53,12 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    req.user = { sub: "u1", email: "u1@example.com", isAdmin: true } as any;
+    req.user = {
+      sub: "u1",
+      email: "u1@example.com",
+      isAdmin: true,
+      canUnmaskPhi: true,
+    } as any;
     next();
   });
   app.use("/export", router);
@@ -115,5 +121,31 @@ describe.each(["csv", "json"])("POST /export/%s failures", (format) => {
     const res = await post();
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: 'relation "x" does not exist' });
+  });
+});
+
+describe.each(["csv", "json"])("POST /export/%s unmask notes", (format) => {
+  it("audits the readable notes an encoded header carries", async () => {
+    logAudit.mockClear();
+    const res = await fetch(`${base}/export/${format}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-PHI-Shield": "off",
+        "X-PHI-Unmask-Reason": encodeURIComponent(
+          "Support ticket investigation",
+        ),
+        "X-PHI-Unmask-Notes": encodeURIComponent("Ticket 42 — José Müller"),
+      },
+      body: JSON.stringify({ connectionId: "qa-core", sql: "select 1" }),
+    });
+    expect(res.status).toBe(200);
+    expect(logAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phiAccessed: true,
+        phiUnmaskReason: "Support ticket investigation",
+        phiUnmaskNotes: "Ticket 42 — José Müller",
+      }),
+    );
   });
 });

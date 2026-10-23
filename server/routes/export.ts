@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { resolveReadableConnection } from "../middleware/auth.js";
+import { unmaskHeaders } from "../middleware/phi-headers.js";
 import { validateQuery, executeQuery } from "../services/query-executor.js";
 import { maskQueryResults } from "../services/phi-masking.js";
 import { logAudit, getPhiMaskedEnvs } from "../services/sqlite-store.js";
@@ -16,7 +17,7 @@ function resolvePhiEnabled(req: Request, connEnv: string): boolean {
 
   if (!clientRequestsUnmask) return true; // masked
   if (!req.user!.canUnmaskPhi) return true; // unauthorized, keep masked
-  if (envRequiresMasking && !req.headers["x-phi-unmask-reason"]) return true; // no reason
+  if (envRequiresMasking && !unmaskHeaders(req).reason) return true; // no reason
   return false; // allowed to unmask
 }
 
@@ -88,12 +89,10 @@ router.post("/csv", async (req: Request, res: Response) => {
       connectionId,
       rowsReturned: maskedRows.length,
       phiAccessed: !phiEnabled,
-      phiUnmaskReason: !phiEnabled
-        ? (req.headers["x-phi-unmask-reason"] as string)
-        : undefined,
-      phiUnmaskNotes: !phiEnabled
-        ? (req.headers["x-phi-unmask-notes"] as string)
-        : undefined,
+      ...(!phiEnabled && {
+        phiUnmaskReason: unmaskHeaders(req).reason,
+        phiUnmaskNotes: unmaskHeaders(req).notes,
+      }),
     });
 
     res.setHeader("Content-Type", "text/csv");
@@ -142,12 +141,10 @@ router.post("/json", async (req: Request, res: Response) => {
       connectionId,
       rowsReturned: maskedRows.length,
       phiAccessed: !phiEnabled,
-      phiUnmaskReason: !phiEnabled
-        ? (req.headers["x-phi-unmask-reason"] as string)
-        : undefined,
-      phiUnmaskNotes: !phiEnabled
-        ? (req.headers["x-phi-unmask-notes"] as string)
-        : undefined,
+      ...(!phiEnabled && {
+        phiUnmaskReason: unmaskHeaders(req).reason,
+        phiUnmaskNotes: unmaskHeaders(req).notes,
+      }),
     });
 
     res.setHeader("Content-Type", "application/json");

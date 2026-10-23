@@ -125,6 +125,37 @@ describe("POST /:id/preview against an unreachable database", () => {
   });
 });
 
+describe("POST /:id/preview with PHI unmasked", () => {
+  it("audits the readable notes an encoded header carries", async () => {
+    const id = await submit();
+    h.executeQuery.mockResolvedValueOnce({
+      columns: [{ name: "id" }],
+      rows: [{ id: 1 }],
+      totalRows: 1,
+      executionTimeMs: 1,
+    });
+    const res = await fetch(`${base}/${id}/preview`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-user": "admin",
+        "X-PHI-Shield": "off",
+        "X-PHI-Unmask-Reason": encodeURIComponent(
+          "Support ticket investigation",
+        ),
+        "X-PHI-Unmask-Notes": encodeURIComponent("Ticket 42 — José Müller"),
+      },
+      body: "{}",
+    });
+    expect(res.status).toBe(200);
+    const [entry] = store.getAuditLog({ action: "WRITE_PREVIEW", limit: 1 });
+    expect(entry).toMatchObject({
+      phiUnmaskReason: "Support ticket investigation",
+      phiUnmaskNotes: "Ticket 42 — José Müller",
+    });
+  });
+});
+
 const ok = { rowsAffected: 1, executionMs: 1, transactional: true };
 const status = (id: string) => store.getWriteRequest(id)!.status;
 // The timeline must not end on APPROVED/SUBMITTED when nothing ran.

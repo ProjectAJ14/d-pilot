@@ -27,6 +27,7 @@ vi.mock("../services/sqlite-store.js", () => ({
   logAudit,
   getPhiMaskedEnvs: () => [],
   getQueryHistory: () => [],
+  getPhiRules: () => [],
 }));
 vi.mock("../config/settings.js", () => ({
   getConfig: (key: string) =>
@@ -91,5 +92,37 @@ describe("POST /query/execute failures", () => {
       error: 'relation "nope" does not exist',
       code: "42P01",
     });
+  });
+});
+
+describe("POST /query/execute unmask notes", () => {
+  it("audits the readable notes an encoded header carries", async () => {
+    logAudit.mockClear();
+    executeQuery.mockResolvedValueOnce({
+      columns: [{ name: "id" }],
+      rows: [{ id: 1 }],
+      totalRows: 1,
+      executionTimeMs: 1,
+    });
+    const res = await fetch(`${base}/query/execute`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-PHI-Shield": "off",
+        "X-PHI-Unmask-Reason": encodeURIComponent(
+          "Support ticket investigation",
+        ),
+        "X-PHI-Unmask-Notes": encodeURIComponent("Ticket 42 — José Müller"),
+      },
+      body: JSON.stringify({ connectionId: "qa-core", sql: "select 1" }),
+    });
+    expect(res.status).toBe(200);
+    expect(logAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "QUERY_EXECUTE",
+        phiUnmaskReason: "Support ticket investigation",
+        phiUnmaskNotes: "Ticket 42 — José Müller",
+      }),
+    );
   });
 });

@@ -147,6 +147,11 @@ provider errors are 500, an unusable model reply is 422, and connectivity failur
 - **Secrets** (connection password/URI, `AZURE_OPENAI_KEY`) are AES-256-GCM encrypted
   (`config/secrets.ts`) with `SETTINGS_ENCRYPTION_KEY`, else a key generated once into
   `DATA_DIR/settings.key` (0600). The key never goes in SQLite; losing it loses the secrets.
+- **Unmask headers** — `X-PHI-Unmask-Reason`/`-Notes` arrive URI-encoded (the client's
+  `encodeURIComponent`; a header carries only Latin-1). Read them only through
+  `unmaskHeaders(req)` (`middleware/phi-headers.ts`), which decodes them for the audit log
+  and keeps an old client's raw value when it isn't valid encoding. `query.ts`, `export.ts`
+  and the write preview use it; the MCP endpoint never sends them (it is always masked).
 - **Audit** — `logAudit`/`getAuditLog` capture every query, error, export, PHI unmask (and
   denial), and write-lifecycle event. `getAnalytics`/`getWriteAnalytics` power the admin
   dashboard.

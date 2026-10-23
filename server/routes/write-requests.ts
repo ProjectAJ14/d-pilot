@@ -32,6 +32,7 @@ import {
   tag,
 } from "../services/azure-openai.js";
 import { requireAdmin } from "../middleware/auth.js";
+import { unmaskHeaders } from "../middleware/phi-headers.js";
 import {
   connectionFailedMessage,
   isConnectionError,
@@ -927,9 +928,7 @@ router.post("/:id/preview", async (req: Request, res: Response) => {
     const maskedEnvs = getPhiMaskedEnvs();
     const envRequiresMasking = maskedEnvs.includes(conn.env);
     const clientRequestsUnmask = req.headers["x-phi-shield"] === "off";
-    const unmaskReason = req.headers["x-phi-unmask-reason"] as
-      | string
-      | undefined;
+    const { reason: unmaskReason, notes: unmaskNotes } = unmaskHeaders(req);
 
     const canUnmaskHere =
       user.isAdmin || user.unmaskEnvironments.includes(conn.env);
@@ -968,6 +967,8 @@ router.post("/:id/preview", async (req: Request, res: Response) => {
       rowsReturned: raw.totalRows,
       executionMs: raw.executionTimeMs,
       phiAccessed: !phiEnabled && maskedFieldNames.length > 0,
+      phiUnmaskReason: !phiEnabled ? unmaskReason : undefined,
+      phiUnmaskNotes: !phiEnabled ? unmaskNotes : undefined,
     });
 
     res.json(result);

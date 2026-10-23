@@ -100,7 +100,9 @@ writing to the tab in the store.
 ## Utils (`utils/`)
 
 - **`api-client.ts`** — fetch wrapper. Injects `Authorization: Bearer` and PHI headers
-  (`X-PHI-Shield`, `X-PHI-Unmask-Reason`, `X-PHI-Unmask-Notes`). Auto-logout on 401 (calls
+  (`X-PHI-Shield`, `X-PHI-Unmask-Reason`, `X-PHI-Unmask-Notes`). Reason and notes go through
+  `encodeURIComponent`: a header carries only Latin-1, and a raw em dash, name or newline
+  makes `new Request` throw on every call. Auto-logout on 401 (calls
   store `logout`). Its base is `${BASE_PATH}/api`, so every call is sub-path-correct —
   **add new endpoints here rather than calling `fetch("/api/...")` directly**, which is the
   one thing that silently breaks a sub-path deployment.

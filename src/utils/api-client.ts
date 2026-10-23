@@ -139,9 +139,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers["X-PHI-Shield"] = "off";
     const reason = localStorage.getItem("phi_unmask_reason");
     const notes = localStorage.getItem("phi_unmask_notes");
-    if (reason) headers["X-PHI-Unmask-Reason"] = reason;
-    // ponytail: free-text notes go out raw, so an em dash or newline makes fetch throw; encode them.
-    if (notes) headers["X-PHI-Unmask-Notes"] = notes;
+    // Encoded: a header carries only Latin-1, and these are free text (an em
+    // dash, a name, a newline). The server decodes them for the audit log.
+    if (reason) headers["X-PHI-Unmask-Reason"] = encodeURIComponent(reason);
+    if (notes) headers["X-PHI-Unmask-Notes"] = encodeURIComponent(notes);
   }
 
   const res = await send(`${BASE_URL}${path}`, {

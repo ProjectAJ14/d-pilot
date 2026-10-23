@@ -264,13 +264,30 @@ describe("api-client when the server is unreachable", () => {
 describe("a request fetch refuses to send", () => {
   it("is an ordinary error, not the server being unreachable", async () => {
     vi.stubGlobal("fetch", reply(200));
-    // Unmask notes are free text; a header can't carry an em dash or a newline.
-    mem["phi_shield"] = "off";
-    mem["phi_unmask_notes"] = "ticket 42 — line one\nline two";
+    // A header can't carry an em dash: a corrupted token is one way to get one.
+    mem["dbpilot_token"] = "tok—en";
     const err = await api.getConnections().catch((e) => e);
     expect(err).toBeInstanceOf(TypeError);
     expect(isServerUnreachable(err)).toBe(false);
     expect(flagged()).toBe(false);
+  });
+});
+
+describe("PHI unmask notes", () => {
+  it("are sent encoded, so free text never stops a request", async () => {
+    const sent = reply(200, []);
+    vi.stubGlobal("fetch", sent);
+    const notes = "Ticket 42 — José Müller\nline two";
+    mem["phi_shield"] = "off";
+    mem["phi_unmask_reason"] = "Support ticket investigation";
+    mem["phi_unmask_notes"] = notes;
+    await api.getConnections();
+    const headers = new Request(...(sent.mock.calls[0] as [RequestInfo]))
+      .headers;
+    expect(decodeURIComponent(headers.get("X-PHI-Unmask-Notes")!)).toBe(notes);
+    expect(headers.get("X-PHI-Unmask-Reason")).toBe(
+      "Support%20ticket%20investigation",
+    );
   });
 });
 
