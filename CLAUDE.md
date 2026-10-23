@@ -46,7 +46,8 @@ same Express process. Its tools call this server's **own REST API over loopback*
 query executor directly — so masking, capability checks and audit logging stay in exactly one
 place. See the README's MCP section. `public/mcp-bridge.mjs` (served at `/mcp-bridge.mjs`) is
 a zero-dependency local stdio bridge to it, for agents that reach D-Pilot over a VPN — it
-explains an unreachable server instead of timing out (tests: `server/mcp-bridge.test.ts`).
+explains an unreachable server instead of timing out. Run with `--install-desktop <url> <auth>`,
+it writes its own Claude Desktop config entry instead (tests: `server/mcp-bridge.test.ts`).
 The `/docs/mcp` setup page gives manual terminal steps only — never a prompt for an agent to
 run, since that would put the Basic credential in a model's context and transcript.
 

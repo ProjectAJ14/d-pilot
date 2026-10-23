@@ -1,8 +1,18 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 /**
  * Drives public/mcp-bridge.mjs the way an MCP client does: a child process
@@ -516,5 +526,182 @@ describe("mcp-bridge: state changes", () => {
       `D-Pilot at http://127.0.0.1:${port}/d-pilot is reachable; its tools are available.`,
     );
     expect(healthHits[0]).toBe("/d-pilot/api/health");
+  });
+});
+
+describe("mcp-bridge: --install-desktop", () => {
+  const URL_ = "https://d-pilot.example.com/d-pilot/api/mcp";
+  const B64 = AUTH.slice("Basic ".length);
+  const dirs: string[] = [];
+  afterEach(() =>
+    dirs.splice(0).forEach((d) => rmSync(d, { recursive: true })),
+  );
+  const scratch = () => {
+    const d = mkdtempSync(join(tmpdir(), "dpilot-desktop-"));
+    dirs.push(d);
+    return d;
+  };
+  const install = (file: string, args = [URL_, AUTH]) => {
+    const fakeHome = scratch();
+    const r = spawnSync(
+      process.execPath,
+      [BRIDGE, "--install-desktop", ...args],
+      {
+        env: {
+          ...process.env,
+          // A fake home too, so a broken override can never reach the real
+          // Claude Desktop config (one mutation run did, before this).
+          HOME: fakeHome,
+          APPDATA: fakeHome,
+          USERPROFILE: fakeHome,
+          DPILOT_DESKTOP_CONFIG: file,
+        },
+        encoding: "utf8",
+      },
+    );
+    // The credential never reaches the terminal, whatever happened.
+    expect(r.stdout + r.stderr).not.toContain(B64);
+    return r;
+  };
+  const read = (file: string) => JSON.parse(readFileSync(file, "utf8"));
+  const ENTRY = {
+    command: process.execPath,
+    args: [BRIDGE],
+    env: { DPILOT_MCP_URL: URL_, DPILOT_MCP_AUTH: AUTH },
+  };
+
+  it("creates the file and its directory, pointing at this node and this file", () => {
+    const file = join(scratch(), "a", "b", "claude_desktop_config.json");
+    const r = install(file);
+    expect(r.status, r.stderr).toBe(0);
+    expect(readFileSync(file, "utf8")).toBe(
+      `${JSON.stringify({ mcpServers: { "d-pilot": ENTRY } }, null, 2)}\n`,
+    );
+    expect(isAbsolute(read(file).mcpServers["d-pilot"].args[0])).toBe(true);
+    expect(existsSync(`${file}.bak`)).toBe(false);
+    expect(r.stdout).toContain(file);
+    expect(r.stdout).toContain("https://d-pilot.example.com");
+    expect(r.stdout).toMatch(/Fully quit Claude Desktop and reopen it/);
+    expect(readdirSync(dirname(file))).toEqual(["claude_desktop_config.json"]);
+  });
+
+  it("merges: other servers and keys are kept, and the original is backed up", () => {
+    const file = join(scratch(), "claude_desktop_config.json");
+    const before = JSON.stringify(
+      { globalShortcut: "Ctrl+Space", mcpServers: { other: { command: "x" } } },
+      null,
+      4,
+    );
+    writeFileSync(file, before);
+    const r = install(file);
+    expect(r.status, r.stderr).toBe(0);
+    expect(read(file)).toEqual({
+      globalShortcut: "Ctrl+Space",
+      mcpServers: { other: { command: "x" }, "d-pilot": ENTRY },
+    });
+    expect(readFileSync(`${file}.bak`, "utf8")).toBe(before);
+    expect(r.stdout).toContain(`${file}.bak`);
+  });
+
+  it("replaces an existing d-pilot entry, and starts mcpServers when absent", () => {
+    const file = join(scratch(), "claude_desktop_config.json");
+    writeFileSync(file, JSON.stringify({ theme: "dark" }));
+    expect(install(file).status).toBe(0);
+    expect(read(file)).toEqual({
+      theme: "dark",
+      mcpServers: { "d-pilot": ENTRY },
+    });
+    const other = "Basic b3RoZXI6cHc=";
+    expect(install(file, [URL_, other]).status).toBe(0);
+    expect(read(file).mcpServers["d-pilot"].env.DPILOT_MCP_AUTH).toBe(other);
+    expect(Object.keys(read(file).mcpServers)).toEqual(["d-pilot"]);
+  });
+
+  it.each([
+    ["invalid JSON", "{ not json", /not valid JSON/],
+    ["a non-object root", "[1, 2]", /does not hold a JSON object/],
+    ["a null root", "null", /does not hold a JSON object/],
+    [
+      "a non-object mcpServers",
+      '{"mcpServers": "x"}',
+      /does not hold a JSON object/,
+    ],
+  ])("%s: exits 1 and changes nothing", (_n, content, msg) => {
+    const file = join(scratch(), "claude_desktop_config.json");
+    writeFileSync(file, content);
+    const r = install(file);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(msg);
+    expect(r.stderr).toMatch(/[Nn]othing was changed/);
+    expect(readFileSync(file, "utf8")).toBe(content);
+    expect(readdirSync(dirname(file))).toEqual(["claude_desktop_config.json"]);
+  });
+
+  it.each([
+    ["an invalid URL", ["not a url", AUTH], /The URL is not a valid URL/],
+    [
+      "a URL with userinfo",
+      [`https://agent:${B64}@d-pilot.example.com/api/mcp`, AUTH],
+      /must not contain a username or password/,
+    ],
+    ["no authorization", [URL_], /must be "Basic <base64/],
+    [
+      "a Bearer authorization",
+      [URL_, `Bearer ${B64}`],
+      /must be "Basic <base64/,
+    ],
+    ["a bare base64 token", [URL_, B64], /must be "Basic <base64/],
+    ["trailing junk", [URL_, `${AUTH} x`], /must be "Basic <base64/],
+  ])("refuses %s, writing nothing and echoing nothing", (_n, args, msg) => {
+    const dir = scratch();
+    const r = install(join(dir, "claude_desktop_config.json"), args);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(msg);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).not.toContain("not a url");
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("does nothing when imported rather than run", () => {
+    const r = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `await import(${JSON.stringify(pathToFileURL(BRIDGE).href)})`,
+      ],
+      { env: { ...process.env, DPILOT_MCP_URL: "" }, encoding: "utf8" },
+    );
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout + r.stderr).toBe("");
+  });
+});
+
+// Called in a child, like everything else here, so c8 sees it run.
+describe("mcp-bridge: desktopConfigPath", () => {
+  const CASES = [
+    [
+      "win32",
+      { APPDATA: "C:\\Users\\a\\AppData\\Roaming" },
+      "C:\\Users\\a\\AppData\\Roaming\\Claude\\claude_desktop_config.json",
+    ],
+    [
+      "darwin",
+      {},
+      "/Users/a/Library/Application Support/Claude/claude_desktop_config.json",
+    ],
+    ["linux", {}, "/Users/a/.config/Claude/claude_desktop_config.json"],
+    ["win32", { DPILOT_DESKTOP_CONFIG: "/x/y.json" }, "/x/y.json"],
+  ] as const;
+
+  it("knows each OS's default and honours the override", () => {
+    const code = `const { desktopConfigPath } = await import(${JSON.stringify(pathToFileURL(BRIDGE).href)});
+      const cases = ${JSON.stringify(CASES)};
+      console.log(JSON.stringify(cases.map(([p, env]) => desktopConfigPath(p, env, "/Users/a"))));`;
+    const r = spawnSync(process.execPath, ["--input-type=module", "-e", code], {
+      encoding: "utf8",
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual(CASES.map((c) => c[2]));
   });
 });

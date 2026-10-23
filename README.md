@@ -477,40 +477,28 @@ paths.
    claude mcp add --scope user --transport http d-pilot 'https://d-pilot.example.com/api/mcp' --header 'Authorization: Basic <base64 of user:password>'
    ```
 
-   **Claude Desktop** launches local servers only, so it runs the same bridge. Desktop does not
-   use your shell's `PATH` or `~`, so it needs absolute paths; download the bridge and print
-   them:
+   **Claude Desktop** launches local servers only, so it runs the same bridge — and the bridge
+   adds itself to Desktop's config, with absolute paths to this `node` and to itself, so there
+   is no JSON to edit and no path to look up. Download it as above, then:
 
    ```bash
-   mkdir -p ~/.d-pilot && curl -fsSo ~/.d-pilot/mcp-bridge.mjs 'https://d-pilot.example.com/mcp-bridge.mjs' && command -v node && echo ~/.d-pilot/mcp-bridge.mjs
+   node ~/.d-pilot/mcp-bridge.mjs --install-desktop 'https://d-pilot.example.com/api/mcp' 'Basic <base64 of user:password>'
    ```
 
    ```powershell
-   New-Item -ItemType Directory -Force "$HOME\.d-pilot" | Out-Null; Invoke-WebRequest -UseBasicParsing -Uri 'https://d-pilot.example.com/mcp-bridge.mjs' -OutFile "$HOME\.d-pilot\mcp-bridge.mjs"; (Get-Command node).Source.Replace('\','\\'); "$HOME\.d-pilot\mcp-bridge.mjs".Replace('\','\\')
+   node "$HOME\.d-pilot\mcp-bridge.mjs" --install-desktop 'https://d-pilot.example.com/api/mcp' 'Basic <base64 of user:password>'
    ```
 
-   (The PowerShell one prints the paths with backslashes already doubled, as JSON needs.) Open
-   `claude_desktop_config.json` (Settings → Developer → Edit Config; macOS
-   `~/Library/Application Support/Claude/`, Windows `$env:APPDATA\Claude\`), merge in the entry
-   below with the printed paths, and fully quit and reopen Claude Desktop.
+   It sets `mcpServers["d-pilot"]` in `claude_desktop_config.json` (macOS
+   `~/Library/Application Support/Claude/`, Windows `%APPDATA%\Claude\`, Linux
+   `~/.config/Claude/`; `DPILOT_DESKTOP_CONFIG` overrides it), keeps everything else, and saves
+   the previous file as `claude_desktop_config.json.bak`. A file it cannot parse is left
+   untouched. It records the `node` that ran it, so run it again after moving or upgrading Node
+   (Homebrew's path is versioned). Then fully quit Claude Desktop (Cmd+Q on macOS; on Windows,
+   quit from the tray icon) and reopen it: Settings → Developer lists d-pilot.
 
-   ```json
-   {
-     "mcpServers": {
-       "d-pilot": {
-         "command": "/usr/local/bin/node",
-         "args": ["/Users/you/.d-pilot/mcp-bridge.mjs"],
-         "env": {
-           "DPILOT_MCP_URL": "https://d-pilot.example.com/api/mcp",
-           "DPILOT_MCP_AUTH": "Basic <base64 of user:password>"
-         }
-       }
-     }
-   }
-   ```
-
-   That `Basic` value is `base64("username:password")`. Any other MCP client works the same
-   way: run the bridge as a stdio server with those two environment variables, or point an
+   Any other MCP client works the same way: run the bridge as a stdio server with
+   `DPILOT_MCP_URL` and `DPILOT_MCP_AUTH` (`Basic <base64 of user:password>`), or point an
    HTTP client at `/api/mcp` with an `Authorization: Basic …` header.
 
 **Why Basic auth:** MCP clients can send static headers but cannot run D-Pilot's

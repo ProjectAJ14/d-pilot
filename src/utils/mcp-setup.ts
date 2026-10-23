@@ -64,28 +64,23 @@ interface Shell {
   quote: (s: string) => string;
   /** Downloads the bridge to ~/.d-pilot. */
   download: (url: string) => string;
-  /** Joins two commands, the second running only if the first succeeded where the shell can say so. */
-  then: string;
   /** The downloaded bridge, as an argument to a native program. */
   bridgePath: string;
-  /** Prints the node and bridge paths, ready to paste into JSON. */
-  printPaths: string;
+  quitDesktop: string;
   nodePath: string;
   desktopConfig: string;
 }
 
 // Windows commands target PowerShell 5.1 as well as 7: no `curl` (an alias for
 // Invoke-WebRequest in 5.1), no `~` for native programs, and no double quotes
-// inside a native argument (5.1 passes them on mangled). PowerShell 5.1 has no
-// `&&`, hence `;`.
+// inside a native argument (5.1 passes them on mangled).
 const SHELLS: Record<SetupOs, Shell> = {
   posix: {
     quote: shellQuote,
     download: (url) =>
       `mkdir -p ~/.d-pilot && curl -fsSo ~/.d-pilot/mcp-bridge.mjs ${shellQuote(url)}`,
-    then: " && ",
     bridgePath: "~/.d-pilot/mcp-bridge.mjs",
-    printPaths: "command -v node && echo ~/.d-pilot/mcp-bridge.mjs",
+    quitDesktop: "Cmd+Q",
     nodePath: "`command -v node`",
     desktopConfig:
       "~/Library/Application Support/Claude/claude_desktop_config.json",
@@ -94,11 +89,8 @@ const SHELLS: Record<SetupOs, Shell> = {
     quote: psQuote,
     download: (url) =>
       `New-Item -ItemType Directory -Force "$HOME\\.d-pilot" | Out-Null; Invoke-WebRequest -UseBasicParsing -Uri ${psQuote(url)} -OutFile "$HOME\\.d-pilot\\mcp-bridge.mjs"`,
-    then: "; ",
     bridgePath: '"$HOME\\.d-pilot\\mcp-bridge.mjs"',
-    // JSON needs each backslash doubled; .Replace is literal, not a regex.
-    printPaths:
-      "(Get-Command node).Source.Replace('\\','\\\\'); \"$HOME\\.d-pilot\\mcp-bridge.mjs\".Replace('\\','\\\\')",
+    quitDesktop: "quit it from the tray icon",
     nodePath: "`(Get-Command node).Source`",
     desktopConfig: "$env:APPDATA\\Claude\\claude_desktop_config.json",
   },
@@ -146,49 +138,22 @@ function httpSteps(os: SetupOs, mcpUrl: string, auth: string): SetupStep[] {
   ];
 }
 
-const NODE_PATH = "<node path from step 1>";
-const BRIDGE_PATH = "<bridge path from step 1>";
-
 /**
- * The `mcpServers` entry for Claude Desktop, which launches local (stdio)
- * servers only — so it runs the same bridge. Desktop starts it without your
- * shell's PATH or `~`, hence absolute paths, which step 1 prints.
+ * Claude Desktop: the bridge writes its own config entry (this node, this
+ * file, absolute paths), so nobody edits JSON or looks up a path by hand.
  */
-export function claudeDesktopConfig(mcpUrl: string, auth: string): string {
-  return JSON.stringify(
-    {
-      "d-pilot": {
-        command: NODE_PATH,
-        args: [BRIDGE_PATH],
-        env: { DPILOT_MCP_URL: mcpUrl, DPILOT_MCP_AUTH: auth },
-      },
-    },
-    null,
-    2,
-  );
-}
-
 function desktopSteps(os: SetupOs, mcpUrl: string, auth: string): SetupStep[] {
   const sh = SHELLS[os];
   return [
+    { title: "Download the bridge", code: sh.download(bridgeUrl(mcpUrl)) },
     {
-      title:
-        "Download the bridge; the last two lines printed are the node and bridge paths",
-      code: sh.download(bridgeUrl(mcpUrl)) + sh.then + sh.printPaths,
+      title: "Add it to Claude Desktop's config",
+      code: `node ${sh.bridgePath} --install-desktop ${sh.quote(mcpUrl)} ${sh.quote(auth)}`,
+      note: `${CREDENTIAL_NOTE} It keeps everything else in ${sh.desktopConfig} and backs the file up first.`,
     },
     {
-      title: "Open Claude Desktop's config file",
-      note: `Settings → Developer → Edit Config, or open ${sh.desktopConfig}. Create it as {"mcpServers": {}} if it does not exist.`,
-    },
-    {
-      title:
-        "Merge this entry into mcpServers, replacing the two <…> paths with the ones step 1 printed",
-      code: claudeDesktopConfig(mcpUrl, auth),
-      note: "The copied entry contains your credential: paste it into the file yourself, and don't share it.",
-    },
-    {
-      title:
-        "Fully quit Claude Desktop (not just close the window) and reopen it",
+      title: `Fully quit Claude Desktop (${sh.quitDesktop}) and reopen it`,
+      note: "Its Settings → Developer page should then list d-pilot.",
     },
   ];
 }

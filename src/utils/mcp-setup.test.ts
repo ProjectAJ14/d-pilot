@@ -6,7 +6,6 @@ import {
   MASKED_AUTH,
   basicAuthValue,
   bridgeUrl,
-  claudeDesktopConfig,
   detectOs,
   psQuote,
   setupSteps,
@@ -160,7 +159,7 @@ describe("macOS / Linux commands", () => {
     ]);
   });
 
-  it("Claude Desktop", () => {
+  it("Claude Desktop: the bridge writes the config itself", () => {
     const steps = setupSteps(
       "desktop",
       "posix",
@@ -168,13 +167,17 @@ describe("macOS / Linux commands", () => {
       "agent@example.com",
       "pw",
     );
-    expect(steps[0].copy).toBe(
-      "mkdir -p ~/.d-pilot && curl -fsSo ~/.d-pilot/mcp-bridge.mjs 'https://d-pilot.example.com/d-pilot/mcp-bridge.mjs' && command -v node && echo ~/.d-pilot/mcp-bridge.mjs",
-    );
+    expect(steps.map((s) => s.copy)).toEqual([
+      "mkdir -p ~/.d-pilot && curl -fsSo ~/.d-pilot/mcp-bridge.mjs 'https://d-pilot.example.com/d-pilot/mcp-bridge.mjs'",
+      `node ~/.d-pilot/mcp-bridge.mjs --install-desktop '${SUBPATH}' '${AUTH}'`,
+      undefined,
+    ]);
     expect(steps[1].note).toContain(
       "~/Library/Application Support/Claude/claude_desktop_config.json",
     );
-    expect(steps[2].copy).toBe(claudeDesktopConfig(SUBPATH, AUTH));
+    expect(steps[2].title).toContain("Cmd+Q");
+    // The bridge records process.execPath, so no node-path advice here.
+    expect(JSON.stringify(steps)).not.toMatch(/command -v node|<node path/);
   });
 
   it("notes say how to find node", () => {
@@ -202,7 +205,7 @@ describe("Windows (PowerShell) commands", () => {
     ]);
   });
 
-  it("Claude Desktop prints the paths JSON-escaped", () => {
+  it("Claude Desktop: the bridge writes the config itself", () => {
     const steps = setupSteps(
       "desktop",
       "windows",
@@ -210,13 +213,16 @@ describe("Windows (PowerShell) commands", () => {
       "agent@example.com",
       "pw",
     );
-    expect(steps[0].copy).toBe(
-      `${PS_DOWNLOAD}; (Get-Command node).Source.Replace('\\','\\\\'); "$HOME\\.d-pilot\\mcp-bridge.mjs".Replace('\\','\\\\')`,
-    );
+    expect(steps.map((s) => s.copy)).toEqual([
+      PS_DOWNLOAD,
+      `node "$HOME\\.d-pilot\\mcp-bridge.mjs" --install-desktop '${SUBPATH}' '${AUTH}'`,
+      undefined,
+    ]);
     expect(steps[1].note).toContain(
       "$env:APPDATA\\Claude\\claude_desktop_config.json",
     );
-    expect(steps[2].copy).toBe(claudeDesktopConfig(SUBPATH, AUTH));
+    expect(steps[2].title).toContain("tray icon");
+    expect(JSON.stringify(steps)).not.toMatch(/Get-Command node|<node path/);
   });
 
   it("notes say how to find node", () => {
@@ -232,7 +238,9 @@ describe("Windows (PowerShell) commands", () => {
     (client) => {
       const text = codes(client, "windows").join("\n");
       expect(text).not.toMatch(/\bcurl\b|&&|~|\s--\s/);
-      for (const line of text.split("\n").filter((l) => l.startsWith("claude")))
+      for (const line of text
+        .split("\n")
+        .filter((l) => /^(claude|node) /.test(l)))
         // Double quotes only around a whole "$HOME\…" path, never inside a value.
         expect(
           line.replaceAll('"$HOME\\.d-pilot\\mcp-bridge.mjs"', ""),
@@ -290,7 +298,10 @@ describe.each(["/bin/bash", "/bin/zsh"].filter(existsSync))(
     const argv = (code: string) => {
       const r = spawnSync(
         shell,
-        ["-c", `claude() { printf '%s\\0' "$@"; }\n${code}`],
+        [
+          "-c",
+          `claude() { printf '%s\\0' "$@"; }\nnode() { claude "$@"; }\n${code}`,
+        ],
         {
           encoding: "utf8",
         },
@@ -300,7 +311,7 @@ describe.each(["/bin/bash", "/bin/zsh"].filter(existsSync))(
     };
     const register = (client: SetupClient) =>
       setupSteps(client, "posix", SUBPATH, TRICKY_USER, TRICKY_PASSWORD).find(
-        (s) => s.copy?.startsWith("claude mcp add"),
+        (s) => /^(claude mcp add|node) /.test(s.copy ?? ""),
       )!.copy!;
     const auth = basicAuthValue(TRICKY_USER, TRICKY_PASSWORD);
 
@@ -338,11 +349,20 @@ describe.each(["/bin/bash", "/bin/zsh"].filter(existsSync))(
       ]);
     });
 
+    it("Claude Desktop: URL and credential reach the bridge intact", () => {
+      expect(argv(register("desktop"))).toEqual([
+        `${homedir()}/.d-pilot/mcp-bridge.mjs`,
+        "--install-desktop",
+        SUBPATH,
+        auth,
+      ]);
+    });
+
     it("a URL with shell syntax and a ' stays one literal word", () => {
       const url = "https://d-pilot.example.com/o'brien $HOME;`id`/api/mcp";
-      for (const client of ["bridge", "http"] as const) {
+      for (const client of ["bridge", "http", "desktop"] as const) {
         const code = setupSteps(client, "posix", url, "u", "p").find((s) =>
-          s.copy?.startsWith("claude mcp add"),
+          /^(claude mcp add|node) /.test(s.copy ?? ""),
         )!.copy!;
         const args = argv(code);
         expect(

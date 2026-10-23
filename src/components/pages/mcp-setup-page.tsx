@@ -179,7 +179,8 @@ export function McpSetupPage() {
             <Tabs.Panel value="desktop">
               <Text size="xs" c="dimmed" mb="md">
                 Claude Desktop launches local servers only, so it runs the same
-                bridge. Run step 1 in {shell}.
+                bridge, and the bridge adds itself to Desktop's config — no
+                paths to look up. Run these in {shell}.
               </Text>
               <Steps steps={steps("desktop")} />
             </Tabs.Panel>
@@ -192,10 +193,9 @@ export function McpSetupPage() {
         >
           <List size="sm" spacing={4} c="var(--text)">
             <List.Item>
-              The copied commands and the Claude Desktop config contain a
-              credential equivalent to the password, and so do your shell
-              history and Claude's config afterwards. Don't commit or share
-              them.
+              The copied commands contain a credential equivalent to the
+              password, and so do your shell history and Claude's config
+              afterwards. Don't commit or share them.
             </List.Item>
             <List.Item>
               Serve {appName} over HTTPS — the credential is sent on every
