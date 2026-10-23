@@ -169,20 +169,25 @@ describe("macOS / Linux commands", () => {
       "agent@example.com",
       "pw",
     );
+    // Quit before the install: Desktop rewrites its config while it runs.
     expect(steps.map((s) => s.copy)).toEqual([
       "mkdir -p ~/.d-pilot && curl -fsSo ~/.d-pilot/mcp-bridge.mjs 'https://d-pilot.example.com/d-pilot/mcp-bridge.mjs'",
+      undefined,
       `node ~/.d-pilot/mcp-bridge.mjs --install-desktop '${SUBPATH}' '${AUTH}'`,
       undefined,
     ]);
+    expect(steps[1].title).toMatch(/^Fully quit Claude Desktop/);
+    expect(steps[1].title).toContain("Cmd+Q on macOS");
+    expect(steps[1].title).toContain("quit from the tray or menu on Linux");
+    expect(steps[1].note).toMatch(/rewrites its config while it runs/);
     // The paths the bridge's desktopConfigPath writes on macOS and Linux.
-    expect(steps[1].note).toContain(
+    expect(steps[2].note).toContain(
       "~/Library/Application Support/Claude/claude_desktop_config.json",
     );
-    expect(steps[1].note).toContain(
+    expect(steps[2].note).toContain(
       "~/.config/Claude/claude_desktop_config.json",
     );
-    expect(steps[2].title).toContain("Cmd+Q on macOS");
-    expect(steps[2].title).toContain("quit from the tray or menu on Linux");
+    expect(steps[3].title).toBe("Start Claude Desktop");
     // The bridge records process.execPath, so no node-path advice here.
     expect(JSON.stringify(steps)).not.toMatch(/command -v node|<node path/);
   });
@@ -192,6 +197,18 @@ describe("macOS / Linux commands", () => {
     expect(register.note).toContain("`command -v node`");
     expect(register.note).toMatch(/claude mcp remove d-pilot -s user/);
   });
+
+  // The page can't know the user's Node, so the flag is advice, not in the command.
+  it.each(["posix", "windows"] as const)(
+    "%s: the bridge step says how to trust the system CA",
+    (os) => {
+      const [, register] = setupSteps("bridge", os, HTTPS, "u", "p");
+      expect(register.note).toContain(
+        "If you see UNABLE_TO_GET_ISSUER_CERT_LOCALLY, add `--use-system-ca` before the bridge path (Node 22.15+).",
+      );
+      expect(register.copy).not.toContain("--use-system-ca");
+    },
+  );
 });
 
 describe("Windows (PowerShell) commands", () => {
@@ -222,13 +239,19 @@ describe("Windows (PowerShell) commands", () => {
     );
     expect(steps.map((s) => s.copy)).toEqual([
       PS_DOWNLOAD,
+      undefined,
       `node "$HOME\\.d-pilot\\mcp-bridge.mjs" --install-desktop '${SUBPATH}' '${AUTH}'`,
       undefined,
     ]);
-    expect(steps[1].note).toContain(
+    // Closing the window leaves it running in the tray.
+    expect(steps[1].title).toContain("right-click its tray icon, then Quit");
+    expect(steps[1].note).toMatch(/Closing the window is not enough/);
+    expect(steps[2].note).toContain(
       "$env:APPDATA\\Claude\\claude_desktop_config.json",
     );
-    expect(steps[2].title).toContain("tray icon");
+    // The Microsoft Store version keeps it in its package folder.
+    expect(steps[2].note).toContain("$env:LOCALAPPDATA\\Packages\\Claude_*");
+    expect(steps[3].title).toBe("Start Claude Desktop");
     expect(JSON.stringify(steps)).not.toMatch(/Get-Command node|<node path/);
   });
 

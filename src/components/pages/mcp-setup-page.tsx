@@ -17,6 +17,7 @@ import {
   IconTerminal2,
   IconCopy,
   IconShieldLock,
+  IconLifebuoy,
 } from "@tabler/icons-react";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../../store";
@@ -196,6 +197,48 @@ export function McpSetupPage() {
               />
             </Tabs.Panel>
           </Tabs>
+        </Card>
+
+        <Card
+          icon={<IconLifebuoy size={16} color="var(--accent)" />}
+          title="Troubleshooting"
+        >
+          <List size="sm" spacing={8} c="var(--text)">
+            <List.Item>
+              <strong>d-pilot doesn't show up in Claude Desktop.</strong> Its
+              config was most likely changed while it was running, and it wrote
+              its own copy back. Quit it fully (Windows: right-click the tray
+              icon, then Quit), run the install command again, then start it.
+              The Microsoft Store version keeps its config under{" "}
+              <Code>%LOCALAPPDATA%\Packages\Claude_*</Code>; the install command
+              prints the path it used.
+            </List.Item>
+            <List.Item>
+              <strong>Claude Desktop's logs.</strong> Windows:{" "}
+              <Code>%LOCALAPPDATA%\Claude\logs\mcp-server-d-pilot.log</Code>, or
+              under the Store package folder for the Microsoft Store version.
+              macOS: <Code>~/Library/Logs/Claude/mcp-server-d-pilot.log</Code>.
+            </List.Item>
+            <List.Item>
+              <strong>
+                <Code>UNABLE_TO_GET_ISSUER_CERT_LOCALLY</Code> or another
+                certificate error.
+              </strong>{" "}
+              A VPN or proxy that inspects HTTPS re-signs traffic with its own
+              certificate, which Node doesn't trust by default. With Node 22.15
+              or newer, add <Code>--use-system-ca</Code> before the bridge path
+              to trust the system's certificates (for Claude Desktop, run the
+              install command again with that Node: it adds the flag), or set{" "}
+              <Code>NODE_EXTRA_CA_CERTS</Code> to the CA's PEM file in the
+              server's env.
+            </List.Item>
+            <List.Item>
+              <strong>Off the VPN.</strong> Through the bridge, the agent is
+              told {appName} can't be reached, and the tools come back by
+              themselves when you reconnect. A direct HTTP setup just times out;
+              reconnect the server by hand.
+            </List.Item>
+          </List>
         </Card>
 
         <Card

@@ -480,7 +480,12 @@ paths.
 
    **Claude Desktop** launches local servers only, so it runs the same bridge — and the bridge
    adds itself to Desktop's config, with absolute paths to this `node` and to itself, so there
-   is no JSON to edit and no path to look up. Download it as above, then:
+   is no JSON to edit and no path to look up. In this order:
+   1. Download the bridge as above.
+   2. **Fully quit Claude Desktop.** It rewrites its config while it runs, so a change made
+      then is lost. Windows: right-click the tray icon, then Quit — closing the window is not
+      enough. macOS: Cmd+Q. Linux: quit from the tray or menu.
+   3. Run the install command:
 
    ```bash
    node ~/.d-pilot/mcp-bridge.mjs --install-desktop 'https://d-pilot.example.com/api/mcp' 'Basic <base64 of user:password>'
@@ -490,15 +495,23 @@ paths.
    node "$HOME\.d-pilot\mcp-bridge.mjs" --install-desktop 'https://d-pilot.example.com/api/mcp' 'Basic <base64 of user:password>'
    ```
 
+   4. Start Claude Desktop: Settings → Developer lists d-pilot.
+
    It sets `mcpServers["d-pilot"]` in `claude_desktop_config.json` (macOS
    `~/Library/Application Support/Claude/`, Windows `%APPDATA%\Claude\`, Linux
    `~/.config/Claude/`; `DPILOT_DESKTOP_CONFIG` overrides it), keeps everything else, and saves
-   the previous file as `claude_desktop_config.json.bak`. A file it cannot parse is left
-   untouched. It records `node` as `PATH` finds it (e.g. `/opt/homebrew/bin/node`), so Homebrew
-   upgrades keep working; with nvm, whose path changes per version, run it again after switching
-   versions. A symlinked config is updated in place. On Windows it needs `%APPDATA%` (or
-   `DPILOT_DESKTOP_CONFIG`). Then fully quit Claude Desktop (Cmd+Q on macOS; on Windows,
-   quit from the tray icon) and reopen it: Settings → Developer lists d-pilot.
+   the previous file as `claude_desktop_config.json.bak`. The Microsoft Store version of Claude
+   Desktop keeps its config in its package folder instead,
+   `%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache\Roaming\Claude\`; the command finds it
+   (any `Claude_*` package; of several, the one that already has a config) and prints the path
+   with "(Microsoft Store version)". It warns if Claude Desktop looks like it is still running
+   (Windows matches `claude.exe`, which a native Claude Code install shares). A file it cannot
+   parse is left untouched. It records `node` as `PATH` finds it (e.g.
+   `/opt/homebrew/bin/node`), so Homebrew upgrades keep working; with nvm, whose path changes
+   per version, run it again after switching versions. With Node 22.15 or newer it also adds
+   `--use-system-ca`, so the bridge trusts the OS certificate store as the browser does. A
+   symlinked config is updated in place. On Windows it needs `%APPDATA%` (or
+   `DPILOT_DESKTOP_CONFIG`) unless it finds the Store version.
 
    Any other MCP client works the same way: run the bridge as a stdio server with
    `DPILOT_MCP_URL` and `DPILOT_MCP_AUTH` (`Basic <base64 of user:password>`), or point an
@@ -551,8 +564,26 @@ list is back within about 10 seconds. Bad credentials are reported as such, not 
   always tries D-Pilot itself, so a wrong guess never hides the tools for good.
 - A captive portal or VPN login page answering in D-Pilot's place is reported as unreachable,
   with that as the reason.
-- An untrusted HTTPS certificate is reported as configuration, not an outage: set
-  `NODE_EXTRA_CA_CERTS` to your organization's CA PEM file in the bridge's `env`.
+- An untrusted HTTPS certificate is reported as configuration, not an outage: see
+  [Troubleshooting](#troubleshooting-the-mcp-connection).
+
+### Troubleshooting the MCP connection
+
+- **d-pilot doesn't show up in Claude Desktop.** Its config was most likely changed while it was
+  running, and it wrote its own copy back. Quit it fully (Windows: right-click the tray icon,
+  then Quit), run `--install-desktop` again, then start it. For the Microsoft Store version,
+  check the path the install command printed (under `%LOCALAPPDATA%\Packages\Claude_*`).
+- **Logs.** Windows: `%LOCALAPPDATA%\Claude\logs\mcp-server-d-pilot.log`, or under the Store
+  package folder for the Microsoft Store version. macOS:
+  `~/Library/Logs/Claude/mcp-server-d-pilot.log`.
+- **`UNABLE_TO_GET_ISSUER_CERT_LOCALLY` or another certificate error.** A VPN or proxy that
+  inspects HTTPS re-signs traffic with its own certificate, and Node doesn't use the OS
+  certificate store by default. With Node 22.15 or newer, add `--use-system-ca` before the
+  bridge path (`--install-desktop` adds it for you; run it again after upgrading Node).
+  Otherwise set `NODE_EXTRA_CA_CERTS` to that CA's PEM file in the bridge's `env`.
+- **Off the VPN.** Through the bridge, the agent is told D-Pilot can't be reached, and the tools
+  come back by themselves when you reconnect. A direct HTTP setup just times out; reconnect it
+  by hand.
 
 ## Install as an App (PWA)
 

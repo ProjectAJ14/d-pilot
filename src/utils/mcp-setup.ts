@@ -91,14 +91,17 @@ const SHELLS: Record<SetupOs, Shell> = {
     download: (url) =>
       `New-Item -ItemType Directory -Force "$HOME\\.d-pilot" | Out-Null; Invoke-WebRequest -UseBasicParsing -Uri ${psQuote(url)} -OutFile "$HOME\\.d-pilot\\mcp-bridge.mjs"`,
     bridgePath: '"$HOME\\.d-pilot\\mcp-bridge.mjs"',
-    quitDesktop: "quit it from the tray icon",
+    quitDesktop: "right-click its tray icon, then Quit",
     nodePath: "`(Get-Command node).Source`",
-    desktopConfig: "$env:APPDATA\\Claude\\claude_desktop_config.json",
+    desktopConfig:
+      "$env:APPDATA\\Claude\\claude_desktop_config.json (the Microsoft Store version's is under $env:LOCALAPPDATA\\Packages\\Claude_*; the command prints which)",
   },
 };
 
 const CREDENTIAL_NOTE =
   "The copied command contains your credential: it ends up in your shell history and in Claude's config, so don't share it.";
+const SYSTEM_CA_NOTE =
+  "If you see UNABLE_TO_GET_ISSUER_CERT_LOCALLY, add `--use-system-ca` before the bridge path (Node 22.15+).";
 const REMOVE_NOTE =
   "Already added d-pilot? Run `claude mcp remove d-pilot -s user` first.";
 
@@ -120,7 +123,7 @@ function bridgeSteps(os: SetupOs, mcpUrl: string, auth: string): SetupStep[] {
     {
       title: "Register it",
       code: `claude mcp add -s user -e ${sh.quote(`DPILOT_MCP_URL=${mcpUrl}`)} -e ${sh.quote(`DPILOT_MCP_AUTH=${auth}`)} -t stdio d-pilot node ${sh.bridgePath}`,
-      note: `${CREDENTIAL_NOTE} Node from nvm or another version manager? Replace \`node\` with the full path that ${sh.nodePath} prints. ${REMOVE_NOTE}`,
+      note: `${CREDENTIAL_NOTE} Node from nvm or another version manager? Replace \`node\` with the full path that ${sh.nodePath} prints. ${REMOVE_NOTE} ${SYSTEM_CA_NOTE}`,
     },
     CHECK_STEP,
   ];
@@ -142,18 +145,23 @@ function httpSteps(os: SetupOs, mcpUrl: string, auth: string): SetupStep[] {
 /**
  * Claude Desktop: the bridge writes its own config entry (this node, this
  * file, absolute paths), so nobody edits JSON or looks up a path by hand.
+ * Desktop rewrites that config while it runs, so it is quit first.
  */
 function desktopSteps(os: SetupOs, mcpUrl: string, auth: string): SetupStep[] {
   const sh = SHELLS[os];
   return [
     { title: "Download the bridge", code: sh.download(bridgeUrl(mcpUrl)) },
     {
+      title: `Fully quit Claude Desktop (${sh.quitDesktop})`,
+      note: "Closing the window is not enough: it keeps running, and it rewrites its config while it runs, so the next step's change would be lost.",
+    },
+    {
       title: "Add it to Claude Desktop's config",
       code: `node ${sh.bridgePath} --install-desktop ${sh.quote(mcpUrl)} ${sh.quote(auth)}`,
       note: `${CREDENTIAL_NOTE} It keeps everything else in ${sh.desktopConfig} and backs the file up first.`,
     },
     {
-      title: `Fully quit Claude Desktop (${sh.quitDesktop}) and reopen it`,
+      title: "Start Claude Desktop",
       note: "Its Settings → Developer page should then list d-pilot.",
     },
   ];
