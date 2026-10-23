@@ -44,7 +44,11 @@ Detailed guidance lives with the code — read these when working in each area:
 `/api/mcp` (`server/routes/mcp.ts`) is a read-only MCP endpoint for AI agents, hosted by the
 same Express process. Its tools call this server's **own REST API over loopback** — never the
 query executor directly — so masking, capability checks and audit logging stay in exactly one
-place. See the README's MCP section.
+place. See the README's MCP section. `public/mcp-bridge.mjs` (served at `/mcp-bridge.mjs`) is
+a zero-dependency local stdio bridge to it, for agents that reach D-Pilot over a VPN — it
+explains an unreachable server instead of timing out (tests: `server/mcp-bridge.test.ts`).
+The `/docs/mcp` setup page gives manual terminal steps only — never a prompt for an agent to
+run, since that would put the Basic credential in a model's context and transcript.
 
 ### Cross-cutting rules (apply everywhere)
 

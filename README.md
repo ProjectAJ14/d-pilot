@@ -430,34 +430,79 @@ paths.
    that person and bounded by their capabilities. Grant _only_ the Read capability, on _only_
    the environments agents should reach — not an admin. Add Write on an environment only if
    agents should be able to save draft write requests there (they still cannot run one).
-2. **Point the agent at the URL.** The easiest way is the in-app **`/docs/mcp`** page (account
-   menu → _Connect an AI agent_): enter the password and it generates a ready-to-paste prompt
-   for Claude Code or Claude Desktop, with the credentials encoded in the browser. To do it by
-   hand instead, for Claude Code:
+2. **Connect the agent — by hand, in your own terminal.** Not through an agent: don't use
+   Claude Code's `!` prefix or paste these into a chat, because anything an AI sees ends up in
+   its context and its transcript. The in-app **`/docs/mcp`** page (account menu → _Connect an
+   AI agent_) shows the same steps with your URL and username filled in.
+
+   **Claude Code, through the local bridge (recommended — see
+   [Behind a VPN?](#behind-a-vpn-use-the-local-bridge)).** Needs Node 18+. On Windows, use
+   Git Bash.
+   1. Download the bridge:
+
+      ```bash
+      mkdir -p ~/.d-pilot && curl -fsSo ~/.d-pilot/mcp-bridge.mjs https://d-pilot.example.com/mcp-bridge.mjs
+      ```
+
+   2. Register it. The password is read at a hidden prompt and encoded by your shell, so it
+      never reaches shell history, a browser or an AI:
+
+      ```bash
+      printf 'D-Pilot password: '; IFS= read -rs DP; echo
+      claude mcp add d-pilot -s user -e DPILOT_MCP_URL='https://d-pilot.example.com/api/mcp' \
+        -e "DPILOT_MCP_AUTH=Basic $(printf '%s' 'agent@example.com:'"$DP" | base64 | tr -d '\n')" \
+        -- node ~/.d-pilot/mcp-bridge.mjs
+      unset DP
+      ```
+
+   3. Restart Claude Code and check that `claude mcp list` shows d-pilot as Connected.
+
+   Then ask the agent to "call the d-pilot whoami tool" — a prompt like that carries no
+   credential. If Node comes from nvm or another version manager, use the absolute path from
+   `command -v node` instead of `node`. If `d-pilot` already exists, run
+   `claude mcp remove d-pilot -s user` first. (`tr -d '\n'` is there because GNU `base64`
+   wraps long output at 76 columns.)
+
+   **Claude Code, direct HTTP (no Node).** The same hidden prompt, registering the endpoint
+   itself. Simpler, but while D-Pilot is unreachable the server just fails with no reason
+   given, and you reconnect it by hand.
 
    ```bash
-   claude mcp add --transport http d-pilot https://d-pilot.internal/api/mcp \
-     --header "Authorization: Basic $(printf 'agent@example.com:the-password' | base64)"
+   printf 'D-Pilot password: '; IFS= read -rs DP; echo
+   claude mcp add --scope user --transport http d-pilot 'https://d-pilot.example.com/api/mcp' \
+     --header "Authorization: Basic $(printf '%s' 'agent@example.com:'"$DP" | base64 | tr -d '\n')"
+   unset DP
    ```
 
-   Or in any MCP client's config file:
+   **Claude Desktop** launches local servers only, so it runs the same bridge. Download it as
+   in step 1 above (on Windows, in PowerShell:
+   `Invoke-WebRequest -Uri https://d-pilot.example.com/mcp-bridge.mjs -OutFile "$HOME\.d-pilot\mcp-bridge.mjs"`
+   after creating the folder), then open `claude_desktop_config.json` (Settings → Developer →
+   Edit Config; macOS `~/Library/Application Support/Claude/`, Windows `%APPDATA%\Claude\`)
+   and merge in the entry below by hand. Desktop does not use your shell's `PATH` or `~`, so
+   both paths must be absolute (`command -v node`, `echo ~/.d-pilot/mcp-bridge.mjs`; on
+   Windows double the backslashes). Fully quit and reopen Claude Desktop afterwards. The
+   `/docs/mcp` page builds this entry with your credential encoded in the browser — it
+   contains the credential, so paste it into the file yourself and don't share it.
 
    ```json
    {
      "mcpServers": {
        "d-pilot": {
-         "type": "http",
-         "url": "https://d-pilot.internal/api/mcp",
-         "headers": {
-           "Authorization": "Basic YWdlbnRAZXhhbXBsZS5jb206dGhlLXBhc3N3b3Jk"
+         "command": "/usr/local/bin/node",
+         "args": ["/Users/you/.d-pilot/mcp-bridge.mjs"],
+         "env": {
+           "DPILOT_MCP_URL": "https://d-pilot.example.com/api/mcp",
+           "DPILOT_MCP_AUTH": "Basic YWdlbnRAZXhhbXBsZS5jb206dGhlLXBhc3N3b3Jk"
          }
        }
      }
    }
    ```
 
-   That `Basic` value is just `base64("username:password")` — generate it with
-   `printf 'user:pass' | base64`.
+   That `Basic` value is `base64("username:password")`. Any other MCP client works the same
+   way: run the bridge as a stdio server with those two environment variables, or point an
+   HTTP client at `/api/mcp` with an `Authorization: Basic …` header.
 
 **Why Basic auth:** MCP clients can send static headers but cannot run D-Pilot's
 username/password login flow, so `/api/mcp` accepts the credentials directly and exchanges
@@ -481,6 +526,26 @@ requires a human-supplied reason.
 _new_ logins but does not kill a token already issued — as everywhere else in D-Pilot, a JWT
 stays valid until it expires, so revocation takes effect within `JWT_EXPIRES_IN` (24h by
 default). Lower that value if you need a tighter window.
+
+### Behind a VPN? Use the local bridge
+
+If D-Pilot is only reachable over a VPN, an agent pointed straight at the URL just times out
+while the VPN is off: the server shows as failed with no reason given, and stays failed until
+you reconnect it by hand. No request reaches D-Pilot, so D-Pilot cannot explain anything.
+
+That is what the bridge in the setup steps above is for. D-Pilot serves it at
+`/mcp-bridge.mjs` (under `BASE_PATH` too): one file, Node 18+, no dependencies, configured by
+`DPILOT_MCP_URL` and `DPILOT_MCP_AUTH`. The agent launches it as a local (stdio) server and it
+relays to `/api/mcp`. It always starts, and while D-Pilot is unreachable it offers a single
+`dpilot_status` tool that tells the agent (and so you) that D-Pilot is probably fine and your
+network/VPN can't reach it. It checks D-Pilot's health every 10 seconds and, the moment the
+VPN is back, tells the agent to re-list its tools — the real tools come back without a
+reconnect.
+
+With the VPN off, the agent sees only `dpilot_status`, and a call already under way returns
+"D-Pilot at https://d-pilot.example.com can't be reached from this machine (…). D-Pilot itself
+is probably running — check your network or VPN connection." Turn the VPN on and the full tool
+list is back within about 10 seconds. Bad credentials are reported as such, not as an outage.
 
 ## Install as an App (PWA)
 
