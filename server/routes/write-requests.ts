@@ -35,6 +35,7 @@ import { requireAdmin } from "../middleware/auth.js";
 import {
   connectionFailedMessage,
   isConnectionError,
+  isPreConnectError,
 } from "../services/connection-errors.js";
 import {
   createWriteRequest,
@@ -338,7 +339,12 @@ const changedWhileChecking = (id: string) =>
 /**
  * Executes a request immediately on a DIRECT-policy environment (an authorized
  * author self-serves), transitioning it to EXECUTED or FAILED and recording the
- * events + audit. Used by both create and revise.
+ * events + audit. Used by create, submit and revise.
+ *
+ * Returns false when the database could not be reached at all: nothing ran, so
+ * the request is not FAILED but handed back as a DRAFT, which its author
+ * submits again to retry — the one-step retry a FAILED request's revise gives
+ * today, without parking a direct-write request in an approval queue.
  */
 async function runDirectExecution(
   id: string,
@@ -348,7 +354,7 @@ async function runDirectExecution(
   opts: { isMigration: boolean; noTransaction?: boolean } = {
     isMigration: false,
   },
-): Promise<void> {
+): Promise<boolean> {
   const now = new Date().toISOString();
   addWriteRequestEvent(
     id,
@@ -389,12 +395,8 @@ async function runDirectExecution(
       executionMs: result.executionMs,
       phiAccessed: false,
     });
+    return true;
   } catch (err: any) {
-    updateWriteRequest(id, {
-      status: "FAILED",
-      executionError: err?.message || "Write failed",
-    });
-    addWriteRequestEvent(id, user.sub, user.email, "FAILED", err?.message);
     logAudit({
       userId: user.sub,
       userEmail: user.email,
@@ -403,7 +405,30 @@ async function runDirectExecution(
       connectionId: conn.id,
       phiAccessed: false,
     });
+    if (isPreConnectError(err)) {
+      claimWriteRequestStatus(id, "PENDING", "DRAFT");
+      return false;
+    }
+    updateWriteRequest(id, {
+      status: "FAILED",
+      executionError: err?.message || "Write failed",
+    });
+    addWriteRequestEvent(id, user.sub, user.email, "FAILED", err?.message);
+    return true;
   }
+}
+
+/** 503 for a write that never reached its database, with the request as it now is. */
+function sendNotReached(
+  res: Response,
+  id: string,
+  conn: { name: string; env: string },
+): void {
+  res.status(503).json({
+    error: connectionFailedMessage(conn),
+    code: "CONNECTION_FAILED",
+    request: getWriteRequest(id),
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -554,10 +579,14 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
 
   // DIRECT-policy environments: an authorized author executes immediately.
   if (direct) {
-    await runDirectExecution(wr.id, conn, writeSql.trim(), user, {
-      isMigration,
-      noTransaction: noTx,
-    });
+    const reached = await runDirectExecution(
+      wr.id,
+      conn,
+      writeSql.trim(),
+      user,
+      { isMigration, noTransaction: noTx },
+    );
+    if (!reached) return sendNotReached(res, wr.id, conn);
   }
 
   res.status(201).json(getWriteRequest(wr.id));
@@ -1081,6 +1110,20 @@ function decideAndRun(override: boolean) {
       });
       res.json(getWriteRequest(updated!.id));
     } catch (err: any) {
+      if (isPreConnectError(err)) {
+        // Nothing reached the database: release the claim, so the request is
+        // PENDING exactly as before and the next approve (or override) runs it.
+        claimWriteRequestStatus(wr.id, "APPROVED", "PENDING");
+        logAudit({
+          userId: user.sub,
+          userEmail: user.email,
+          action: "WRITE_EXECUTE_ERROR",
+          sql: wr.writeSql,
+          connectionId: wr.connectionId,
+          phiAccessed: false,
+        });
+        return sendNotReached(res, wr.id, conn);
+      }
       updateWriteRequest(wr.id, {
         status: "FAILED",
         reviewedBy: user.sub,
@@ -1249,10 +1292,11 @@ router.post(
     });
 
     if (plan.runNow) {
-      await runDirectExecution(wr.id, conn, wr.writeSql, user, {
+      const reached = await runDirectExecution(wr.id, conn, wr.writeSql, user, {
         isMigration: !!wr.isMigration,
         noTransaction: wr.noTransaction,
       });
+      if (!reached) return sendNotReached(res, wr.id, conn);
     }
 
     res.json(getWriteRequest(wr.id));
@@ -1441,10 +1485,11 @@ router.post(
     // A DIRECT-policy environment re-runs immediately on resubmit — never on a
     // draft edit, which stays saved until a human submits it.
     if (plan.runNow) {
-      await runDirectExecution(wr.id, conn, newWrite, user, {
+      const reached = await runDirectExecution(wr.id, conn, newWrite, user, {
         isMigration,
         noTransaction: noTx,
       });
+      if (!reached) return sendNotReached(res, wr.id, conn);
     }
 
     res.json(getWriteRequest(wr.id));

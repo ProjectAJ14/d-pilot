@@ -34,6 +34,31 @@ export function isConnectionError(err: unknown): boolean {
   );
 }
 
+// Failures that prove no statement reached the database: the host could not
+// be resolved or reached, or the connect itself timed out.
+const PRE_CONNECT_PATTERN =
+  /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|EAI_AGAIN|getaddrinfo|timeout exceeded when trying to connect/i;
+
+/**
+ * True only when nothing reached the database, so a write that failed this way
+ * can safely run again. A timeout or a reset after connecting has an unknown
+ * outcome and is not pre-connect. The write executor sets `afterSend` on
+ * anything raised once a statement may have been sent: a driver's own retry
+ * can fail with a refused connect after its first attempt already landed.
+ */
+export function isPreConnectError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as NonNullable<ErrShape> & { afterSend?: unknown };
+  if (e.afterSend || e.code === "ELOGIN") return false;
+  if (e.name === "MongoServerSelectionError") return true;
+  // mssql raises ConnectionError only while acquiring a connection (a failure
+  // mid-request is a RequestError); Elasticsearch's has no code.
+  if (e.name === "ConnectionError" && typeof e.code === "string") return true;
+  return PRE_CONNECT_PATTERN.test(
+    `${e.message ?? ""} ${typeof e.code === "string" ? e.code : ""}`,
+  );
+}
+
 /**
  * What users and MCP agents see when a target database can't be reached. It
  * says D-Pilot itself is fine, so nobody rewrites a correct query, and appends

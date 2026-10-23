@@ -27,19 +27,78 @@ const fakeCollection = new Proxy(
 );
 
 const pgQueries: string[] = [];
+const fail = vi.hoisted(() => ({
+  pgConnect: null as unknown,
+  pgQuery: null as unknown,
+  mongoPing: null as unknown,
+  mongoOp: null as unknown,
+  mssqlBegin: null as unknown,
+  mssqlQuery: null as unknown,
+}));
+// Only the transaction surface the write path uses.
+vi.mock("mssql", () => ({
+  default: {
+    Transaction: class {
+      async begin() {
+        if (fail.mssqlBegin) throw fail.mssqlBegin;
+      }
+      async commit() {}
+      async rollback() {}
+    },
+    Request: class {
+      async query() {
+        if (fail.mssqlQuery) throw fail.mssqlQuery;
+        return { rowsAffected: [1] };
+      }
+    },
+  },
+}));
+const esCalls: { api: string; options: unknown }[] = [];
 vi.mock("./query-executor.js", async (orig) => ({
   ...(await orig<typeof import("./query-executor.js")>()),
-  getPgPool: async () => ({
-    connect: async () => ({
-      query: async (sql: string) => {
-        pgQueries.push(sql);
-        return { rowCount: 1 };
+  getEsClient: () =>
+    new Proxy(
+      {},
+      {
+        get:
+          (_t, api: string) => async (_params: unknown, options: unknown) => {
+            esCalls.push({ api, options });
+            return { updated: 1, deleted: 1 };
+          },
       },
-      release: () => {},
-    }),
+    ),
+  getMssqlPool: async () => ({}),
+  getPgPool: async () => ({
+    connect: async () => {
+      if (fail.pgConnect) throw fail.pgConnect;
+      return {
+        query: async (sql: string) => {
+          if (fail.pgQuery && sql !== "ROLLBACK") throw fail.pgQuery;
+          pgQueries.push(sql);
+          return { rowCount: 1 };
+        },
+        release: () => {},
+      };
+    },
   }),
   getMongoClient: async () => ({
-    db: () => ({ collection: () => fakeCollection }),
+    db: () => ({
+      collection: () =>
+        fail.mongoOp
+          ? new Proxy(
+              {},
+              {
+                get: () => async () => {
+                  throw fail.mongoOp;
+                },
+              },
+            )
+          : fakeCollection,
+      command: async () => {
+        if (fail.mongoPing) throw fail.mongoPing;
+        return { ok: 1 };
+      },
+    }),
     startSession: () => ({
       withTransaction: async (fn: () => Promise<void>) => {
         if (!replicaSet) throw new Error(txError);
@@ -52,6 +111,7 @@ vi.mock("./query-executor.js", async (orig) => ({
 
 const { validateWriteQuery, parseMongoArgs, executeWrite, executeMigration } =
   await import("./write-executor.js");
+const { isPreConnectError } = await import("./connection-errors.js");
 
 const conn = {
   id: "mongo-write-test",
@@ -278,5 +338,146 @@ describe("default schema on the Postgres write path", () => {
     ).rejects.toThrow(/Invalid schema/);
     expect(pgQueries.some((q) => q.includes("DROP"))).toBe(false);
     expect(pgQueries).not.toContain(update);
+  });
+});
+
+/**
+ * A request whose write never reached the database stays approvable; one that
+ * may have run is FAILED. So an error only reads as "nothing ran" when it was
+ * raised before any statement was sent — never from a driver's own retry.
+ */
+describe("pre-connect failures on the write path", () => {
+  const refused = () =>
+    Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:5999"), {
+      code: "ECONNREFUSED",
+    });
+  const selection = () =>
+    Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:27017"), {
+      name: "MongoServerSelectionError",
+    });
+  const pg = { id: "pg-w", type: "postgres", env: "QA" } as ConnectionConfig;
+  const update = "UPDATE orders SET status = 'placed' WHERE id = 1";
+  const mongoWrite = 'db.orders.deleteOne({"sku": "A"})';
+  const caught = (p: Promise<unknown>) =>
+    p.then(
+      () => null,
+      (e) => e,
+    );
+  beforeEach(() => {
+    Object.assign(fail, {
+      pgConnect: null,
+      pgQuery: null,
+      mongoPing: null,
+      mongoOp: null,
+      mssqlBegin: null,
+      mssqlQuery: null,
+    });
+    replicaSet = true;
+  });
+
+  it("pg: a refused connect is pre-connect", async () => {
+    fail.pgConnect = refused();
+    expect(isPreConnectError(await caught(executeWrite(pg, update)))).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    ["a write", () => executeWrite(pg, update)],
+    [
+      "a migration",
+      () => executeMigration(pg, "ALTER TABLE orders ADD COLUMN note text"),
+    ],
+    [
+      "a no-transaction migration",
+      () =>
+        executeMigration(pg, "ALTER TABLE orders ADD COLUMN note text", {
+          noTransaction: true,
+        }),
+    ],
+  ])(
+    "pg: an error raised once connected is not pre-connect (%s)",
+    async (_n, run) => {
+      fail.pgQuery = refused();
+      const err = await caught(run());
+      expect(err).toBeTruthy();
+      expect(isPreConnectError(err)).toBe(false);
+    },
+  );
+
+  const mssqlConn = {
+    id: "ms-w",
+    type: "mssql",
+    env: "QA",
+  } as ConnectionConfig;
+  const connectFailed = () =>
+    Object.assign(new Error("Failed to connect to db:1433 in 10000ms"), {
+      name: "ConnectionError",
+      code: "ETIMEOUT",
+    });
+
+  it("mssql: a connection that can't be acquired for the transaction is pre-connect", async () => {
+    fail.mssqlBegin = connectFailed();
+    expect(
+      isPreConnectError(await caught(executeWrite(mssqlConn, update))),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["a write", () => executeWrite(mssqlConn, update)],
+    [
+      "a migration",
+      () =>
+        executeMigration(mssqlConn, "ALTER TABLE orders ADD note nvarchar(10)"),
+    ],
+  ])(
+    "mssql: an error once the transaction began is not (%s)",
+    async (_n, run) => {
+      fail.mssqlQuery = connectFailed();
+      const err = await caught(run());
+      expect(err).toBeTruthy();
+      expect(isPreConnectError(err)).toBe(false);
+    },
+  );
+
+  it("mongo: a server that can't be selected for the ping is pre-connect", async () => {
+    fail.mongoPing = selection();
+    expect(
+      isPreConnectError(await caught(executeWrite(conn, mongoWrite))),
+    ).toBe(true);
+  });
+
+  // The driver's retryable write selects a server again after the first
+  // attempt was sent — that selection error says nothing about the first.
+  it.each([true, false])(
+    "mongo: a selection error from the write itself is not (replica set: %s)",
+    async (rs) => {
+      replicaSet = rs;
+      fail.mongoOp = selection();
+      expect(
+        isPreConnectError(await caught(executeWrite(conn, mongoWrite))),
+      ).toBe(false);
+    },
+  );
+
+  // With retries a refused retry would hide a first attempt that was sent.
+  it("elasticsearch: every write is sent once, with no transport retries", async () => {
+    esCalls.length = 0;
+    const es = {
+      id: "es-w",
+      type: "elasticsearch",
+      env: "QA",
+    } as ConnectionConfig;
+    for (const sql of [
+      'POST orders/_update_by_query {"query": {"match_all": {}}}',
+      'POST orders/_delete_by_query {"query": {"match_all": {}}}',
+      'POST orders/_update/1 {"doc": {"a": 1}}',
+      'PUT orders/_create/1 {"a": 1}',
+      "DELETE orders/_doc/1",
+      'POST orders/_doc {"a": 1}',
+    ])
+      await executeWrite(es, sql);
+    expect(esCalls).toHaveLength(6);
+    for (const c of esCalls) expect(c.options).toEqual({ maxRetries: 0 });
   });
 });

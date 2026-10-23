@@ -18,6 +18,17 @@ import {
 import { scanSql } from "./sql-scan.js";
 import type { ConnectionConfig, DatabaseType } from "../types/index.js";
 
+/**
+ * Marks an error raised once a statement may have reached the server, so
+ * isPreConnectError never reads it as "nothing ran" and the request is not
+ * offered for a second run of a write that may have landed.
+ */
+function sent(err: unknown): unknown {
+  if (err && typeof err === "object")
+    (err as { afterSend?: boolean }).afterSend = true;
+  return err;
+}
+
 // DML verbs permitted for SQL engines. DDL and everything else is blocked.
 const SQL_WRITE_VERBS = ["INSERT", "UPDATE", "DELETE"];
 const SQL_BLOCKED =
@@ -329,6 +340,8 @@ async function executePgMigration(
       }
     }
     return { rowsAffected: rows, transactional: false };
+  } catch (err) {
+    throw sent(err);
   } finally {
     client.release();
   }
@@ -371,7 +384,7 @@ async function executeMssqlMigration(
       } catch {
         /* ignore rollback failure */
       }
-      throw err;
+      throw sent(err);
     }
   });
 }
@@ -439,7 +452,7 @@ async function executePgWrite(
     } catch {
       /* ignore rollback failure */
     }
-    throw err;
+    throw sent(err);
   } finally {
     client.release();
   }
@@ -467,7 +480,7 @@ async function executeMssqlWrite(
       } catch {
         /* ignore rollback failure */
       }
-      throw err;
+      throw sent(err);
     }
   });
 }
@@ -601,6 +614,10 @@ async function executeMongoWrite(
     const db = client.db(dbName);
     const { collection: collName, verb, args } = parseMongoArgs(sql);
     const collection = db.collection(collName);
+    // A cached client connects nothing up front, and the write's own server
+    // selection can come from a retry after its first attempt was sent. The
+    // ping settles "reachable" first, so only its failure is pre-connect.
+    await db.command({ ping: 1 });
 
     // Prefer a real transaction; fall back to a direct op if the deployment is not
     // a replica set (transactions require one).
@@ -621,10 +638,14 @@ async function executeMongoWrite(
           msg,
         )
       ) {
-        const rows = await runMongoOp(collection, verb, args);
-        return { rowsAffected: rows, transactional: false };
+        try {
+          const rows = await runMongoOp(collection, verb, args);
+          return { rowsAffected: rows, transactional: false };
+        } catch (retryErr) {
+          throw sent(retryErr);
+        }
       }
-      throw err;
+      throw sent(err);
     } finally {
       await session.endSession();
     }
@@ -636,6 +657,10 @@ async function executeEsWrite(
   sql: string,
 ): Promise<number> {
   const client = getEsClient(conn);
+  // Sent once: a transport retry after a reset would repeat a write that may
+  // have landed (an id-less _doc twice), and its refused connect would then
+  // read as "nothing ran". With one attempt, a refused connect means just that.
+  const once = { maxRetries: 0 };
   return holdClient(client, async () => {
     const m = sql.trim().match(/^(POST|PUT|DELETE)\s+\/?(\S+)\s*([\s\S]*)?$/i);
     if (!m) throw new Error("Could not parse Elasticsearch write request");
@@ -647,28 +672,28 @@ async function executeEsWrite(
     const id = segments[2];
 
     if (endpoint === "_update_by_query") {
-      const r = await client.updateByQuery({ index, ...(body || {}) });
+      const r = await client.updateByQuery({ index, ...(body || {}) }, once);
       return (r.updated as number) ?? 0;
     }
     if (endpoint === "_delete_by_query") {
-      const r = await client.deleteByQuery({ index, ...(body || {}) });
+      const r = await client.deleteByQuery({ index, ...(body || {}) }, once);
       return (r.deleted as number) ?? 0;
     }
     if (endpoint === "_update" && id) {
-      await client.update({ index, id, ...(body || {}) });
+      await client.update({ index, id, ...(body || {}) }, once);
       return 1;
     }
     if (endpoint === "_create" && id) {
-      await client.create({ index, id, document: body });
+      await client.create({ index, id, document: body }, once);
       return 1;
     }
     if (endpoint === "_doc") {
       if (method.toUpperCase() === "DELETE") {
         if (!id) throw new Error("DELETE /index/_doc requires a document id");
-        await client.delete({ index, id });
+        await client.delete({ index, id }, once);
         return 1;
       }
-      await client.index({ index, id, document: body });
+      await client.index({ index, id, document: body }, once);
       return 1;
     }
     throw new Error(`Unsupported Elasticsearch write endpoint: ${endpoint}`);

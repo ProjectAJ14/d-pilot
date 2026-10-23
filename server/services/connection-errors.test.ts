@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const getConfig = vi.fn<(key: string) => string | undefined>();
 vi.mock("../config/settings.js", () => ({ getConfig }));
 
-const { connectionFailedMessage, isConnectionError } =
+const { connectionFailedMessage, isConnectionError, isPreConnectError } =
   await import("./connection-errors.js");
 
 const coded = (err: Error, code: string, name?: string) =>
@@ -23,14 +23,14 @@ const CONNECT_FAILURES: [string, unknown][] = [
   [
     "mssql ConnectionError ESOCKET",
     coded(
-      new Error("Failed to connect to db:1433 - connect ECONNREFUSED"),
+      new Error("Failed to connect to db:1433 - Could not connect (sequence)"),
       "ESOCKET",
       "ConnectionError",
     ),
   ],
   [
     "MongoServerSelectionError",
-    Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:27017"), {
+    Object.assign(new Error("Server selection timed out after 10000 ms"), {
       name: "MongoServerSelectionError",
     }),
   ],
@@ -98,6 +98,47 @@ describe("isConnectionError", () => {
       code: "42P01",
     });
     expect(isConnectionError(err)).toBe(false);
+  });
+});
+
+describe("isPreConnectError", () => {
+  it.each([
+    ...CONNECT_FAILURES,
+    ...["EHOSTUNREACH", "ENETUNREACH", "EAI_AGAIN"].map(
+      (code): [string, unknown] => [
+        code,
+        coded(new Error(`connect ${code}`), code),
+      ],
+    ),
+  ])("nothing reached the database: %s", (_n, err) => {
+    expect(isPreConnectError(err)).toBe(true);
+  });
+
+  it.each([
+    ...NOT_CONNECTION,
+    // Connected, then lost: the statement may have run.
+    ["ECONNRESET", coded(new Error("read ECONNRESET"), "ECONNRESET")],
+    ["ETIMEDOUT", coded(new Error("read ETIMEDOUT"), "ETIMEDOUT")],
+    ["socket hang up", new Error("socket hang up")],
+    ["pg terminated", new Error("Connection terminated unexpectedly")],
+    ["mssql Connection lost", new Error("Connection lost - read ECONNRESET")],
+    [
+      "ES socket error",
+      Object.assign(new Error("other side closed"), {
+        name: "ConnectionError",
+      }),
+    ],
+    ["a query error", coded(new Error('relation "x" does not exist'), "42P01")],
+    ["null", null],
+  ] as [string, unknown][])("may have reached the database: %s", (_n, err) => {
+    expect(isPreConnectError(err)).toBe(false);
+  });
+
+  it("is never true for an error raised after the statement was sent", () => {
+    const err = coded(new Error("connect ECONNREFUSED"), "ECONNREFUSED");
+    expect(isPreConnectError(Object.assign(err, { afterSend: true }))).toBe(
+      false,
+    );
   });
 });
 
