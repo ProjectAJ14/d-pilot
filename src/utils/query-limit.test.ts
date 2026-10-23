@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import "./browser-request.testing";
 import { queryLimit } from "./query-limit";
 import { api } from "./api-client";
 
@@ -16,8 +17,8 @@ beforeEach(() => {
   vi.stubGlobal("localStorage", { getItem: () => null });
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (_url: string, init: RequestInit) => {
-      sentBodies.push(JSON.parse(init.body as string));
+    vi.fn(async (req: Request) => {
+      sentBodies.push(await req.json());
       return new Response("{}", {
         headers: { "Content-Type": "application/json" },
       });

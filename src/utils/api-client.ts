@@ -70,9 +70,12 @@ async function setServerUnreachable(unreachable: boolean): Promise<void> {
  * database, so it passes through to the caller untouched.
  */
 async function send(url: string, init?: RequestInit): Promise<Response> {
+  // Built outside the try: a request fetch refuses to send (a header that
+  // isn't Latin-1, say) throws here as the bug it is, not as an outage.
+  const req = new Request(url, init);
   let res: Response;
   try {
-    res = await fetch(url, init);
+    res = await fetch(req);
   } catch (err) {
     if (!isUnreachableRejection(err)) throw err;
     await setServerUnreachable(true);
@@ -109,6 +112,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const reason = localStorage.getItem("phi_unmask_reason");
     const notes = localStorage.getItem("phi_unmask_notes");
     if (reason) headers["X-PHI-Unmask-Reason"] = reason;
+    // ponytail: free-text notes go out raw, so an em dash or newline makes fetch throw; encode them.
     if (notes) headers["X-PHI-Unmask-Notes"] = notes;
   }
 

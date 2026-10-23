@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import "./browser-request.testing";
 
 const shown = vi.hoisted(() => [] as unknown[]);
 vi.mock("@mantine/notifications", () => ({
@@ -27,8 +28,13 @@ const { api, ApiError } = await import("./api-client");
 const { useStore } = await import("../store");
 const { notifyError, isReportable } = await import("./notify-error");
 
+// Like a real fetch, it builds a Request first — so a header fetch refuses to
+// send throws a TypeError before any network activity.
 const reply = (status: number, body: unknown = {}) =>
-  vi.fn(async () => new Response(JSON.stringify(body), { status }));
+  vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    new Request(input, init);
+    return new Response(JSON.stringify(body), { status });
+  });
 const flagged = () => useStore.getState().serverUnreachable;
 
 beforeEach(async () => {
@@ -179,7 +185,22 @@ describe("api-client when the server is unreachable", () => {
     const ok = reply(200);
     vi.stubGlobal("fetch", ok);
     expect(await api.ping()).toBe(true);
-    expect(ok).toHaveBeenCalledWith("/api/health", undefined);
+    expect(
+      String((ok.mock.calls[0][0] as Request).url ?? ok.mock.calls[0][0]),
+    ).toMatch(/\/api\/health$/);
+    expect(flagged()).toBe(false);
+  });
+});
+
+describe("a request fetch refuses to send", () => {
+  it("is an ordinary error, not the server being unreachable", async () => {
+    vi.stubGlobal("fetch", reply(200));
+    // Unmask notes are free text; a header can't carry an em dash or a newline.
+    mem["phi_shield"] = "off";
+    mem["phi_unmask_notes"] = "ticket 42 — line one\nline two";
+    const err = await api.getConnections().catch((e) => e);
+    expect(err).toBeInstanceOf(TypeError);
+    expect(isServerUnreachable(err)).toBe(false);
     expect(flagged()).toBe(false);
   });
 });
