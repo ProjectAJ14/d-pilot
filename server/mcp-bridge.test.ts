@@ -427,7 +427,8 @@ describe("mcp-bridge: D-Pilot unreachable", () => {
       await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
       const { port } = server.address() as AddressInfo;
       const b = bridge(`https://127.0.0.1:${port}/api/mcp`);
-      const TLS = /certificate.*not trusted.*NODE_EXTRA_CA_CERTS/s;
+      const TLS =
+        /certificate.*not trusted.*--use-system-ca.*--install-desktop.*NODE_EXTRA_CA_CERTS/s;
       const list = await b.request("tools/list");
       expect(list.error.message).toMatch(TLS);
       const call = await run(b);
@@ -706,6 +707,9 @@ describe("mcp-bridge: --install-desktop", () => {
           PATH: fakeHome,
           ...env,
         },
+        // A Windows path computed on POSIX (a faked win32 platform) is one
+        // relative file name: if a bug ever writes one, it lands here.
+        cwd: fakeHome,
         encoding: "utf8",
       },
     );
@@ -714,9 +718,11 @@ describe("mcp-bridge: --install-desktop", () => {
     return r;
   };
   const read = (file: string) => JSON.parse(readFileSync(file, "utf8"));
+  // Node 22.15+/23.8+ can trust the OS certificate store; the entry asks it to.
+  const SYSTEM_CA = process.allowedNodeEnvironmentFlags.has("--use-system-ca");
   const ENTRY = {
     command: process.execPath,
-    args: [BRIDGE],
+    args: SYSTEM_CA ? ["--use-system-ca", BRIDGE] : [BRIDGE],
     env: { DPILOT_MCP_URL: URL_, DPILOT_MCP_AUTH: AUTH },
   };
 
@@ -727,11 +733,14 @@ describe("mcp-bridge: --install-desktop", () => {
     expect(readFileSync(file, "utf8")).toBe(
       `${JSON.stringify({ mcpServers: { "d-pilot": ENTRY } }, null, 2)}\n`,
     );
-    expect(isAbsolute(read(file).mcpServers["d-pilot"].args[0])).toBe(true);
+    expect(isAbsolute(read(file).mcpServers["d-pilot"].args.at(-1))).toBe(true);
     expect(existsSync(`${file}.bak`)).toBe(false);
     expect(r.stdout).toContain(file);
     expect(r.stdout).toContain("https://d-pilot.example.com");
-    expect(r.stdout).toMatch(/Fully quit Claude Desktop and reopen it/);
+    expect(r.stdout).toMatch(/Start Claude Desktop/);
+    expect(r.stdout).toMatch(/quit it fully.*run this again/s);
+    // No pgrep/tasklist on the fake PATH: no way to tell, so no warning.
+    expect(r.stderr).not.toMatch(/looks like it is running/);
     expect(readdirSync(dirname(file))).toEqual(["claude_desktop_config.json"]);
   });
 
@@ -802,6 +811,32 @@ describe("mcp-bridge: --install-desktop", () => {
     },
   );
 
+  // It rewrites its config while it runs, so this edit would be lost. A fake
+  // pgrep/tasklist on PATH stands in for the real one; the platform is faked
+  // so both run on any OS.
+  it.skipIf(process.platform === "win32").each([
+    ["darwin", "pgrep", "echo 4242"],
+    ["win32", "tasklist", "echo 'claude.exe   4242 Console   1   90,000 K'"],
+  ])(
+    "warns, on %s, when Claude Desktop looks like it is running",
+    (platform, tool, script) => {
+      const bin = scratch();
+      writeFileSync(join(bin, tool), `#!/bin/sh\n${script}\n`, {
+        mode: 0o755,
+      });
+      const file = join(scratch(), "claude_desktop_config.json");
+      const as = `data:text/javascript,Object.defineProperty(process,'platform',{value:'${platform}'})`;
+      const r = install(file, [URL_, AUTH], {
+        PATH: bin,
+        NODE_OPTIONS: `--import=${as}`,
+      });
+      expect(r.status, r.stderr).toBe(0);
+      expect(read(file).mcpServers["d-pilot"].env.DPILOT_MCP_URL).toBe(URL_);
+      expect(r.stderr).toMatch(/Claude Desktop looks like it is running/);
+      expect(r.stderr).toMatch(/quit it fully.*run this again/s);
+    },
+  );
+
   // Claude Desktop's folder is under %APPDATA%; without it there is no path.
   it("exits 1 on Windows without APPDATA, saying what to set", () => {
     const fakeHome = scratch();
@@ -819,7 +854,7 @@ describe("mcp-bridge: --install-desktop", () => {
     const r = spawnSync(
       process.execPath,
       ["--import", asWindows, BRIDGE, "--install-desktop", URL_, AUTH],
-      { env, encoding: "utf8" },
+      { env, cwd: fakeHome, encoding: "utf8" },
     );
     expect(r.status).toBe(1);
     expect(r.stderr).toMatch(/APPDATA is not set.*DPILOT_DESKTOP_CONFIG/s);
@@ -935,32 +970,215 @@ describe("mcp-bridge: --install-desktop", () => {
 
 // Called in a child, like everything else here, so c8 sees it run.
 describe("mcp-bridge: desktopConfigPath", () => {
-  const CASES = [
-    [
-      "win32",
-      { APPDATA: "C:\\Users\\a\\AppData\\Roaming" },
-      "C:\\Users\\a\\AppData\\Roaming\\Claude\\claude_desktop_config.json",
-    ],
+  const LAD = "C:\\Users\\a\\AppData\\Local";
+  const PKGS = `${LAD}\\Packages`;
+  const ROAMING = "C:\\Users\\a\\AppData\\Roaming";
+  const APPDATA_FILE = `${ROAMING}\\Claude\\claude_desktop_config.json`;
+  const storeDir = (pkg: string) =>
+    `${PKGS}\\${pkg}\\LocalCache\\Roaming\\Claude`;
+  const storeFile = (pkg: string) =>
+    `${storeDir(pkg)}\\claude_desktop_config.json`;
+  const WIN = { APPDATA: ROAMING, LOCALAPPDATA: LAD };
+  /**
+   * [platform, env, Packages listing (null: no such dir), paths that exist,
+   * expected]. The fs is injected, so Windows paths work on any OS.
+   */
+  const CASES: [string, object, string[] | null, string[], object][] = [
+    ["win32", { APPDATA: ROAMING }, null, [], { file: APPDATA_FILE }],
     [
       "darwin",
       {},
-      "/Users/a/Library/Application Support/Claude/claude_desktop_config.json",
+      null,
+      [],
+      {
+        file: "/Users/a/Library/Application Support/Claude/claude_desktop_config.json",
+      },
     ],
-    ["linux", {}, "/Users/a/.config/Claude/claude_desktop_config.json"],
-    ["win32", { DPILOT_DESKTOP_CONFIG: "/x/y.json" }, "/x/y.json"],
-    ["win32", {}, null],
-  ] as const;
+    [
+      "linux",
+      {},
+      null,
+      [],
+      { file: "/Users/a/.config/Claude/claude_desktop_config.json" },
+    ],
+    [
+      "win32",
+      { DPILOT_DESKTOP_CONFIG: "/x/y.json" },
+      null,
+      [],
+      { file: "/x/y.json" },
+    ],
+    ["win32", {}, null, [], { file: null }],
+    // The Microsoft Store build: its config lives in the package's virtualized AppData.
+    [
+      "win32",
+      WIN,
+      ["Microsoft.Foo_8wekyb3d8bbwe", "Claude_pzs8sxrjxfjjc"],
+      [storeDir("Claude_pzs8sxrjxfjjc")],
+      {
+        file: storeFile("Claude_pzs8sxrjxfjjc"),
+        store: { name: "Claude_pzs8sxrjxfjjc", count: 1 },
+      },
+    ],
+    // No Packages dir, or no Claude_ package with a Roaming\Claude inside.
+    ["win32", WIN, null, [], { file: APPDATA_FILE }],
+    [
+      "win32",
+      WIN,
+      ["Claude_abc", "Other_Claude_x"],
+      // Claude_abc has no Roaming\Claude; Other_Claude_x does, but isn't Claude_*.
+      [storeDir("Other_Claude_x")],
+      { file: APPDATA_FILE },
+    ],
+    // Several: the first (sorted) whose config exists, else the first.
+    [
+      "win32",
+      WIN,
+      ["Claude_c", "Claude_a", "Claude_b"],
+      [
+        storeDir("Claude_a"),
+        storeDir("Claude_b"),
+        storeDir("Claude_c"),
+        storeFile("Claude_c"),
+      ],
+      { file: storeFile("Claude_c"), store: { name: "Claude_c", count: 3 } },
+    ],
+    [
+      "win32",
+      WIN,
+      ["Claude_c", "Claude_a"],
+      [storeDir("Claude_a"), storeDir("Claude_c")],
+      { file: storeFile("Claude_a"), store: { name: "Claude_a", count: 2 } },
+    ],
+    // LOCALAPPDATA unset: APPDATA, without looking anywhere.
+    [
+      "win32",
+      { APPDATA: ROAMING },
+      ["Claude_a"],
+      [storeDir("Claude_a")],
+      { file: APPDATA_FILE },
+    ],
+    // The override beats the Store copy.
+    [
+      "win32",
+      { ...WIN, DPILOT_DESKTOP_CONFIG: "D:\\c.json" },
+      ["Claude_a"],
+      [storeDir("Claude_a")],
+      { file: "D:\\c.json" },
+    ],
+    // Only Windows has Store packages.
+    [
+      "darwin",
+      WIN,
+      ["Claude_a"],
+      [storeDir("Claude_a")],
+      {
+        file: "/Users/a/Library/Application Support/Claude/claude_desktop_config.json",
+      },
+    ],
+  ];
 
-  it("knows each OS's default and honours the override", () => {
+  it("knows each OS's default, the Microsoft Store copy, and honours the override", () => {
     const code = `const { desktopConfigPath } = await import(${JSON.stringify(pathToFileURL(BRIDGE).href)});
       const cases = ${JSON.stringify(CASES)};
-      console.log(JSON.stringify(cases.map(([p, env]) => desktopConfigPath(p, env, "/Users/a"))));`;
+      console.log(JSON.stringify(cases.map(([p, env, listing, existing]) =>
+        desktopConfigPath(p, env, "/Users/a", {
+          readdirSync: (d) => {
+            if (d !== ${JSON.stringify(PKGS)} || !listing) throw new Error("ENOENT");
+            return listing;
+          },
+          existsSync: (f) => existing.includes(f),
+        }))));`;
     const r = spawnSync(process.execPath, ["--input-type=module", "-e", code], {
       encoding: "utf8",
     });
     expect(r.status, r.stderr).toBe(0);
-    expect(JSON.parse(r.stdout)).toEqual(CASES.map((c) => c[2]));
+    expect(JSON.parse(r.stdout)).toEqual(CASES.map((c) => c[4]));
   });
+
+  it("names the Store version, and which package when there are several", () => {
+    const code = `const { describeConfig } = await import(${JSON.stringify(pathToFileURL(BRIDGE).href)});
+      console.log(JSON.stringify([
+        describeConfig({ file: "/a.json" }),
+        describeConfig({ file: "C:\\\\s.json", store: { name: "Claude_x", count: 1 } }),
+        describeConfig({ file: "C:\\\\s.json", store: { name: "Claude_x", count: 2 } }),
+      ]));`;
+    const r = spawnSync(process.execPath, ["--input-type=module", "-e", code], {
+      encoding: "utf8",
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual([
+      "/a.json",
+      "C:\\s.json (Microsoft Store version)",
+      "C:\\s.json (Microsoft Store version; package Claude_x, of 2 Claude_* packages)",
+    ]);
+  });
+});
+
+describe("mcp-bridge: desktopRunning and desktopArgs", () => {
+  it("asks tasklist (Windows) or pgrep (macOS), with no shell, and never fails", () => {
+    const code = `const { desktopRunning } = await import(${JSON.stringify(pathToFileURL(BRIDGE).href)});
+      const calls = [];
+      const fake = (out) => (cmd, args, opts) => {
+        calls.push([cmd, args, !!opts.shell]);
+        if (out instanceof Error) throw out;
+        return out;
+      };
+      const results = [
+        desktopRunning("win32", fake("claude.exe    4242 Console   1   90,000 K\\r\\n")),
+        desktopRunning("win32", fake("INFO: No tasks are running which match the specified criteria.\\r\\n")),
+        desktopRunning("win32", fake(new Error("ENOENT"))),
+        desktopRunning("darwin", fake("4242\\n")),
+        desktopRunning("darwin", fake(new Error("exit 1"))),
+        desktopRunning("linux", fake("4242\\n")),
+      ];
+      console.log(JSON.stringify({ results, calls }));`;
+    const r = spawnSync(process.execPath, ["--input-type=module", "-e", code], {
+      encoding: "utf8",
+    });
+    expect(r.status, r.stderr).toBe(0);
+    const TASKLIST = [
+      "tasklist",
+      ["/FI", "IMAGENAME eq claude.exe", "/NH"],
+      false,
+    ];
+    const PGREP = ["pgrep", ["-x", "Claude"], false];
+    expect(JSON.parse(r.stdout)).toEqual({
+      results: [true, false, false, true, false, false],
+      // Linux: no check at all.
+      calls: [TASKLIST, TASKLIST, TASKLIST, PGREP, PGREP],
+    });
+  });
+
+  it("adds --use-system-ca only when this node supports it", () => {
+    const code = `const { desktopArgs } = await import(${JSON.stringify(pathToFileURL(BRIDGE).href)});
+      console.log(JSON.stringify([desktopArgs("/b.mjs", true), desktopArgs("/b.mjs", false), desktopArgs("/b.mjs")]));`;
+    const r = spawnSync(process.execPath, ["--input-type=module", "-e", code], {
+      encoding: "utf8",
+    });
+    expect(r.status, r.stderr).toBe(0);
+    const supported =
+      process.allowedNodeEnvironmentFlags.has("--use-system-ca");
+    expect(JSON.parse(r.stdout)).toEqual([
+      ["--use-system-ca", "/b.mjs"],
+      ["/b.mjs"],
+      supported ? ["--use-system-ca", "/b.mjs"] : ["/b.mjs"],
+    ]);
+  });
+
+  // Really a node CLI flag here, not just a name in allowedNodeEnvironmentFlags.
+  it.skipIf(!process.allowedNodeEnvironmentFlags.has("--use-system-ca"))(
+    "starts node with --use-system-ca",
+    () => {
+      const r = spawnSync(
+        process.execPath,
+        ["--use-system-ca", "-e", "console.log(process.execArgv[0])"],
+        { encoding: "utf8" },
+      );
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout.trim()).toBe("--use-system-ca");
+    },
+  );
 });
 
 describe("mcp-bridge: stableNodePath", () => {

@@ -23,13 +23,16 @@
  * Or, once, to register it with Claude Desktop instead of serving:
  *   node mcp-bridge.mjs --install-desktop <url> "Basic <base64 of user:password>"
  * which writes the `d-pilot` entry into Claude Desktop's config file (this node,
- * this file, those two values) and keeps everything else in it.
+ * this file, those two values) and keeps everything else in it. Quit Claude
+ * Desktop first: it rewrites the file while it runs.
  * DPILOT_DESKTOP_CONFIG overrides which file.
  */
+import { execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -65,25 +68,117 @@ export function parseMcpUrl(raw, name) {
 }
 
 /**
- * Where Claude Desktop keeps its config on `platform`, given `env` and the home
- * dir; null on Windows without APPDATA, which is where it lives there.
+ * Where Claude Desktop keeps its config on `platform`, given `env`, the home
+ * dir and `fs`: `{ file }`, plus `store` (`{ name, count }`) for the Microsoft
+ * Store version. `file` is null on Windows without APPDATA or a Store copy.
  */
-export function desktopConfigPath(platform, env, home) {
-  if (env.DPILOT_DESKTOP_CONFIG) return env.DPILOT_DESKTOP_CONFIG;
+export function desktopConfigPath(
+  platform,
+  env,
+  home,
+  fs = { readdirSync, existsSync },
+) {
+  if (env.DPILOT_DESKTOP_CONFIG) return { file: env.DPILOT_DESKTOP_CONFIG };
   if (platform === "win32")
-    return env.APPDATA
-      ? win32.join(env.APPDATA, "Claude", "claude_desktop_config.json")
-      : null;
-  if (platform === "darwin")
-    return join(
-      home,
-      "Library",
-      "Application Support",
-      "Claude",
-      "claude_desktop_config.json",
+    return (
+      storeConfigPath(env.LOCALAPPDATA, fs) ?? {
+        file: env.APPDATA
+          ? win32.join(env.APPDATA, "Claude", "claude_desktop_config.json")
+          : null,
+      }
     );
-  return join(home, ".config", "Claude", "claude_desktop_config.json");
+  if (platform === "darwin")
+    return {
+      file: join(
+        home,
+        "Library",
+        "Application Support",
+        "Claude",
+        "claude_desktop_config.json",
+      ),
+    };
+  return {
+    file: join(home, ".config", "Claude", "claude_desktop_config.json"),
+  };
 }
+
+/**
+ * The Microsoft Store (MSIX) build reads its config from its package's
+ * virtualized AppData, not %APPDATA%: Packages\Claude_<publisher hash>\
+ * LocalCache\Roaming\Claude. Of several packages, the first (sorted) that
+ * already has a config, else the first.
+ */
+function storeConfigPath(localAppData, { readdirSync, existsSync }) {
+  if (!localAppData) return null;
+  const packages = win32.join(localAppData, "Packages");
+  let names;
+  try {
+    names = readdirSync(packages);
+  } catch {
+    return null; // no Packages folder: not the Store version
+  }
+  const found = names
+    .filter((n) => /^claude_/i.test(n))
+    .sort()
+    .map((name) => ({
+      name,
+      dir: win32.join(packages, name, "LocalCache", "Roaming", "Claude"),
+    }))
+    .filter(({ dir }) => existsSync(dir))
+    .map(({ name, dir }) => ({
+      name,
+      file: win32.join(dir, "claude_desktop_config.json"),
+    }));
+  if (!found.length) return null;
+  const pick = found.find(({ file }) => existsSync(file)) ?? found[0];
+  return { file: pick.file, store: { name: pick.name, count: found.length } };
+}
+
+/** The config file as the installer reports it: which Claude Desktop it is for. */
+export function describeConfig({ file, store }) {
+  if (!store) return file;
+  const which =
+    store.count > 1
+      ? `; package ${store.name}, of ${store.count} Claude_* packages`
+      : "";
+  return `${file} (Microsoft Store version${which})`;
+}
+
+/**
+ * Whether Claude Desktop looks like it is running: it rewrites its config
+ * while it runs, so an edit made now is lost. Best effort, never a failure:
+ * no tasklist/pgrep, a timeout or no match is "not running". Windows matches
+ * the image name, which a native Claude Code install shares; Linux isn't checked.
+ */
+export function desktopRunning(platform, exec = execFileSync) {
+  const opts = {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+    timeout: 5000,
+    windowsHide: true,
+  };
+  try {
+    if (platform === "win32")
+      return /claude\.exe/i.test(
+        exec("tasklist", ["/FI", "IMAGENAME eq claude.exe", "/NH"], opts),
+      );
+    // pgrep exits 1 (a throw) when nothing matches.
+    if (platform === "darwin") return !!exec("pgrep", ["-x", "Claude"], opts);
+  } catch {
+    // can't tell: say nothing
+  }
+  return false;
+}
+
+/**
+ * The entry's args. Node 22.15+/23.8+ can trust the OS certificate store,
+ * which a VPN or proxy that inspects HTTPS installs its CA into, so the
+ * bridge then works wherever the browser does.
+ */
+export const desktopArgs = (
+  bridge,
+  systemCa = process.allowedNodeEnvironmentFlags.has("--use-system-ca"),
+) => (systemCa ? ["--use-system-ca", bridge] : [bridge]);
 
 /**
  * The `node` PATH finds (PATHEXT on Windows) when it is this very binary, else
@@ -155,7 +250,8 @@ function installDesktop(rawUrl, auth) {
   if (typeof url === "string") quit(url);
   if (!/^Basic [A-Za-z0-9+/]+={0,2}$/.test(auth ?? ""))
     quit('The authorization must be "Basic <base64 of user:password>".');
-  let file = desktopConfigPath(process.platform, process.env, homedir());
+  const target = desktopConfigPath(process.platform, process.env, homedir());
+  let { file } = target;
   if (!file)
     quit(
       "APPDATA is not set, so Claude Desktop's config can't be found. Set DPILOT_DESKTOP_CONFIG to the path of its claude_desktop_config.json and run this again.",
@@ -187,7 +283,7 @@ function installDesktop(rawUrl, auth) {
     ...config.mcpServers,
     "d-pilot": {
       command: stableNodePath(process.platform, process.env, process.execPath),
-      args: [fileURLToPath(import.meta.url)],
+      args: desktopArgs(fileURLToPath(import.meta.url)),
       env: { DPILOT_MCP_URL: rawUrl, DPILOT_MCP_AUTH: auth },
     },
   };
@@ -196,9 +292,17 @@ function installDesktop(rawUrl, auth) {
   writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmp, file);
   console.log(
-    `Added d-pilot (${url.origin}) to ${file}${existed ? ` (backup: ${file}.bak)` : ""}.`,
+    `Added d-pilot (${url.origin}) to ${describeConfig({ ...target, file })}${existed ? ` (backup: ${file}.bak)` : ""}.`,
   );
-  console.log("Fully quit Claude Desktop and reopen it.");
+  if (desktopRunning(process.platform))
+    log(
+      "Claude Desktop looks like it is running. It rewrites this file while it runs, so this " +
+        "change may be lost: quit it fully (Windows: right-click the tray icon, then Quit; " +
+        "macOS: Cmd+Q), run this again, then start it.",
+    );
+  console.log(
+    "Start Claude Desktop. If it was open, quit it fully (closing the window is not enough), run this again, then start it.",
+  );
 }
 
 /** The MCP server: stdio in, `DPILOT_MCP_URL` out. */
@@ -224,8 +328,10 @@ function serve() {
   const TLS_MSG =
     `D-Pilot's HTTPS certificate at ${BASE} is not trusted by Node on this machine. This is ` +
     "configuration, not an outage: if your organisation uses its own certificate authority " +
-    "(or a TLS-inspecting proxy), set NODE_EXTRA_CA_CERTS to that CA's PEM file in this " +
-    "server's env, then restart the MCP client.";
+    "(or a VPN or proxy that inspects HTTPS), run this bridge with Node 22.15 or newer and " +
+    "--use-system-ca before its path (for Claude Desktop, run --install-desktop again with " +
+    "that Node, which adds it), or set NODE_EXTRA_CA_CERTS to that CA's PEM file in this " +
+    "server's env. Then restart the MCP client.";
   // A 2xx from something that is not D-Pilot: it answered in its place.
   const NOT_MCP =
     "unexpected non-MCP response; a captive portal or VPN login page?";
