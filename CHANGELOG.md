@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [2.3.0](https://github.com/ProjectAJ14/d-pilot/compare/v2.2.0...v2.3.0) (2026-10-23)
+
+
+### Features
+
+* **settings:** add user search to User Management ([02c9fb1](https://github.com/ProjectAJ14/d-pilot/commit/02c9fb1431c377b13d7fed87651a6a1060c4421a))
+
 # [2.2.0](https://github.com/ProjectAJ14/d-pilot/compare/v2.1.0...v2.2.0) (2026-10-22)
 
 
