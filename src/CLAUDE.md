@@ -117,6 +117,9 @@ writing to the tab in the store.
   order. Drag-and-drop and Alt+↑/↓ on the pin button reorder them; the decisions live in
   the pure `canDropPin` / `nudgeTarget` / `dropEdge` so they are unit-tested (there is no
   component-test setup). The nudge follows the _visible_ (search-filtered) order.
+- **`user-search.ts` `filterUsers`** — client-side filter behind the User Management search box
+  (name/email/username, case-insensitive substring). It only sees users the tab already
+  loaded; Add User clears the query so a new user can't be hidden by it.
 - **`environments.ts` `runEnvStyle(env)`** — label + color for the editor's "Run on ENV"
   button and env strip. Any production-like name (`isProductionEnv`, so `SUPER_PROD` too)
   is red even though `envColor()` has no entry for it. Keep new env-aware UI on this
