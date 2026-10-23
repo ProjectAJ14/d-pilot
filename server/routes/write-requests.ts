@@ -423,9 +423,14 @@ function sendNotReached(
   res: Response,
   id: string,
   conn: { name: string; env: string },
+  user: { sub: string; email: string },
 ): void {
+  const error = connectionFailedMessage(conn);
+  // Without this the timeline would end on APPROVED/SUBMITTED for a write
+  // that never ran.
+  addWriteRequestEvent(id, user.sub, user.email, "NOT_RUN", error);
   res.status(503).json({
-    error: connectionFailedMessage(conn),
+    error,
     code: "CONNECTION_FAILED",
     request: getWriteRequest(id),
   });
@@ -586,7 +591,7 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
       user,
       { isMigration, noTransaction: noTx },
     );
-    if (!reached) return sendNotReached(res, wr.id, conn);
+    if (!reached) return sendNotReached(res, wr.id, conn, user);
   }
 
   res.status(201).json(getWriteRequest(wr.id));
@@ -1122,7 +1127,7 @@ function decideAndRun(override: boolean) {
           connectionId: wr.connectionId,
           phiAccessed: false,
         });
-        return sendNotReached(res, wr.id, conn);
+        return sendNotReached(res, wr.id, conn, user);
       }
       updateWriteRequest(wr.id, {
         status: "FAILED",
@@ -1296,7 +1301,7 @@ router.post(
         isMigration: !!wr.isMigration,
         noTransaction: wr.noTransaction,
       });
-      if (!reached) return sendNotReached(res, wr.id, conn);
+      if (!reached) return sendNotReached(res, wr.id, conn, user);
     }
 
     res.json(getWriteRequest(wr.id));
@@ -1489,7 +1494,7 @@ router.post(
         isMigration,
         noTransaction: noTx,
       });
-      if (!reached) return sendNotReached(res, wr.id, conn);
+      if (!reached) return sendNotReached(res, wr.id, conn, user);
     }
 
     res.json(getWriteRequest(wr.id));

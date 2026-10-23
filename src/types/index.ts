@@ -273,6 +273,7 @@ export interface WriteRequestEvent {
     | "RESUBMITTED"
     | "EXECUTED"
     | "FAILED"
+    | "NOT_RUN"
     | "CANCELLED";
   notes?: string;
   timestamp: string;

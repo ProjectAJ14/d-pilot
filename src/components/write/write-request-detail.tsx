@@ -1051,5 +1051,6 @@ const EVENT_COLORS: Record<string, string> = {
   REJECTED: "red",
   RESUBMITTED: "grape",
   FAILED: "red",
+  NOT_RUN: "orange",
   CANCELLED: "gray",
 };

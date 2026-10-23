@@ -155,14 +155,14 @@ provider errors are 500, an unusable model reply is 422, and connectivity failur
 
 Status: `DRAFT → PENDING → APPROVED → EXECUTED` (or `FAILED`/`REJECTED`/`CANCELLED`).
 Each transition appends a `write_request_events` row (`SAVED`, `SUBMITTED`, `AI_REVIEWED`,
-`APPROVED`/`AUTO_APPROVED`/`OVERRIDDEN`, `REJECTED`, `RESUBMITTED`, `EXECUTED`, `FAILED`, `CANCELLED`)
+`APPROVED`/`AUTO_APPROVED`/`OVERRIDDEN`, `REJECTED`, `RESUBMITTED`, `EXECUTED`, `FAILED`, `NOT_RUN`, `CANCELLED`)
 for the timeline.
 
 **A write that never reached its database is not `FAILED`.** `isPreConnectError` accepts only
 errors tagged at the executor's connect/acquire/begin/ping steps _and_ network-shaped. For
 those, approve/override release the claim back to `PENDING`, and direct execution
 (create/submit/revise) returns the request to `DRAFT`; the route answers 503
-`CONNECTION_FAILED` with `request` (its current state) and audits `WRITE_EXECUTE_ERROR`.
+`CONNECTION_FAILED` with `request` (its current state) audits `WRITE_EXECUTE_ERROR`, and appends a `NOT_RUN` timeline event.
 Anything after a statement was sent has an unknown outcome and is `FAILED`. Elasticsearch writes
 use `maxRetries: 0` (a driver retry could run one twice); Mongo writes ping before sending.
 

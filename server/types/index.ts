@@ -259,6 +259,7 @@ export type WriteRequestEventType =
   | "RESUBMITTED"
   | "EXECUTED"
   | "FAILED"
+  | "NOT_RUN"
   | "CANCELLED";
 
 /** Structured AI safety assessment of a write request. */

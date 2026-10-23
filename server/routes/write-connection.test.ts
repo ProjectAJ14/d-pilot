@@ -127,6 +127,8 @@ describe("POST /:id/preview against an unreachable database", () => {
 
 const ok = { rowsAffected: 1, executionMs: 1, transactional: true };
 const status = (id: string) => store.getWriteRequest(id)!.status;
+// The timeline must not end on APPROVED/SUBMITTED when nothing ran.
+const lastEvent = (id: string) => store.getWriteRequestEvents(id)[0];
 const auditCount = () =>
   store.getAuditLog({ action: "WRITE_EXECUTE_ERROR", limit: 1000 }).length;
 
@@ -147,6 +149,8 @@ describe("a write that never reached its database", () => {
       expect(res.body.request.status).toBe("PENDING");
       expect(status(id)).toBe("PENDING");
       expect(auditCount()).toBe(audited + 1);
+      expect(lastEvent(id)).toMatchObject({ event: "NOT_RUN" });
+      expect(lastEvent(id).notes).toContain("the QA core (QA) database");
 
       h.executeWrite.mockResolvedValueOnce(ok);
       const retry = await call(who, `/${id}/${action}`, body);
@@ -194,6 +198,7 @@ describe("a write that never reached its database", () => {
       const id = res.body.request.id as string;
       expect(status(id)).toBe("DRAFT");
       expect(auditCount()).toBe(audited + 1);
+      expect(lastEvent(id).event).toBe("NOT_RUN");
 
       h.executeWrite.mockResolvedValueOnce(ok);
       const retry = await call("author", `/${id}/submit`);
@@ -207,6 +212,7 @@ describe("a write that never reached its database", () => {
       const res = await call("author", `/${draft.body.id}/submit`);
       expect(res.status).toBe(503);
       expect(status(draft.body.id)).toBe("DRAFT");
+      expect(lastEvent(draft.body.id).event).toBe("NOT_RUN");
     });
 
     it("revise: comes back a DRAFT too", async () => {
@@ -217,6 +223,7 @@ describe("a write that never reached its database", () => {
       const res = await call("author", `/${failed.body.id}/revise`, {});
       expect(res.status).toBe(503);
       expect(status(failed.body.id)).toBe("DRAFT");
+      expect(lastEvent(failed.body.id).event).toBe("NOT_RUN");
     });
 
     it("a reset after connecting is FAILED, as before", async () => {
