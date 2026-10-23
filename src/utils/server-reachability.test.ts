@@ -179,4 +179,10 @@ describe("isReportable", () => {
     );
     expect(isReportable(new ApiError("boom", 500))).toBe(true);
   });
+
+  it("offers no bug report for an unreachable database (503 CONNECTION_FAILED)", () => {
+    expect(isReportable(new ApiError("x", 503, "CONNECTION_FAILED"))).toBe(
+      false,
+    );
+  });
 });

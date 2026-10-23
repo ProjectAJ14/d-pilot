@@ -21,10 +21,11 @@ export function reportUrl(
 
 /**
  * A 4xx is the server saying no — permissions, validation, the production
- * rails — not a bug. Nor is an unreachable server: that is the user's network.
+ * rails — not a bug. Nor is an unreachable server or database: that is the network.
  */
 export function isReportable(err: unknown): boolean {
   if (isServerUnreachable(err)) return false;
+  if (err instanceof ApiError && err.code === "CONNECTION_FAILED") return false;
   return !(err instanceof ApiError && err.status < 500);
 }
 
