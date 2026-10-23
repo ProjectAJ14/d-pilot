@@ -76,3 +76,40 @@ export function saveNetworkHint(hint: string): void {
     // Not persisted; the banner falls back to the generic advice.
   }
 }
+
+/**
+ * The banner's retry loop: ping every `intervalMs` and on the browser's
+ * `online` event, one ping at a time, until one succeeds — then stop and call
+ * `onRecovered`. Returns stop(), for the effect's cleanup.
+ */
+export function startReachabilityWatch(opts: {
+  ping: () => Promise<boolean>;
+  onRecovered?: () => void;
+  intervalMs: number;
+  addOnline: (cb: () => void) => void;
+  removeOnline: (cb: () => void) => void;
+}): () => void {
+  let inFlight = false;
+  let stopped = false;
+  const check = async () => {
+    if (inFlight || stopped) return;
+    inFlight = true;
+    try {
+      if ((await opts.ping()) && !stopped) {
+        stop();
+        opts.onRecovered?.();
+      }
+    } finally {
+      inFlight = false;
+    }
+  };
+  const timer = setInterval(check, opts.intervalMs);
+  opts.addOnline(check);
+  function stop() {
+    if (stopped) return;
+    stopped = true;
+    clearInterval(timer);
+    opts.removeOnline(check);
+  }
+  return stop;
+}

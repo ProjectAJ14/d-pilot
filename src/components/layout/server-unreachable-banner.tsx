@@ -3,7 +3,10 @@ import { Group, Text } from "@mantine/core";
 import { IconPlugConnectedX } from "@tabler/icons-react";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
-import { bannerMessage } from "../../utils/server-reachability";
+import {
+  bannerMessage,
+  startReachabilityWatch,
+} from "../../utils/server-reachability";
 
 const RETRY_MS = 10_000;
 
@@ -30,13 +33,12 @@ export function ServerUnreachableBanner() {
   useEffect(() => {
     if (!unreachable) return;
     // api.ping goes through the client, which clears the flag on any response.
-    const retry = () => void api.ping();
-    const timer = setInterval(retry, RETRY_MS);
-    window.addEventListener("online", retry);
-    return () => {
-      clearInterval(timer);
-      window.removeEventListener("online", retry);
-    };
+    return startReachabilityWatch({
+      ping: api.ping,
+      intervalMs: RETRY_MS,
+      addOnline: (cb) => window.addEventListener("online", cb),
+      removeOnline: (cb) => window.removeEventListener("online", cb),
+    });
   }, [unreachable]);
 
   // The live region is always mounted, so screen readers announce the text
