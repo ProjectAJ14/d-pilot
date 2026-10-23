@@ -448,11 +448,13 @@ paths.
       never reaches shell history, a browser or an AI:
 
       ```bash
+      {
       printf 'D-Pilot password: '; IFS= read -rs DP; echo
       claude mcp add d-pilot -s user -e DPILOT_MCP_URL='https://d-pilot.example.com/api/mcp' \
         -e "DPILOT_MCP_AUTH=Basic $(printf '%s' 'agent@example.com:'"$DP" | base64 | tr -d '\n')" \
         -- node ~/.d-pilot/mcp-bridge.mjs
       unset DP
+      }
       ```
 
    3. Restart Claude Code and check that `claude mcp list` shows d-pilot as Connected.
@@ -460,18 +462,22 @@ paths.
    Then ask the agent to "call the d-pilot whoami tool" — a prompt like that carries no
    credential. If Node comes from nvm or another version manager, use the absolute path from
    `command -v node` instead of `node`. If `d-pilot` already exists, run
-   `claude mcp remove d-pilot -s user` first. (`tr -d '\n'` is there because GNU `base64`
-   wraps long output at 76 columns.)
+   `claude mcp remove d-pilot -s user` first. Paste the block whole: the `{ … }` makes the
+   shell read all of it before running, so the hidden prompt waits for you instead of taking
+   the next pasted line as the password. (`tr -d '\n'` is there because GNU `base64` wraps
+   long output at 76 columns.)
 
    **Claude Code, direct HTTP (no Node).** The same hidden prompt, registering the endpoint
    itself. Simpler, but while D-Pilot is unreachable the server just fails with no reason
    given, and you reconnect it by hand.
 
    ```bash
+   {
    printf 'D-Pilot password: '; IFS= read -rs DP; echo
    claude mcp add --scope user --transport http d-pilot 'https://d-pilot.example.com/api/mcp' \
      --header "Authorization: Basic $(printf '%s' 'agent@example.com:'"$DP" | base64 | tr -d '\n')"
    unset DP
+   }
    ```
 
    **Claude Desktop** launches local servers only, so it runs the same bridge. Download it as

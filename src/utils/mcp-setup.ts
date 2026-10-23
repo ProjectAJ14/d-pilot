@@ -47,6 +47,15 @@ const READ_PASSWORD = "printf 'D-Pilot password: '; IFS= read -rs DP; echo";
 const UNSET_PASSWORD = "unset DP";
 
 /**
+ * Wraps step 2 in `{ … }`. A paste lands on the terminal's input all at once,
+ * so without the group the shell runs the `read` line first and `read` takes
+ * the next pasted line as the password. A group is parsed whole before any of
+ * it runs, so `read` waits for what the user types.
+ */
+const readPassword = (command: string): string =>
+  ["{", READ_PASSWORD, command, UNSET_PASSWORD, "}"].join("\n");
+
+/**
  * `Basic <base64>` computed by the shell from $DP. GNU base64 wraps at 76
  * columns, which would break the header, hence `tr -d '\n'` (a no-op on macOS).
  */
@@ -77,11 +86,9 @@ export function claudeCodeBridgeSteps(
     {
       title:
         "Register it — type the password at the hidden prompt; your shell encodes it",
-      code: [
-        READ_PASSWORD,
+      code: readPassword(
         `claude mcp add d-pilot -s user -e DPILOT_MCP_URL=${shellQuote(mcpUrl)} -e "DPILOT_MCP_AUTH=${shellAuth(username)}" -- node ~/.d-pilot/mcp-bridge.mjs`,
-        UNSET_PASSWORD,
-      ].join("\n"),
+      ),
       note: NODE_NOTE,
     },
     CHECK_STEP,
@@ -97,11 +104,9 @@ export function claudeCodeHttpSteps(
     {
       title:
         "Register the endpoint — type the password at the hidden prompt; your shell encodes it",
-      code: [
-        READ_PASSWORD,
+      code: readPassword(
         `claude mcp add --scope user --transport http d-pilot ${shellQuote(mcpUrl)} --header "Authorization: ${shellAuth(username)}"`,
-        UNSET_PASSWORD,
-      ].join("\n"),
+      ),
       note: "Already added d-pilot? Run `claude mcp remove d-pilot -s user` first.",
     },
     CHECK_STEP,

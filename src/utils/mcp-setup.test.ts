@@ -145,6 +145,25 @@ describe.each(["/bin/bash", "/bin/zsh"])("step 2 in %s", (shell) => {
     expect(args.at(-1)).toMatch(/DP after: \[\]$/);
   });
 
+  // Pasting the block puts every line on the terminal's input at once, ahead of
+  // the password: unless the shell reads the whole block before running it,
+  // `read` takes the next pasted line as the password.
+  it.skipIf(!existsSync(shell)).each([
+    ["bridge", claudeCodeBridgeSteps, /^DPILOT_MCP_AUTH=(.*)$/s],
+    ["direct HTTP", claudeCodeHttpSteps, /^Authorization: (.*)$/s],
+  ] as const)("%s: survives being pasted as one block", (_n, build, re) => {
+    const stub = `claude() { printf '%s\\0' "$@"; }\n`;
+    const r = spawnSync(shell, [], {
+      input: `${stub}${registerStep(build(HTTPS, "u@example.com"))}\n${TRICKY_PASSWORD}\n`,
+      encoding: "utf8",
+    });
+    const auth = r.stdout
+      .split("\0")
+      .map((a) => a.match(re)?.[1])
+      .find(Boolean);
+    expect(auth).toBe(basicAuthValue("u@example.com", TRICKY_PASSWORD));
+  });
+
   it.skipIf(!existsSync(shell))(
     "a login long enough for GNU base64 to wrap stays on one line",
     () => {
