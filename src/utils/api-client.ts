@@ -44,12 +44,20 @@ const BASE_URL = `${BASE_PATH}/api`;
 export class ApiError extends Error {
   status: number;
   code?: ApiErrorCode;
+  /** A write route's 503: the request as it now is (see write-not-reached.ts). */
+  request?: WriteRequest;
 
-  constructor(message: string, status: number, code?: ApiErrorCode) {
+  constructor(
+    message: string,
+    status: number,
+    code?: ApiErrorCode,
+    request?: WriteRequest,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.request = request;
   }
 }
 
@@ -155,6 +163,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       body.error || `Request failed: ${res.status}`,
       res.status,
       body.code,
+      body.request,
     );
   }
 

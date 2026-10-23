@@ -50,6 +50,8 @@ export type ApiErrorCode = "CONNECTION_FAILED" | "SERVER_UNREACHABLE";
 export interface ApiErrorBody {
   error: string;
   code?: ApiErrorCode;
+  /** Write routes, on a 503 CONNECTION_FAILED: the request as it now is (DRAFT or PENDING). */
+  request?: WriteRequest;
 }
 
 export interface ConnectionInfo {

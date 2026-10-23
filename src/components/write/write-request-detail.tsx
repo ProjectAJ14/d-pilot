@@ -34,6 +34,10 @@ import { notifications } from "@mantine/notifications";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "../../utils/api-client";
 import { notifyError } from "../../utils/notify-error";
+import {
+  notReachedRequest,
+  notReachedTitle,
+} from "../../utils/write-not-reached";
 import { useStore } from "../../store";
 import { countActionRequired } from "./requests-page";
 import type {
@@ -180,7 +184,16 @@ export function WriteRequestDetail() {
       load();
       refreshBadge();
     } catch (e: any) {
-      notifyError(e, "Write request", { title: "Action failed" });
+      // Never reached its database: still PENDING, so close the dialog and
+      // show it as it is rather than as failed.
+      const wr = notReachedRequest(e);
+      notifyError(e, "Write request", {
+        title: wr ? notReachedTitle(wr) : "Action failed",
+      });
+      if (wr) {
+        setDecisionModal(null);
+        setNotes("");
+      }
       load();
     } finally {
       setDeciding(false);
@@ -218,7 +231,8 @@ export function WriteRequestDetail() {
       load();
       refreshBadge();
     } catch (e: any) {
-      notifyError(e, "Write request");
+      const wr = notReachedRequest(e);
+      notifyError(e, "Write request", wr ? { title: notReachedTitle(wr) } : {});
       load();
     } finally {
       setSubmittingDraft(false);

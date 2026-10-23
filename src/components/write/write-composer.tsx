@@ -32,6 +32,10 @@ import { notifications } from "@mantine/notifications";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
 import { notifyError } from "../../utils/notify-error";
+import {
+  notReachedRequest,
+  notReachedTitle,
+} from "../../utils/write-not-reached";
 import type {
   ConnectionInfo,
   QueryResult,
@@ -419,6 +423,18 @@ export function WriteComposer({
       });
       return;
     }
+    const settled = (wr: WriteRequest) => {
+      if (isCreate) {
+        setTitle("");
+        setDescription("");
+        setSelectSql("");
+        setWriteSql("");
+        setPreview(null);
+        setAiReview(null);
+        clearDraft();
+      }
+      onSubmitted?.(wr);
+    };
     const setBusy = save ? setSaving : setSubmitting;
     setBusy(true);
     try {
@@ -460,18 +476,14 @@ export function WriteComposer({
           icon: <IconSend size={16} />,
         });
       }
-      if (isCreate) {
-        setTitle("");
-        setDescription("");
-        setSelectSql("");
-        setWriteSql("");
-        setPreview(null);
-        setAiReview(null);
-        clearDraft();
-      }
-      onSubmitted?.(wr);
+      settled(wr);
     } catch (e: any) {
-      notifyError(e, "Write request");
+      // Never reached its database: the request exists, back in DRAFT. Show
+      // the server's message and carry on as if saved, so a retry doesn't
+      // create a duplicate.
+      const wr = notReachedRequest(e);
+      notifyError(e, "Write request", wr ? { title: notReachedTitle(wr) } : {});
+      if (wr) settled(wr);
     } finally {
       setBusy(false);
     }
