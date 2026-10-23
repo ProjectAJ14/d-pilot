@@ -35,6 +35,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import {
   IconUsers,
+  IconSearch,
   IconShieldLock,
   IconPlus,
   IconEdit,
@@ -94,6 +95,7 @@ import type { ConnectionInput } from "../../utils/api-client";
 import { loadAppConfig, loadConnections } from "../../utils/app-config";
 import { BASE_PATH } from "../../utils/base-path";
 import { settingBool } from "../../utils/setting-bool";
+import { filterUsers } from "../../utils/user-search";
 import {
   parseConnectionsJson,
   runLimited,
@@ -944,6 +946,7 @@ function AnalyticsTab() {
 function UserManagementTab({ currentUserId }: { currentUserId: string }) {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
   const [addModalOpen, setAddModalOpen] = useState(false);
   const emailDomain = useStore((s) => s.config.emailDomain);
   const [editUser, setEditUser] = useState<User | null>(null);
@@ -967,12 +970,27 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
     loadUsers();
   }, []);
 
+  const visibleUsers = filterUsers(users, search);
+
   return (
     <>
       <Group justify="space-between" mb="md">
         <Text fw={600} size="sm" c="var(--text)">
-          {users.length} user{users.length !== 1 ? "s" : ""}
+          {search.trim()
+            ? `${visibleUsers.length} of ${users.length}`
+            : users.length}{" "}
+          user{users.length !== 1 ? "s" : ""}
         </Text>
+        <TextInput
+          size="xs"
+          placeholder="Search name or email"
+          aria-label="Search users"
+          type="search"
+          leftSection={<IconSearch size={14} />}
+          value={search}
+          onChange={(e) => setSearch(e.currentTarget.value)}
+          style={{ flex: 1, maxWidth: 320 }}
+        />
         <Button
           size="xs"
           leftSection={<IconPlus size={14} />}
@@ -1007,7 +1025,7 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {users.map((u) => (
+            {visibleUsers.map((u) => (
               <Table.Tr key={u.id}>
                 <Table.Td>
                   <Group gap="sm" wrap="nowrap">
@@ -1088,11 +1106,13 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
                 </Table.Td>
               </Table.Tr>
             ))}
-            {users.length === 0 && !loading && (
+            {visibleUsers.length === 0 && !loading && (
               <Table.Tr>
                 <Table.Td colSpan={4}>
                   <Text ta="center" c="dimmed" py="lg">
-                    No users found
+                    {search.trim()
+                      ? `No user matches "${search.trim()}"`
+                      : "No users found"}
                   </Text>
                 </Table.Td>
               </Table.Tr>
@@ -1105,7 +1125,10 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
       <AddUserModal
         opened={addModalOpen}
         onClose={() => setAddModalOpen(false)}
-        onSuccess={loadUsers}
+        onSuccess={() => {
+          setSearch(""); // a new user that misses the query would look like it wasn't saved
+          loadUsers();
+        }}
         onCreated={setCredentials}
         emailDomain={emailDomain}
       />
