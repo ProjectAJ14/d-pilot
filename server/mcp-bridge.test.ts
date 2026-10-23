@@ -1,12 +1,15 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import {
+  copyFileSync,
   existsSync,
+  lstatSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import http from "node:http";
@@ -680,7 +683,11 @@ describe("mcp-bridge: --install-desktop", () => {
     dirs.push(d);
     return d;
   };
-  const install = (file: string, args = [URL_, AUTH]) => {
+  const install = (
+    file: string,
+    args = [URL_, AUTH],
+    env: Record<string, string> = {},
+  ) => {
     const fakeHome = scratch();
     const r = spawnSync(
       process.execPath,
@@ -694,6 +701,10 @@ describe("mcp-bridge: --install-desktop", () => {
           APPDATA: fakeHome,
           USERPROFILE: fakeHome,
           DPILOT_DESKTOP_CONFIG: file,
+          // No node on PATH unless a test puts one there: the entry then
+          // records this node's own path.
+          PATH: fakeHome,
+          ...env,
         },
         encoding: "utf8",
       },
@@ -722,6 +733,99 @@ describe("mcp-bridge: --install-desktop", () => {
     expect(r.stdout).toContain("https://d-pilot.example.com");
     expect(r.stdout).toMatch(/Fully quit Claude Desktop and reopen it/);
     expect(readdirSync(dirname(file))).toEqual(["claude_desktop_config.json"]);
+  });
+
+  // It holds the credential, and every other server's.
+  it.skipIf(process.platform === "win32")(
+    "writes the config owner-only, new or replaced",
+    () => {
+      const file = join(scratch(), "claude_desktop_config.json");
+      expect(install(file).status).toBe(0);
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      writeFileSync(file, "{}", { mode: 0o644 });
+      expect(install(file).status).toBe(0);
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+    },
+  );
+
+  // A dotfiles setup links the config into a repo; replacing the link with a
+  // plain file would silently fork the two.
+  it.skipIf(process.platform === "win32")(
+    "writes through a symlinked config to the real file",
+    () => {
+      const realDir = scratch();
+      const real = join(realDir, "real.json");
+      writeFileSync(real, JSON.stringify({ theme: "dark" }));
+      const link = join(scratch(), "claude_desktop_config.json");
+      symlinkSync(real, link);
+      const r = install(link);
+      expect(r.status, r.stderr).toBe(0);
+      expect(lstatSync(link).isSymbolicLink()).toBe(true);
+      expect(read(real)).toEqual({
+        theme: "dark",
+        mcpServers: { "d-pilot": ENTRY },
+      });
+      // Backup and temp file beside the real file; nothing left behind.
+      expect(readdirSync(realDir).sort()).toEqual([
+        "real.json",
+        "real.json.bak",
+      ]);
+      expect(readdirSync(dirname(link))).toEqual([
+        "claude_desktop_config.json",
+      ]);
+    },
+  );
+
+  // Homebrew's node is a versioned Cellar path that an upgrade deletes; the
+  // PATH entry pointing at it survives.
+  it.skipIf(process.platform === "win32")(
+    "records the node on PATH when it is this node, not the path it resolves to",
+    () => {
+      const bin = scratch();
+      symlinkSync(process.execPath, join(bin, "node"));
+      const file = join(scratch(), "claude_desktop_config.json");
+      expect(
+        install(file, undefined, { PATH: `${scratch()}:${bin}` }).status,
+      ).toBe(0);
+      expect(read(file).mcpServers["d-pilot"].command).toBe(join(bin, "node"));
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "records this node when PATH's node is a different binary",
+    () => {
+      const bin = scratch();
+      copyFileSync(process.execPath, join(bin, "node"));
+      const file = join(scratch(), "claude_desktop_config.json");
+      expect(install(file, undefined, { PATH: bin }).status).toBe(0);
+      expect(read(file).mcpServers["d-pilot"].command).toBe(process.execPath);
+    },
+  );
+
+  // Claude Desktop's folder is under %APPDATA%; without it there is no path.
+  it("exits 1 on Windows without APPDATA, saying what to set", () => {
+    const fakeHome = scratch();
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      HOME: fakeHome,
+      USERPROFILE: fakeHome,
+      PATH: fakeHome,
+      // Empty, so the default path is computed: this is what is under test.
+      DPILOT_DESKTOP_CONFIG: "",
+    };
+    delete env.APPDATA;
+    const asWindows =
+      "data:text/javascript,Object.defineProperty(process,'platform',{value:'win32'})";
+    const r = spawnSync(
+      process.execPath,
+      ["--import", asWindows, BRIDGE, "--install-desktop", URL_, AUTH],
+      { env, encoding: "utf8" },
+    );
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/APPDATA is not set.*DPILOT_DESKTOP_CONFIG/s);
+    expect(r.stderr).not.toMatch(/TypeError/);
+    expect(r.stdout).toBe("");
+    expect(readdirSync(fakeHome)).toEqual([]);
   });
 
   it("merges: other servers and keys are kept, and the original is backed up", () => {
@@ -844,6 +948,7 @@ describe("mcp-bridge: desktopConfigPath", () => {
     ],
     ["linux", {}, "/Users/a/.config/Claude/claude_desktop_config.json"],
     ["win32", { DPILOT_DESKTOP_CONFIG: "/x/y.json" }, "/x/y.json"],
+    ["win32", {}, null],
   ] as const;
 
   it("knows each OS's default and honours the override", () => {
@@ -855,5 +960,46 @@ describe("mcp-bridge: desktopConfigPath", () => {
     });
     expect(r.status, r.stderr).toBe(0);
     expect(JSON.parse(r.stdout)).toEqual(CASES.map((c) => c[2]));
+  });
+});
+
+describe("mcp-bridge: stableNodePath", () => {
+  it("finds node on PATH the way the OS does, and keeps it only when it is this node", () => {
+    const bin = mkdtempSync(join(tmpdir(), "dpilot-path-"));
+    const other = mkdtempSync(join(tmpdir(), "dpilot-path-"));
+    try {
+      symlinkSync(process.execPath, join(bin, "node"));
+      symlinkSync(process.execPath, join(bin, "node.EXE"));
+      writeFileSync(join(other, "node"), "not node");
+      writeFileSync(join(other, "node.CMD"), "not node");
+      const self = process.execPath;
+      const CASES = [
+        ["darwin", { PATH: `:${bin}` }, join(bin, "node")],
+        ["linux", { PATH: `${other}:${bin}` }, self],
+        ["linux", {}, self],
+        ["linux", { PATH: "/nowhere" }, self],
+        // Windows: ';'-separated, and each PATHEXT extension in order.
+        [
+          "win32",
+          { PATH: `${bin}`, PATHEXT: ".COM;.EXE" },
+          join(bin, "node.EXE"),
+        ],
+        ["win32", { PATH: `${other};${bin}`, PATHEXT: ".CMD;.EXE" }, self],
+        ["win32", { PATH: bin }, join(bin, "node.EXE")],
+      ];
+      const code = `const { stableNodePath } = await import(${JSON.stringify(pathToFileURL(BRIDGE).href)});
+        const cases = ${JSON.stringify(CASES)};
+        console.log(JSON.stringify(cases.map(([p, env]) => stableNodePath(p, env, process.execPath))));`;
+      const r = spawnSync(
+        process.execPath,
+        ["--input-type=module", "-e", code],
+        { encoding: "utf8" },
+      );
+      expect(r.status, r.stderr).toBe(0);
+      expect(JSON.parse(r.stdout)).toEqual(CASES.map((c) => c[2]));
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+      rmSync(other, { recursive: true, force: true });
+    }
   });
 });

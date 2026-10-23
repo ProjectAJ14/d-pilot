@@ -64,11 +64,16 @@ export function parseMcpUrl(raw, name) {
   return url;
 }
 
-/** Where Claude Desktop keeps its config on `platform`, given `env` and the home dir. */
+/**
+ * Where Claude Desktop keeps its config on `platform`, given `env` and the home
+ * dir; null on Windows without APPDATA, which is where it lives there.
+ */
 export function desktopConfigPath(platform, env, home) {
   if (env.DPILOT_DESKTOP_CONFIG) return env.DPILOT_DESKTOP_CONFIG;
   if (platform === "win32")
-    return win32.join(env.APPDATA, "Claude", "claude_desktop_config.json");
+    return env.APPDATA
+      ? win32.join(env.APPDATA, "Claude", "claude_desktop_config.json")
+      : null;
   if (platform === "darwin")
     return join(
       home,
@@ -78,6 +83,29 @@ export function desktopConfigPath(platform, env, home) {
       "claude_desktop_config.json",
     );
   return join(home, ".config", "Claude", "claude_desktop_config.json");
+}
+
+/**
+ * The `node` PATH finds (PATHEXT on Windows) when it is this very binary, else
+ * `execPath`. Homebrew's execPath is a versioned Cellar path that an upgrade
+ * deletes; its PATH entry (/opt/homebrew/bin/node) survives the upgrade.
+ */
+export function stableNodePath(platform, env, execPath) {
+  const win = platform === "win32";
+  const exts = win ? (env.PATHEXT || ".EXE").split(";") : [""];
+  const self = realpathSync(execPath);
+  for (const dir of (env.PATH ?? "").split(win ? ";" : ":").filter(Boolean))
+    for (const ext of exts) {
+      const candidate = join(dir, `node${ext}`);
+      let real;
+      try {
+        real = realpathSync(candidate);
+      } catch {
+        continue; // not in this directory
+      }
+      return real === self ? candidate : execPath;
+    }
+  return execPath;
 }
 
 const isObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
@@ -119,8 +147,15 @@ function installDesktop(rawUrl, auth) {
   if (typeof url === "string") quit(url);
   if (!/^Basic [A-Za-z0-9+/]+={0,2}$/.test(auth ?? ""))
     quit('The authorization must be "Basic <base64 of user:password>".');
-  const file = desktopConfigPath(process.platform, process.env, homedir());
+  let file = desktopConfigPath(process.platform, process.env, homedir());
+  if (!file)
+    quit(
+      "APPDATA is not set, so Claude Desktop's config can't be found. Set DPILOT_DESKTOP_CONFIG to the path of its claude_desktop_config.json and run this again.",
+    );
   const existed = existsSync(file);
+  // Write through a symlink (a dotfiles repo, say) to the file it points at:
+  // renaming over the link would replace it with a copy.
+  if (existed) file = realpathSync(file);
   let config = {};
   if (existed) {
     const text = readFileSync(file, "utf8");
@@ -143,7 +178,7 @@ function installDesktop(rawUrl, auth) {
   config.mcpServers = {
     ...config.mcpServers,
     "d-pilot": {
-      command: process.execPath,
+      command: stableNodePath(process.platform, process.env, process.execPath),
       args: [fileURLToPath(import.meta.url)],
       env: { DPILOT_MCP_URL: rawUrl, DPILOT_MCP_AUTH: auth },
     },
