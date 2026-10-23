@@ -2,19 +2,29 @@ import { getConfig } from "../config/settings.js";
 
 // Shared classifier for "the database host is unreachable / connection failed"
 // errors across the four drivers (pg, mssql, mongodb, elasticsearch). Used to
-// distinguish connectivity problems (DNS failure, refused/timed-out connects,
-// auth-level connect failures) from query/schema errors.
+// tell connectivity problems (DNS failure, refused or timed-out connects, a
+// connection lost mid-flight) from query/schema errors. Deliberately NOT here:
+// - mssql's request timeout ("Timeout: Request failed to complete in Nms",
+//   RequestError ETIMEOUT): the server is reachable, the query is slow.
+// - mssql ELOGIN: a refused login, which "check your VPN" would not fix.
+// - Elasticsearch's TimeoutError: the transport turns a failed or timed-out
+//   connect into a ConnectionError, so a TimeoutError means a request was in
+//   flight on an open connection and the server was slow. Its `meta` never
+//   carries a response either way, so it cannot tell us more.
 export const CONNECTION_ERROR_PATTERN =
-  /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EHOSTUNREACH|getaddrinfo|ELOGIN|socket hang up|Failed to connect|Connection (?:lost|closed|timeout)|timeout: |timeout exceeded when trying to connect|Server selection timed out/i;
+  /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EHOSTUNREACH|getaddrinfo|socket hang up|Failed to connect|Connection (?:lost|closed|timeout)|timeout exceeded when trying to connect|Server selection timed out/i;
 
 const CONNECTION_ERROR_NAMES = new Set([
   "MongoServerSelectionError", // mongodb driver
-  "ConnectionError", // mssql
-  "TimeoutError", // elasticsearch client
+  "ConnectionError", // mssql (raised while connecting) and elasticsearch
 ]);
 
+type ErrShape = { name?: string; message?: string; code?: unknown } | null;
+
 export function isConnectionError(err: unknown): boolean {
-  const e = err as { name?: string; message?: string; code?: unknown } | null;
+  const e = err as ErrShape;
+  // mssql reports a refused login as a ConnectionError too.
+  if (e?.code === "ELOGIN") return false;
   if (e?.name && CONNECTION_ERROR_NAMES.has(e.name)) return true;
   // The code too: when "localhost" resolves to both ::1 and 127.0.0.1 and both
   // refuse, Node throws an AggregateError with an empty message and only
