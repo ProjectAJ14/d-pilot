@@ -15,7 +15,8 @@ vi.stubGlobal("localStorage", {
 vi.stubGlobal("window", { addEventListener: () => {} });
 
 const { useStore } = await import("../store");
-const { loadConnections, tabTitle } = await import("./app-config");
+const { loadConnections, reloadOnRecovery, tabTitle } =
+  await import("./app-config");
 
 describe("tabTitle", () => {
   it("adds the tagline when there is one", () => {
@@ -68,5 +69,29 @@ describe("loadConnections", () => {
     expect(useStore.getState().schemaByConnection).toEqual({
       "dev-core": "public",
     });
+  });
+});
+
+describe("reloadOnRecovery", () => {
+  it("runs the loaders once each time the server comes back, never at start", () => {
+    const { setServerUnreachable } = useStore.getState();
+    setServerUnreachable(false);
+    const reload = vi.fn();
+    const stop = reloadOnRecovery(reload);
+    setServerUnreachable(false);
+    expect(reload).not.toHaveBeenCalled();
+    setServerUnreachable(true);
+    setServerUnreachable(true);
+    expect(reload).not.toHaveBeenCalled();
+    setServerUnreachable(false);
+    setServerUnreachable(false);
+    expect(reload).toHaveBeenCalledOnce();
+    setServerUnreachable(true);
+    setServerUnreachable(false);
+    expect(reload).toHaveBeenCalledTimes(2);
+    stop();
+    setServerUnreachable(true);
+    setServerUnreachable(false);
+    expect(reload).toHaveBeenCalledTimes(2);
   });
 });

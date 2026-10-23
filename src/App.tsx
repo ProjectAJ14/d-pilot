@@ -3,7 +3,11 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useStore } from "./store";
 import { BASE_PATH } from "./utils/base-path";
 import { api } from "./utils/api-client";
-import { loadAppConfig, loadConnections } from "./utils/app-config";
+import {
+  loadAppConfig,
+  loadConnections,
+  reloadOnRecovery,
+} from "./utils/app-config";
 import { LoginScreen } from "./components/auth/login-screen";
 import { TopBar } from "./components/layout/top-bar";
 import { Sidebar } from "./components/layout/sidebar";
@@ -33,30 +37,38 @@ function AuthenticatedApp() {
   const user = useStore((s) => s.user);
 
   useEffect(() => {
-    loadConnections().catch(console.error);
+    // Everything the app loads on boot; run again when the server comes back.
+    const boot = () => {
+      loadConnections().catch(console.error);
 
-    api.getSavedQueries().then(setSavedQueries).catch(console.error);
-    api.getArtifacts().then(setArtifacts).catch(console.error);
+      api.getSavedQueries().then(setSavedQueries).catch(console.error);
+      api.getArtifacts().then(setArtifacts).catch(console.error);
 
-    // Refresh the current user so newly-granted write/approve permissions and
-    // roles appear without requiring a re-login.
-    const token = useStore.getState().token;
-    if (token) {
-      api
-        .me()
-        .then((fresh) => login(token, fresh))
-        .catch(() => {});
-    }
+      // Refresh the current user so newly-granted write/approve permissions and
+      // roles appear without requiring a re-login.
+      const token = useStore.getState().token;
+      if (token) {
+        api
+          .me()
+          .then((fresh) => login(token, fresh))
+          .catch(() => {});
+      }
 
-    // Seed the "needs my action" badge for the Requests tab.
-    if (user?.canWrite || user?.canApprove) {
-      api
-        .getWriteRequests()
-        .then((all) =>
-          useStore.getState().setActionRequiredCount(countActionRequired(all)),
-        )
-        .catch(() => {});
-    }
+      // Seed the "needs my action" badge for the Requests tab.
+      const current = useStore.getState().user;
+      if (current?.canWrite || current?.canApprove) {
+        api
+          .getWriteRequests()
+          .then((all) =>
+            useStore
+              .getState()
+              .setActionRequiredCount(countActionRequired(all)),
+          )
+          .catch(() => {});
+      }
+    };
+    boot();
+    return reloadOnRecovery(boot);
   }, []);
 
   return (
@@ -121,7 +133,9 @@ function AuthenticatedApp() {
 export default function App() {
   const isAuthenticated = useStore((s) => s.isAuthenticated);
   useEffect(() => {
-    loadAppConfig().catch(() => {});
+    const load = () => void loadAppConfig().catch(() => {});
+    load();
+    return reloadOnRecovery(load);
   }, []);
 
   return (
