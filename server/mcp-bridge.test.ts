@@ -315,10 +315,26 @@ describe("mcp-bridge: D-Pilot unreachable", () => {
       expect(seen).not.toContain("pässwörd");
   });
 
-  it("refuses a DPILOT_MCP_URL that carries credentials, without echoing them", async () => {
-    const b = bridge("http://agent:s3cret@localhost:1/api/mcp");
+  it.each([
+    "http://agent:s3cret@localhost:1/api/mcp",
+    // Forms the WHATWG parser (which fetch uses) still reads as userinfo.
+    "http:/agent:s3cret@localhost:1/api/mcp",
+    "http:\\\\agent:s3cret@localhost:1/api/mcp",
+  ])(
+    "refuses a DPILOT_MCP_URL with credentials, without echoing them: %s",
+    async (url) => {
+      const b = bridge(url);
+      expect(await b.exited).toBe(1);
+      expect(b.stderr()).toMatch(/must not contain a username or password/);
+      expect(b.stderr()).not.toContain("s3cret");
+      expect(b.out).toEqual([]);
+    },
+  );
+
+  it("refuses a DPILOT_MCP_URL that is not a URL, without echoing it", async () => {
+    const b = bridge("not a url s3cret");
     expect(await b.exited).toBe(1);
-    expect(b.stderr()).toMatch(/must not contain a username or password/);
+    expect(b.stderr()).toMatch(/DPILOT_MCP_URL is not a valid URL/);
     expect(b.stderr()).not.toContain("s3cret");
     expect(b.out).toEqual([]);
   });

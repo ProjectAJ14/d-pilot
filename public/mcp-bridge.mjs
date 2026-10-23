@@ -32,8 +32,16 @@ if (!MCP_URL || !process.env.DPILOT_MCP_AUTH) {
   log("Set DPILOT_MCP_URL and DPILOT_MCP_AUTH (see the comment at the top).");
   process.exit(1);
 }
-// fetch refuses such a URL with an error that quotes it, credentials included.
-if (/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*@/i.test(MCP_URL)) {
+// Parsed the way fetch parses it, so no spelling of userinfo slips past; fetch's
+// own errors would quote the URL, credentials included.
+let url;
+try {
+  url = new URL(MCP_URL);
+} catch {
+  log("DPILOT_MCP_URL is not a valid URL.");
+  process.exit(1);
+}
+if (url.username || url.password) {
   log(
     "DPILOT_MCP_URL must not contain a username or password; use DPILOT_MCP_AUTH.",
   );
@@ -42,7 +50,7 @@ if (/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*@/i.test(MCP_URL)) {
 // GNU base64 wraps long output at 76 columns; rejoin a wrapped credential.
 const [SCHEME, ...CREDENTIAL] = process.env.DPILOT_MCP_AUTH.trim().split(/\s+/);
 const AUTH = `${SCHEME} ${CREDENTIAL.join("")}`;
-const BASE = MCP_URL.replace(/\/api\/mcp\/?$/, "");
+const BASE = url.origin + url.pathname.replace(/\/?(api\/mcp\/?)?$/, "");
 const HEALTH_URL = `${BASE}/api/health`;
 const CREDENTIALS_MSG =
   "D-Pilot rejected the credentials in DPILOT_MCP_AUTH. Check the username and password.";
