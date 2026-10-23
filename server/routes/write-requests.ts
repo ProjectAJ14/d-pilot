@@ -1508,17 +1508,28 @@ router.post(
 
     // Revising re-binds the request to the connection as it is now, so its env
     // (what approval is judged on) becomes the connection's current env too.
-    reviseWriteRequest(wr.id, {
-      env: conn.env,
-      connectionName: conn.name,
-      title: newTitle,
-      description: newDescription,
-      selectSql: isMigration ? undefined : newSelect,
-      writeSql: newWrite,
-      isMigration,
-      noTransaction: noTx,
-      status: plan.keepDraft ? "DRAFT" : "PENDING",
-    });
+    const revised = reviseWriteRequest(
+      wr.id,
+      {
+        env: conn.env,
+        connectionName: conn.name,
+        title: newTitle,
+        description: newDescription,
+        selectSql: isMigration ? undefined : newSelect,
+        writeSql: newWrite,
+        isMigration,
+        noTransaction: noTx,
+        status: plan.keepDraft ? "DRAFT" : "PENDING",
+      },
+      wr.status,
+    );
+    if (!revised) {
+      res.status(409).json({
+        error:
+          "This request was changed by someone else meanwhile — reload it.",
+      });
+      return;
+    }
     bindTarget(wr.id, conn);
     addWriteRequestEvent(
       wr.id,

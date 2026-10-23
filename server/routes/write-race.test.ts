@@ -183,3 +183,30 @@ describe("a direct write in flight", () => {
     expect(res.body.request.status).toBe("REJECTED");
   });
 });
+
+describe("two revises of the same request", () => {
+  it("only one resubmits it; the other gets 409 and nothing runs twice", async () => {
+    h.executeWrite.mockRejectedValueOnce(new Error("syntax error"));
+    const failed = await call("author", "", body);
+    expect(failed.body.status).toBe("FAILED");
+    h.executeWrite.mockClear();
+
+    // Hold both in validation, so both pass the status check before either
+    // has revised anything.
+    const gates: (() => void)[] = [];
+    h.validateSqlSyntax.mockImplementation(
+      () => new Promise((r) => gates.push(() => r({}))),
+    );
+    const first = call("author", `/${failed.body.id}/revise`, {});
+    const second = call("author", `/${failed.body.id}/revise`, {});
+    // Each revise is parked on its first syntax check.
+    await vi.waitFor(() => expect(gates.length).toBe(2));
+    h.validateSqlSyntax.mockImplementation(async () => ({}));
+    gates.forEach((open) => open());
+
+    const codes = [(await first).status, (await second).status].sort();
+    expect(codes).toEqual([200, 409]);
+    expect(h.executeWrite).toHaveBeenCalledTimes(1);
+    expect(status(failed.body.id)).toBe("EXECUTED");
+  });
+});

@@ -198,7 +198,9 @@ Editing goes through `POST /:id/revise` for both drafts and revisable
 (`REJECTED`/`CANCELLED`/`FAILED`) requests; `planRevise` (exported, unit-tested) decides
 refuse / stay a draft / resubmit-and-maybe-run. A draft edit must never execute — that is the
 whole point of the draft gate — so `reviseWriteRequest` takes the target status from the caller
-rather than hardcoding `PENDING`.
+rather than hardcoding `PENDING`. It also takes the status the route checked and applies only
+while the row is still in it (else the route 409s): revise awaits SQL validation, and two
+revises racing through it must not both resubmit — and both run — the same request.
 
 `DELETE /:id` removes a request and its events outright — requester or admin, and only once it
 is not live (`PENDING` and `APPROVED` must be cancelled first, since one is someone else's
