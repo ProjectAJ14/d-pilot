@@ -32,6 +32,8 @@ docs {
 
   Send `"draft": true` to refuse anything that is not a DRAFT (409). That is what the MCP `update_write_request` tool sends, so an agent can only edit a draft no human has taken on yet.
 
+  503 `CONNECTION_FAILED` when a direct run can't reach the database before sending anything: nothing ran, the request is back in DRAFT, and the body carries it as `request`. Audited as `WRITE_EXECUTE_ERROR`.
+
   Requires a valid Bearer JWT ({{token}}).
   Requires **write mode** to be enabled.
 }

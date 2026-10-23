@@ -494,8 +494,10 @@ paths.
    `~/Library/Application Support/Claude/`, Windows `%APPDATA%\Claude\`, Linux
    `~/.config/Claude/`; `DPILOT_DESKTOP_CONFIG` overrides it), keeps everything else, and saves
    the previous file as `claude_desktop_config.json.bak`. A file it cannot parse is left
-   untouched. It records the `node` that ran it, so run it again after moving or upgrading Node
-   (Homebrew's path is versioned). Then fully quit Claude Desktop (Cmd+Q on macOS; on Windows,
+   untouched. It records `node` as `PATH` finds it (e.g. `/opt/homebrew/bin/node`), so Homebrew
+   upgrades keep working; with nvm, whose path changes per version, run it again after switching
+   versions. A symlinked config is updated in place. On Windows it needs `%APPDATA%` (or
+   `DPILOT_DESKTOP_CONFIG`). Then fully quit Claude Desktop (Cmd+Q on macOS; on Windows,
    quit from the tray icon) and reopen it: Settings → Developer lists d-pilot.
 
    Any other MCP client works the same way: run the bridge as a stdio server with
@@ -544,6 +546,13 @@ With the VPN off, the agent sees only `dpilot_status`, and a call already under 
 "D-Pilot at https://d-pilot.example.com can't be reached from this machine (…). D-Pilot itself
 is probably running — check your network or VPN connection." Turn the VPN on and the full tool
 list is back within about 10 seconds. Bad credentials are reported as such, not as an outage.
+
+- Any answer from the health check except 502/503/504 counts as reachable, and `tools/list`
+  always tries D-Pilot itself, so a wrong guess never hides the tools for good.
+- A captive portal or VPN login page answering in D-Pilot's place is reported as unreachable,
+  with that as the reason.
+- An untrusted HTTPS certificate is reported as configuration, not an outage: set
+  `NODE_EXTRA_CA_CERTS` to your organization's CA PEM file in the bridge's `env`.
 
 ## Install as an App (PWA)
 

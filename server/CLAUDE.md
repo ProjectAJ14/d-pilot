@@ -79,6 +79,10 @@ name rather than one baked in at build time. In production `express.static` also
 | `/settings`       | `settings.ts`       | admin runtime config: settings list/update/reset, connection CRUD + pre-save `POST /connections/test` + all-or-nothing `POST /connections/import` (secrets write-only, audited) |
 | `/mcp`            | `mcp.ts`            | **read-only MCP endpoint for AI agents — mounted _before_ `authMiddleware`** (HTTP Basic, not Bearer)                                                                           |
 
+**D-Pilot never sends 502/504 itself** (the client reads them as "server unreachable"): AI
+provider errors are 500, an unusable model reply is 422, and connectivity failures anywhere are
+503 `CONNECTION_FAILED`.
+
 ## Services (`services/`)
 
 - **`query-executor.ts`** — read path for all four DB types. `validateQuery`/`isReadQuery`
@@ -90,7 +94,9 @@ name rather than one baked in at build time. In production `express.static` also
   Mongo `updateOne/Many`,`insertOne/Many`,`deleteOne/Many`,`replaceOne`; ES
   `_doc`/`_create`/`_update`/`_update_by_query`/`_delete_by_query`) and flags whether it's
   `scoped` (UPDATE/DELETE need a WHERE/filter). `executeWrite` runs transactionally where
-  the engine supports it.
+  the engine supports it. Each step that sends no statement (connect, pool acquire, begin,
+  ping) runs inside `beforeSend`, which tags what it throws with `markPreConnect`
+  (`connection-errors.ts`) — the only errors `isPreConnectError` can accept.
 - **`phi-masking.ts`** — `findMatchingRule` (pattern match on column name), `maskValue`
   (FULL/PARTIAL/HASH/REDACT), `maskQueryResults`. `alwaysMasked` rules never unmask.
 - **`schema-introspector.ts`** — table/column/schema discovery per DB type; builds the
@@ -151,6 +157,14 @@ Status: `DRAFT → PENDING → APPROVED → EXECUTED` (or `FAILED`/`REJECTED`/`C
 Each transition appends a `write_request_events` row (`SAVED`, `SUBMITTED`, `AI_REVIEWED`,
 `APPROVED`/`AUTO_APPROVED`/`OVERRIDDEN`, `REJECTED`, `RESUBMITTED`, `EXECUTED`, `FAILED`, `CANCELLED`)
 for the timeline.
+
+**A write that never reached its database is not `FAILED`.** `isPreConnectError` accepts only
+errors tagged at the executor's connect/acquire/begin/ping steps _and_ network-shaped. For
+those, approve/override release the claim back to `PENDING`, and direct execution
+(create/submit/revise) returns the request to `DRAFT`; the route answers 503
+`CONNECTION_FAILED` with `request` (its current state) and audits `WRITE_EXECUTE_ERROR`.
+Anything after a statement was sent has an unknown outcome and is `FAILED`. Elasticsearch writes
+use `maxRetries: 0` (a driver retry could run one twice); Mongo writes ping before sending.
 
 **Admin override** (`POST /:id/override`, `planDecision` — exported, unit-tested) runs a
 `PENDING` request without any approver, own requests included. Admin-only (`requireAdmin`

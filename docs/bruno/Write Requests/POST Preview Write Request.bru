@@ -26,6 +26,8 @@ body:json {
 docs {
   Run the request's verify SELECT to preview affected rows (masked; requires read access to the env).
 
+  503 `CONNECTION_FAILED` when the database can't be reached (D-Pilot never answers 502/504 itself: those mean a proxy couldn't reach D-Pilot).
+
   Requires a valid Bearer JWT ({{token}}).
   Supports PHI unmask headers (disabled by default; enable to reveal PHI where permitted).
 }
