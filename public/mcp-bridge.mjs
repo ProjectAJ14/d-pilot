@@ -89,21 +89,29 @@ export function desktopConfigPath(platform, env, home) {
  * The `node` PATH finds (PATHEXT on Windows) when it is this very binary, else
  * `execPath`. Homebrew's execPath is a versioned Cellar path that an upgrade
  * deletes; its PATH entry (/opt/homebrew/bin/node) survives the upgrade.
+ * Windows paths are case-insensitive and realpath keeps the case it was given,
+ * so PATHEXT's node.EXE is compared to execPath's node.exe ignoring case.
  */
-export function stableNodePath(platform, env, execPath) {
+export function stableNodePath(
+  platform,
+  env,
+  execPath,
+  realpath = realpathSync,
+) {
   const win = platform === "win32";
   const exts = win ? (env.PATHEXT || ".EXE").split(";") : [""];
-  const self = realpathSync(execPath);
+  const fold = (p) => (win ? p.toLowerCase() : p);
+  const self = fold(realpath(execPath));
   for (const dir of (env.PATH ?? "").split(win ? ";" : ":").filter(Boolean))
     for (const ext of exts) {
       const candidate = join(dir, `node${ext}`);
       let real;
       try {
-        real = realpathSync(candidate);
+        real = realpath(candidate);
       } catch {
         continue; // not in this directory
       }
-      return real === self ? candidate : execPath;
+      return fold(real) === self ? candidate : execPath;
     }
   return execPath;
 }

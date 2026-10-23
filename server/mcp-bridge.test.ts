@@ -1002,4 +1002,22 @@ describe("mcp-bridge: stableNodePath", () => {
       rmSync(other, { recursive: true, force: true });
     }
   });
+  // Windows realpath keeps the case it was given: PATHEXT's node.EXE is the
+  // same file as execPath's node.exe. Elsewhere case still matters.
+  it("matches node.EXE to node.exe on Windows only", () => {
+    const code = `const { stableNodePath } = await import(${JSON.stringify(pathToFileURL(BRIDGE).href)});
+      const real = (p) => { if (/node(\\.exe)?$/i.test(p)) return p; throw new Error("ENOENT"); };
+      console.log(JSON.stringify([
+        stableNodePath("win32", { PATH: "/opt/node", PATHEXT: ".COM;.EXE" }, "/opt/node/node.exe", real),
+        stableNodePath("linux", { PATH: "/opt/node" }, "/opt/NODE/node", real),
+      ]));`;
+    const r = spawnSync(process.execPath, ["--input-type=module", "-e", code], {
+      encoding: "utf8",
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual([
+      "/opt/node/node.EXE",
+      "/opt/NODE/node",
+    ]);
+  });
 });
