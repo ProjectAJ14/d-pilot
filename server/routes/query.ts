@@ -8,6 +8,10 @@ import {
   getQueryHistory,
   getPhiMaskedEnvs,
 } from "../services/sqlite-store.js";
+import {
+  connectionFailedMessage,
+  isConnectionError,
+} from "../services/connection-errors.js";
 import type { QueryRequest, QueryResult, Environment } from "../types/index.js";
 
 const router = Router();
@@ -121,6 +125,13 @@ router.post("/execute", async (req: Request, res: Response) => {
       phiAccessed: false,
     });
 
+    if (isConnectionError(err)) {
+      res.status(503).json({
+        error: connectionFailedMessage(conn),
+        code: "CONNECTION_FAILED",
+      });
+      return;
+    }
     res.status(500).json({
       error: err.message || "Query execution failed",
       code: err.code,

@@ -6,17 +6,25 @@ import {
   getSchemas,
   getCachedFullSchema,
 } from "../services/schema-introspector.js";
-import { isConnectionError } from "../services/connection-errors.js";
+import {
+  connectionFailedMessage,
+  isConnectionError,
+} from "../services/connection-errors.js";
+import type { ConnectionConfig } from "../types/index.js";
 
 const router = Router();
 
 // Connectivity failures (DNS, refused/timed-out connects) get a 503 with a
 // stable code so the client can show a targeted "check your network" message.
-function sendSchemaError(res: Response, err: any, fallback: string): void {
+function sendSchemaError(
+  res: Response,
+  conn: ConnectionConfig,
+  err: any,
+  fallback: string,
+): void {
   if (isConnectionError(err)) {
     res.status(503).json({
-      error:
-        "Unable to connect to the database. Check your network connection.",
+      error: connectionFailedMessage(conn),
       code: "CONNECTION_FAILED",
     });
     return;
@@ -39,7 +47,7 @@ router.get("/:connectionId/full", async (req: Request, res: Response) => {
     const full = await getCachedFullSchema(conn, { schema });
     res.json(full.schema);
   } catch (err: any) {
-    sendSchemaError(res, err, "Failed to fetch schema");
+    sendSchemaError(res, conn, err, "Failed to fetch schema");
   }
 });
 
@@ -56,7 +64,7 @@ router.get("/:connectionId/schemas", async (req: Request, res: Response) => {
     const result = await getSchemas(conn);
     res.json(result);
   } catch (err: any) {
-    sendSchemaError(res, err, "Failed to fetch schemas");
+    sendSchemaError(res, conn, err, "Failed to fetch schemas");
   }
 });
 
@@ -73,7 +81,7 @@ router.get("/:connectionId/tables", async (req: Request, res: Response) => {
     const tables = await getTables(conn, schema);
     res.json(tables);
   } catch (err: any) {
-    sendSchemaError(res, err, "Failed to fetch tables");
+    sendSchemaError(res, conn, err, "Failed to fetch tables");
   }
 });
 
@@ -96,7 +104,7 @@ router.get(
       );
       res.json(columns);
     } catch (err: any) {
-      sendSchemaError(res, err, "Failed to fetch columns");
+      sendSchemaError(res, conn, err, "Failed to fetch columns");
     }
   },
 );

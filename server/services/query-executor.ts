@@ -4,7 +4,7 @@ import { EJSON } from "bson";
 import { MongoClient } from "mongodb";
 import { Client as EsClient } from "@elastic/elasticsearch";
 import type { ConnectionConfig } from "../types/index.js";
-import { CONNECTION_ERROR_PATTERN } from "./connection-errors.js";
+import { isConnectionError } from "./connection-errors.js";
 import { scanSql } from "./sql-scan.js";
 import { getConfigNumber } from "../config/settings.js";
 
@@ -311,9 +311,8 @@ export async function validateSqlSyntax(
     // Mongo/ES: parsed at execution time; only structural validation applies.
     return { checked: false };
   } catch (err: any) {
-    const msg = String(err?.message || err);
-    if (CONNECTION_ERROR_PATTERN.test(msg)) return { checked: false };
-    return { checked: true, error: msg };
+    if (isConnectionError(err)) return { checked: false };
+    return { checked: true, error: String(err?.message || err) };
   }
 }
 

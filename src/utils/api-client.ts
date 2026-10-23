@@ -111,6 +111,7 @@ export const api = {
       emailDomain: string | null;
       loginTagline: string;
       loginSubtitle: string;
+      networkHint: string;
       phiMaskedEnvironments: string[];
       environments: string[];
     }>,

@@ -63,6 +63,9 @@ export const SETTINGS = {
     default: "HIPAA · PHI tokenized",
     maxLength: 80,
   },
+  // Appended to the "can't reach the database" message, e.g. "Connect to the
+  // VPN and retry." Empty uses a generic network/VPN suggestion.
+  NETWORK_HINT: { group: "branding", kind: "string", maxLength: 200 },
   LOGO_URL: { group: "branding", kind: "asset" },
   LIGHT_LOGO_URL: { group: "branding", kind: "asset" },
   // The icon index.html ships with.

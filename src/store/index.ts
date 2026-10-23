@@ -43,6 +43,8 @@ interface AppConfig {
   /** The two lines under the app name on the login page; "" hides one. */
   loginTagline: string;
   loginSubtitle: string;
+  /** Deployment's advice when the server or a database is unreachable; "" = none. */
+  networkHint: string;
   phiMaskedEnvironments: string[];
   /** Environments this deployment has, least → most sensitive (from the server). */
   environments: string[];
@@ -246,6 +248,7 @@ export const useStore = create<AppState>((set, get) => ({
     // Server defaults, shown until /api/config answers.
     loginTagline: "Internal query tool",
     loginSubtitle: "HIPAA · PHI tokenized",
+    networkHint: "",
     phiMaskedEnvironments: ["PROD"],
     // Empty until /api/config answers — an env picker must never offer an
     // environment this deployment may not have.

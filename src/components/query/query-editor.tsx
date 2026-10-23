@@ -32,7 +32,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../../store";
-import { api, ApiError } from "../../utils/api-client";
+import { api } from "../../utils/api-client";
 import { isReportable, notifyError } from "../../utils/notify-error";
 import { copySavedQueryShareLink } from "../../utils/share-links";
 import { downloadTextFile } from "../../utils/download-file";
@@ -564,10 +564,7 @@ export function QueryEditor({
           id: `schemas-failed-${connId}`,
           color: "red",
           title: "Unable to load schemas",
-          message:
-            err instanceof ApiError && err.code === "CONNECTION_FAILED"
-              ? "The database host could not be reached. Check your network connection."
-              : err.message,
+          message: err.message,
         });
       });
     return () => {

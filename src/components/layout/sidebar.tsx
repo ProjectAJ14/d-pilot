@@ -309,7 +309,7 @@ export function Sidebar() {
             color: "red",
             message:
               err instanceof ApiError && err.code === "CONNECTION_FAILED"
-                ? "Unable to connect to the database. Check your network connection."
+                ? err.message
                 : `Failed to load columns: ${err.message}`,
           });
           return null;
@@ -939,10 +939,7 @@ export function Sidebar() {
                                   icon: { marginTop: 2 },
                                 }}
                               >
-                                {explorerErrors[conn.id]!.code ===
-                                "CONNECTION_FAILED"
-                                  ? "The database host could not be reached. Check your network connection."
-                                  : explorerErrors[conn.id]!.message}
+                                {explorerErrors[conn.id]!.message}
                                 <Button
                                   size="compact-xs"
                                   variant="light"
