@@ -302,13 +302,25 @@ describe("mcp-bridge: D-Pilot unreachable", () => {
     const b = bridge(urlFor(port), { DPILOT_MCP_AUTH: "Basic pässwörd✓" });
     const list = await b.request("tools/list");
     expect(list.error.message).toMatch(
-      /^Could not send the request to D-Pilot \(.*\)\. Check DPILOT_MCP_URL and DPILOT_MCP_AUTH\.$/,
+      /^Could not send the request to D-Pilot\. Check DPILOT_MCP_URL and DPILOT_MCP_AUTH\.$/,
     );
     const call = await run(b);
     expect(call.result.isError).toBe(true);
     expect(callText(call)).not.toMatch(UNREACHABLE);
     expect(b.listChanged()).toBe(0);
     expect(posts).toEqual([]);
+    // fetch's own error quotes the header value: it must not reach the agent
+    // or the log, since both can end up in an AI's context.
+    for (const seen of [JSON.stringify(b.out), b.stderr()])
+      expect(seen).not.toContain("pässwörd");
+  });
+
+  it("refuses a DPILOT_MCP_URL that carries credentials, without echoing them", async () => {
+    const b = bridge("http://agent:s3cret@localhost:1/api/mcp");
+    expect(await b.exited).toBe(1);
+    expect(b.stderr()).toMatch(/must not contain a username or password/);
+    expect(b.stderr()).not.toContain("s3cret");
+    expect(b.out).toEqual([]);
   });
 
   it("answers other requests with a JSON-RPC error", async () => {

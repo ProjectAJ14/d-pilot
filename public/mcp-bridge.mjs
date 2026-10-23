@@ -32,6 +32,13 @@ if (!MCP_URL || !process.env.DPILOT_MCP_AUTH) {
   log("Set DPILOT_MCP_URL and DPILOT_MCP_AUTH (see the comment at the top).");
   process.exit(1);
 }
+// fetch refuses such a URL with an error that quotes it, credentials included.
+if (/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*@/i.test(MCP_URL)) {
+  log(
+    "DPILOT_MCP_URL must not contain a username or password; use DPILOT_MCP_AUTH.",
+  );
+  process.exit(1);
+}
 // GNU base64 wraps long output at 76 columns; rejoin a wrapped credential.
 const [SCHEME, ...CREDENTIAL] = process.env.DPILOT_MCP_AUTH.trim().split(/\s+/);
 const AUTH = `${SCHEME} ${CREDENTIAL.join("")}`;
@@ -103,10 +110,17 @@ async function forward(msg) {
     });
     text = await res.text();
   } catch (err) {
-    if (!why(err))
-      throw new Error(
-        `Could not send the request to D-Pilot (${err.message}). Check DPILOT_MCP_URL and DPILOT_MCP_AUTH.`,
+    if (!why(err)) {
+      // fetch's message can quote the header value: log it without the
+      // credential, and keep it out of the reply, which an AI reads.
+      log(
+        "Could not send the request:",
+        String(err.message).split(AUTH).join("<auth>"),
       );
+      throw new Error(
+        "Could not send the request to D-Pilot. Check DPILOT_MCP_URL and DPILOT_MCP_AUTH.",
+      );
+    }
     setState(false, why(err));
     throw new Unreachable(downMsg());
   }
