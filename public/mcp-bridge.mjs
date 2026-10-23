@@ -33,6 +33,7 @@ import {
   readFileSync,
   realpathSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -108,8 +109,11 @@ function installDesktop(rawUrl, auth) {
       quit(
         `${file} does not hold a JSON object with an mcpServers object; nothing was changed.`,
       );
-    writeFileSync(`${file}.bak`, text);
-  } else mkdirSync(dirname(file), { recursive: true });
+    // Owner-only, like the config: it holds every server's credentials. A
+    // fresh file, since `mode` is ignored when writing over an existing one.
+    rmSync(`${file}.bak`, { force: true });
+    writeFileSync(`${file}.bak`, text, { mode: 0o600, flag: "wx" });
+  } else mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   config.mcpServers = {
     ...config.mcpServers,
     "d-pilot": {

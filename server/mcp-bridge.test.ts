@@ -6,6 +6,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import http from "node:http";
@@ -602,6 +603,19 @@ describe("mcp-bridge: --install-desktop", () => {
     expect(readFileSync(`${file}.bak`, "utf8")).toBe(before);
     expect(r.stdout).toContain(`${file}.bak`);
   });
+
+  // The backup holds every other server's credentials too.
+  it.skipIf(process.platform === "win32")(
+    "writes the backup owner-only, even over an older world-readable one",
+    () => {
+      const file = join(scratch(), "claude_desktop_config.json");
+      writeFileSync(file, "{}");
+      writeFileSync(`${file}.bak`, "old", { mode: 0o644 });
+      expect(install(file).status).toBe(0);
+      expect(statSync(`${file}.bak`).mode & 0o777).toBe(0o600);
+      expect(readFileSync(`${file}.bak`, "utf8")).toBe("{}");
+    },
+  );
 
   it("replaces an existing d-pilot entry, and starts mcpServers when absent", () => {
     const file = join(scratch(), "claude_desktop_config.json");
