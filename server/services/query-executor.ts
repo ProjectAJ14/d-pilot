@@ -347,7 +347,7 @@ const CONNECT_TIMEOUT_MS = 10000;
 // The database restarting or the VPN dropping closes idle pooled connections,
 // which the pool reports as an 'error' event. Unheard, Node throws it as an
 // uncaught exception and D-Pilot exits; the next query just reconnects.
-function logDroppedConnections<T extends NodeJS.EventEmitter>(
+export function logDroppedConnections<T extends NodeJS.EventEmitter>(
   conn: ConnectionConfig,
   pool: T,
 ): T {
