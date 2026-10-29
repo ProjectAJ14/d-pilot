@@ -174,6 +174,9 @@ const qs = (params: Record<string, string | undefined>): string => {
 
 const readOnly = { readOnlyHint: true, openWorldHint: true };
 
+/** Connections one run_query call may span — each is its own query. */
+const MAX_QUERY_CONNECTIONS = 6;
+
 /** Tables one describe_table call may cover — each is its own API request. */
 const MAX_DESCRIBE_TABLES = 20;
 
@@ -376,6 +379,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       format?: "csv" | "json";
       maxCellChars?: number;
     },
+    budgetChars = RESULT_BUDGET_CHARS,
   ): Promise<string> => {
     const maxRows = limit ?? MCP_MAX_ROWS;
     const result = await client.post<any>("/query/execute", {
@@ -393,7 +397,11 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
     // agent's context window.
     const hasMore = result.rows.length > maxRows;
     const rows = result.rows.slice(0, maxRows);
-    const out = formatRows(rows, result.columns, { format, maxCellChars });
+    const out = formatRows(rows, result.columns, {
+      format,
+      maxCellChars,
+      budgetChars,
+    });
 
     // Always say when the answer was cut short, and name the knob — otherwise
     // an agent reads a slice as the whole result.
@@ -406,7 +414,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
         : null,
       result.truncated ? `the server's own MAX_ROWS cap also applied` : null,
       out.rowsShown < rows.length
-        ? `only the first ${out.rowsShown} are shown: the rest would exceed ~${Math.round(RESULT_BUDGET_CHARS / 4000)}k tokens — aggregate in SQL, select fewer columns, or page with LIMIT/OFFSET`
+        ? `only the first ${out.rowsShown} are shown: the rest would exceed ~${Math.round(budgetChars / 4000)}k tokens — aggregate in SQL, select fewer columns, or page with LIMIT/OFFSET`
         : null,
       out.cappedCells
         ? `${out.cappedCells} cell(s) cut to ${maxCellChars} chars where marked …[+N chars] — select that column alone, or pass a larger \`maxCellChars\`, to read it whole`
@@ -423,9 +431,16 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
     "run_query",
     {
       title: "Run a read-only query",
-      description: `Executes a read-only query and returns the rows. At most ${MCP_MAX_ROWS} rows come back by default — pass a larger \`limit\` when you need more, and check the first line of the result, which says when the answer was cut short. Rows come back as CSV: a header line, then one line per row; an empty field is NULL, \`""\` is an empty string, nested values are JSON. Cells longer than ${DEFAULT_MAX_CELL_CHARS} characters are cut and marked \`…[+N chars]\`. Writes (INSERT/UPDATE/DELETE) and DDL are rejected — those go through D-Pilot's write-approval workflow in the UI. PHI columns come back tokenized; the result names which ones. SQL for Postgres/SQL Server; for MongoDB and Elasticsearch use the same query syntax the D-Pilot UI accepts. MongoDB arguments are Extended JSON: match a non-string \`_id\` with \`{"$oid": ...}\` or \`{"$binary": {"base64": ..., "subType": ...}}\`.`,
+      description: `Executes a read-only query and returns the rows — on one connection, or on several at once via \`connectionIds\` to compare environments. At most ${MCP_MAX_ROWS} rows come back by default — pass a larger \`limit\` when you need more, and check the first line of the result, which says when the answer was cut short. Rows come back as CSV: a header line, then one line per row; an empty field is NULL, \`""\` is an empty string, nested values are JSON. Cells longer than ${DEFAULT_MAX_CELL_CHARS} characters are cut and marked \`…[+N chars]\`. Writes (INSERT/UPDATE/DELETE) and DDL are rejected — those go through D-Pilot's write-approval workflow in the UI. PHI columns come back tokenized; the result names which ones. SQL for Postgres/SQL Server; for MongoDB and Elasticsearch use the same query syntax the D-Pilot UI accepts. MongoDB arguments are Extended JSON: match a non-string \`_id\` with \`{"$oid": ...}\` or \`{"$binary": {"base64": ..., "subType": ...}}\`.`,
       inputSchema: {
-        connectionId: z.string(),
+        connectionId: z.string().optional(),
+        connectionIds: z
+          .array(z.string())
+          .max(MAX_QUERY_CONNECTIONS)
+          .optional()
+          .describe(
+            `Run the same query on several connections at once (up to ${MAX_QUERY_CONNECTIONS}), e.g. QA and UAT, to compare environments in one call. Each result is headed \`## <connectionId>\`.`,
+          ),
         sql: z.string().describe("The read-only query to run."),
         schema: z
           .string()
@@ -456,10 +471,36 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       },
       annotations: readOnly,
     },
-    ({ connectionId, ...query }) =>
-      guard("run_query", async () =>
-        text(await queryText(connectionId, query)),
-      ),
+    ({ connectionId, connectionIds, ...query }) =>
+      guard("run_query", async () => {
+        const ids = [
+          ...new Set([
+            ...(connectionId ? [connectionId] : []),
+            ...(connectionIds ?? []),
+          ]),
+        ];
+        if (!ids.length)
+          throw new Error("Pass `connectionId` or `connectionIds`.");
+        if (ids.length === 1) return text(await queryText(ids[0], query));
+
+        // Each connection is its own /query/execute call, so every one is
+        // checked, masked and audited exactly as if it had been asked alone.
+        // They share the result budget, so a comparison stays one result's size.
+        const budget = Math.floor(RESULT_BUDGET_CHARS / ids.length);
+        const blocks = await Promise.all(
+          ids.map(async (id) => {
+            try {
+              return { ok: true, text: await queryText(id, query, budget) };
+            } catch (err: any) {
+              return { ok: false, text: `Error: ${err.message}` };
+            }
+          }),
+        );
+        return {
+          ...text(blocks.map((b, i) => `## ${ids[i]}\n${b.text}`).join("\n\n")),
+          ...(blocks.every((b) => !b.ok) ? { isError: true } : {}),
+        };
+      }),
   );
 
   const writes = { readOnlyHint: false, openWorldHint: true };

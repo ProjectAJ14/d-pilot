@@ -483,3 +483,95 @@ describe("schema and listing tools", () => {
     await client.close();
   });
 });
+
+describe("run_query across connections", () => {
+  const perConnection = (results: Record<string, unknown>) => {
+    const post = vi.fn(async (_path: string, body: any) => {
+      const r = results[body.connectionId];
+      if (r instanceof Error) throw r;
+      return { executionTimeMs: 1, columns: [{ name: "n" }], ...(r as object) };
+    });
+    return {
+      post: post as any,
+      bodies: () => post.mock.calls.map((c) => c[1]),
+    };
+  };
+
+  it("runs the same query on each, one labelled block per connection", async () => {
+    const api = perConnection({
+      "qa-pg": { rows: [{ n: 400 }] },
+      "uat-pg": { rows: [{ n: 398 }] },
+    });
+    const { client, call } = await connect({ post: api.post });
+    const { text, isError } = await call("run_query", {
+      connectionIds: ["qa-pg", "uat-pg"],
+      sql: "SELECT count(*) n FROM orders",
+    });
+    expect(isError).toBe(false);
+    expect(text).toBe(
+      "## qa-pg\n1 row(s) in 1ms\n\nn\n400\n\n## uat-pg\n1 row(s) in 1ms\n\nn\n398",
+    );
+    // One /query/execute each: capability checks, masking and audit per connection.
+    expect(api.bodies().map((b: any) => b.connectionId)).toEqual([
+      "qa-pg",
+      "uat-pg",
+    ]);
+    await client.close();
+  });
+
+  it("reports a connection that fails without losing the others", async () => {
+    const api = perConnection({
+      "qa-pg": { rows: [{ n: 1 }] },
+      "prod-pg": new Error("You do not have access to PROD environment"),
+    });
+    const { client, call } = await connect({ post: api.post });
+    const { text, isError } = await call("run_query", {
+      connectionId: "qa-pg",
+      connectionIds: ["qa-pg", "prod-pg"],
+      sql: "SELECT 1 n",
+    });
+    expect(isError).toBe(false);
+    expect(api.bodies()).toHaveLength(2);
+    expect(text).toContain(
+      "## prod-pg\nError: You do not have access to PROD environment",
+    );
+    await client.close();
+  });
+
+  it("is an error when every connection fails", async () => {
+    const api = perConnection({ a: new Error("down"), b: new Error("down") });
+    const { client, call } = await connect({ post: api.post });
+    const res = await call("run_query", {
+      connectionIds: ["a", "b"],
+      sql: "SELECT 1",
+    });
+    expect(res.isError).toBe(true);
+    await client.close();
+  });
+
+  it("splits the result budget so a comparison stays one result's size", async () => {
+    const rows = Array.from({ length: 2000 }, (_, i) => ({
+      n: i,
+      pad: "x".repeat(100),
+    }));
+    const api = perConnection({ a: { rows }, b: { rows }, c: { rows } });
+    const { client, call } = await connect({ post: api.post });
+    const { text } = await call("run_query", {
+      connectionIds: ["a", "b", "c"],
+      sql: "SELECT * FROM t",
+      limit: 2000,
+    });
+    expect(text.length).toBeLessThan(102_000);
+    expect(text.match(/only the first \d+ are shown/g)).toHaveLength(3);
+    await client.close();
+  });
+
+  it("needs a connection", async () => {
+    const { client, call } = await connect({ post: vi.fn() as any });
+    expect(await call("run_query", { sql: "SELECT 1" })).toEqual({
+      text: "Error: Pass `connectionId` or `connectionIds`.",
+      isError: true,
+    });
+    await client.close();
+  });
+});
