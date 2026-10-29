@@ -751,13 +751,20 @@ export function clearSchemaCache(connectionId?: string): { cleared: number } {
   return { cleared };
 }
 
-function formatTable(
+/**
+ * One table as compact schema text — `- col: type [PK, FK -> t.c, NOT NULL, PHI]`
+ * per column. The AI prompts use it, and so does the MCP `describe_table`
+ * (with no column cap and no values), because it is a fraction of the tokens
+ * of the column objects it is built from.
+ */
+export function formatTable(
   name: string,
   type: string,
   cols: ColumnInfo[],
   showValues: boolean,
+  maxCols = MAX_COLS_PER_TABLE,
 ): string {
-  const shown = cols.slice(0, MAX_COLS_PER_TABLE);
+  const shown = cols.slice(0, maxCols);
   const lines = shown.map((c) => {
     const flags: string[] = [];
     if (c.isPrimaryKey) flags.push("PK");

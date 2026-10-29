@@ -39,6 +39,18 @@ import { DPilotApiClient } from "../services/mcp-client.js";
 import { blocksSchema } from "./artifacts.js";
 import { BASE_PATH, withBaseOrigin } from "../config/base-path.js";
 import { getConfig, getConfigNumber } from "../config/settings.js";
+import {
+  DEFAULT_MAX_CELL_CHARS,
+  RESULT_BUDGET_CHARS,
+  formatRows,
+  tableList,
+} from "../services/mcp-format.js";
+import {
+  formatTable,
+  tableCatalog,
+  type FullSchema,
+} from "../services/schema-introspector.js";
+import type { ColumnInfo, TableInfo } from "../types/index.js";
 
 const router = Router();
 
@@ -113,8 +125,9 @@ const text = (value: string): ToolResult => ({
   content: [{ type: "text", text: value }],
 });
 
-const json = (value: unknown): ToolResult =>
-  text(JSON.stringify(value, null, 2));
+// Compact on purpose: indentation is pure token cost to an agent, and it reads
+// one-line JSON as easily as an indented one.
+const json = (value: unknown): ToolResult => text(JSON.stringify(value));
 
 /**
  * Turns an API failure into readable tool output rather than a protocol error:
@@ -130,6 +143,19 @@ async function guard(run: () => Promise<ToolResult>): Promise<ToolResult> {
   }
 }
 
+/**
+ * One line per tool call: which tool, how much text it handed the agent, how
+ * long it took. What an agent reads is what it pays for, so this is the number
+ * to watch when changing what a tool returns. No user or query in it — the
+ * audit log already holds those.
+ */
+function logToolCall(tool: string, result: ToolResult, ms: number): void {
+  const chars = result.content.reduce((n, c) => n + c.text.length, 0);
+  console.log(
+    `[mcp] ${tool} ${chars} chars (~${Math.ceil(chars / 4)} tokens) ${ms}ms${result.isError ? " error" : ""}`,
+  );
+}
+
 const qs = (params: Record<string, string | undefined>): string => {
   const entries = Object.entries(params).filter(([, v]) => v);
   return entries.length
@@ -141,6 +167,38 @@ const qs = (params: Record<string, string | undefined>): string => {
 
 const readOnly = { readOnlyHint: true, openWorldHint: true };
 
+/** Room kept for a run_query status line and header, out of its budget. */
+const STATUS_RESERVE_CHARS = 1_000;
+
+/** Connections one run_query call may span — each is its own query. */
+const MAX_QUERY_CONNECTIONS = 6;
+
+/** Tables one describe_table call may cover — each is its own API request. */
+const MAX_DESCRIBE_TABLES = 20;
+
+/** Of those, how many are introspected at once. */
+const DESCRIBE_CONCURRENCY = 4;
+
+/** `Promise.all(items.map(fn))`, with at most `limit` running at once. */
+async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker),
+  );
+  return out;
+}
+
 export function createMcpServer(client: DPilotApiClient): McpServer {
   const server = new McpServer({ name: "d-pilot", version: "1.0.0" });
   // Default rows returned per query; agents can raise it per call via `limit`.
@@ -149,7 +207,19 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
   // the default rather than one that truncates every result to zero rows.
   const MCP_MAX_ROWS = getConfigNumber("MCP_MAX_ROWS");
 
-  server.registerTool(
+  // registerTool, logging each call under the name it was registered with —
+  // so the `[mcp] <tool>` line can't name the wrong tool.
+  const tool: typeof server.registerTool = (name, config, cb) =>
+    server.registerTool(name, config, (async (...args: unknown[]) => {
+      const started = Date.now();
+      const result = await (cb as (...a: unknown[]) => Promise<ToolResult>)(
+        ...args,
+      );
+      logToolCall(name, result, Date.now() - started);
+      return result;
+    }) as typeof cb);
+
+  tool(
     "whoami",
     {
       title: "Who am I",
@@ -171,12 +241,12 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       }),
   );
 
-  server.registerTool(
+  tool(
     "list_connections",
     {
       title: "List databases",
       description:
-        "Databases this account can query, one entry per environment+database. Use the returned `id` as `connectionId` for the other tools.",
+        "Databases this account can query, one CSV line per environment+database. Use `id` as `connectionId` for the other tools. Pass `env` when you know it — a deployment can have a hundred connections.",
       inputSchema: {
         env: z
           .string()
@@ -200,20 +270,24 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
               : "No connections available for this account.",
           );
         }
-        return json(
-          filtered.map((c) => ({
-            id: c.id,
-            name: c.name,
-            env: c.env,
-            type: c.type,
-            database: c.database,
-            defaultSchema: c.schema,
-          })),
+        return text(
+          formatRows(
+            filtered.map((c) => ({
+              id: c.id,
+              env: c.env,
+              type: c.type,
+              database: c.database,
+              defaultSchema: c.schema,
+              name: c.name,
+            })),
+            undefined,
+            { maxCellChars: Infinity, budgetChars: Infinity },
+          ).text,
         );
       }),
   );
 
-  server.registerTool(
+  tool(
     "list_schemas",
     {
       title: "List schemas",
@@ -232,61 +306,199 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       ),
   );
 
-  server.registerTool(
+  tool(
     "list_tables",
     {
       title: "List tables",
       description:
-        "Tables on a connection. For MongoDB and Elasticsearch this lists collections and indices.",
+        "Tables on a connection, one line per schema (views marked). For MongoDB and Elasticsearch this lists collections and indices. Pass `withColumns: true` to get every table's column names too — one call instead of a describe_table or an information_schema query per table.",
       inputSchema: {
         connectionId: z.string(),
         schema: z
           .string()
           .optional()
           .describe("Defaults to the connection's schema."),
+        withColumns: z
+          .boolean()
+          .optional()
+          .describe(
+            "Also list each table's column names, one line per table: `table: col, col, …`. Served from D-Pilot's schema cache, so it is cheap.",
+          ),
       },
       annotations: readOnly,
     },
-    ({ connectionId, schema }) =>
-      guard(async () =>
-        json(
-          await client.get<unknown>(
-            `/schema/${encodeURIComponent(connectionId)}/tables${qs({ schema })}`,
-          ),
-        ),
-      ),
+    ({ connectionId, schema, withColumns }) =>
+      guard(async () => {
+        const id = encodeURIComponent(connectionId);
+        // Formatting only — the data still comes through the REST API, so read
+        // access to this connection's environment is checked as for the UI.
+        if (withColumns) {
+          const full = await client.get<FullSchema>(
+            `/schema/${id}/full${qs({ schema })}`,
+          );
+          // Mongo/ES sample only the first collections; the rest have no
+          // entry at all, which a bare `name: ` line would pass off as empty.
+          const sampled = full.tables.filter((t) => t.name in full.columns);
+          const skipped = full.tables.length - sampled.length;
+          const catalog = tableCatalog({ ...full, tables: sampled }, Infinity);
+          return text(
+            [
+              catalog,
+              skipped
+                ? `Columns not loaded for ${skipped} more (only the first ${sampled.length} are sampled) — describe_table them: ${full.tables
+                    .filter((t) => !(t.name in full.columns))
+                    .map((t) => t.name)
+                    .join(", ")}`
+                : "",
+            ]
+              .filter(Boolean)
+              .join("\n") || "No tables.",
+          );
+        }
+        const tables = await client.get<TableInfo[]>(
+          `/schema/${id}/tables${qs({ schema })}`,
+        );
+        return text(tableList(tables) || "No tables.");
+      }),
   );
 
-  server.registerTool(
+  tool(
     "describe_table",
     {
-      title: "Describe table",
+      title: "Describe tables",
       description:
-        "Columns, types, nullability, primary keys and foreign keys for one table. FK columns carry a `references` field naming the `table.column` they point at — use it to join instead of guessing.",
+        "Columns of one table (`table`) or several at once (`tables`), one line each: `- column: type [PK, FK -> table.column, NOT NULL, PHI]`. Join on the FK targets instead of guessing.",
       inputSchema: {
         connectionId: z.string(),
-        table: z.string(),
+        table: z.string().optional(),
+        tables: z
+          .array(z.string())
+          .max(MAX_DESCRIBE_TABLES)
+          .optional()
+          .describe(
+            `Several tables in one call (up to ${MAX_DESCRIBE_TABLES}) — cheaper than one call each.`,
+          ),
         schema: z.string().optional(),
       },
       annotations: readOnly,
     },
-    ({ connectionId, table, schema }) =>
-      guard(async () =>
-        json(
-          await client.get<unknown>(
-            `/schema/${encodeURIComponent(connectionId)}/tables/${encodeURIComponent(table)}/columns${qs({ schema })}`,
-          ),
-        ),
-      ),
+    ({ connectionId, table, tables, schema }) =>
+      guard(async () => {
+        const names = [
+          ...new Set([...(table ? [table] : []), ...(tables ?? [])]),
+        ];
+        if (!names.length) throw new Error("Pass `table` or `tables`.");
+        const id = encodeURIComponent(connectionId);
+        // Each name is a live introspection (for Mongo/ES, its own client
+        // sampling documents), so run a few at a time, not all twenty.
+        const described = await mapLimit(
+          names,
+          DESCRIBE_CONCURRENCY,
+          async (name) => {
+            try {
+              const cols = await client.get<ColumnInfo[]>(
+                `/schema/${id}/tables/${encodeURIComponent(name)}/columns${qs({ schema })}`,
+              );
+              if (!cols.length)
+                return `${name}\n  (no such table, or no columns)`;
+              return formatTable(name, "TABLE", cols, false, Infinity);
+            } catch (err: any) {
+              return `${name}\n  Error: ${err.message}`;
+            }
+          },
+        );
+        return text(described.join("\n\n"));
+      }),
   );
 
-  server.registerTool(
+  /**
+   * One query on one connection, as the text an agent reads: a status line
+   * (row count, every way the answer was cut short, which columns are PHI
+   * tokens), then the rows in the compact format of services/mcp-format.ts.
+   */
+  const queryText = async (
+    connectionId: string,
+    {
+      sql,
+      schema,
+      limit,
+      format,
+      maxCellChars = DEFAULT_MAX_CELL_CHARS,
+    }: {
+      sql: string;
+      schema?: string;
+      limit?: number;
+      format?: "csv" | "json";
+      maxCellChars?: number;
+    },
+    budgetChars = RESULT_BUDGET_CHARS,
+  ): Promise<string> => {
+    const maxRows = limit ?? MCP_MAX_ROWS;
+    const result = await client.post<any>("/query/execute", {
+      connectionId,
+      sql,
+      schema,
+      // Ask for one row past the cap: getting it back proves more rows exist,
+      // which turns "there may be more" into a definite statement without a
+      // second count query. The extra row is dropped below.
+      defaultLimit: maxRows + 1,
+    });
+
+    // A LIMIT is injected only when the query lacks one, so an explicit
+    // `LIMIT 5000` still lands here in full — cap it before it reaches the
+    // agent's context window.
+    const hasMore = result.rows.length > maxRows;
+    const rows = result.rows.slice(0, maxRows);
+    const out = formatRows(rows, result.columns, {
+      format,
+      maxCellChars,
+      // The status line and a multi-connection `## id` header come on top of
+      // the rows; reserve room so the whole answer stays within the budget.
+      budgetChars: budgetChars - STATUS_RESERVE_CHARS,
+    });
+
+    // Always say when the answer was cut short, and name the knob — otherwise
+    // an agent reads a slice as the whole result.
+    const notes = [
+      `${rows.length} row(s) in ${result.executionTimeMs}ms`,
+      hasMore
+        ? `more rows exist — stopped at the ${maxRows}-row limit${
+            limit ? "" : ` (this server's default)`
+          }; call again with a larger \`limit\``
+        : null,
+      // `truncated` means "more rows exist" for Mongo/ES, not "the cap was
+      // hit", so name the cap only when the result actually reached it.
+      result.truncated && result.rows.length >= getConfigNumber("MAX_ROWS")
+        ? `the server's own MAX_ROWS cap also applied`
+        : null,
+      out.rowsShown < rows.length
+        ? `only the first ${out.rowsShown} are shown: the rest would exceed ~${Math.round(budgetChars / 4000)}k tokens — aggregate in SQL, select fewer columns, or page with LIMIT/OFFSET`
+        : null,
+      out.cappedCells
+        ? `${out.cappedCells} cell(s) cut to ${maxCellChars} chars where marked …[+N chars] — select that column alone, or pass a larger \`maxCellChars\`, to read it whole`
+        : null,
+      result.maskedFields?.length
+        ? `PHI-tokenized columns: ${result.maskedFields.join(", ")}`
+        : null,
+    ].filter(Boolean);
+
+    return `${notes.join(" · ")}\n\n${out.text}`;
+  };
+
+  tool(
     "run_query",
     {
       title: "Run a read-only query",
-      description: `Executes a read-only query and returns the rows. At most ${MCP_MAX_ROWS} rows come back by default — pass a larger \`limit\` when you need more, and check the first line of the result, which says when the limit truncated the answer. Writes (INSERT/UPDATE/DELETE) and DDL are rejected — those go through D-Pilot's write-approval workflow in the UI. PHI columns come back tokenized; the result names which ones. SQL for Postgres/SQL Server; for MongoDB and Elasticsearch use the same query syntax the D-Pilot UI accepts. MongoDB arguments are Extended JSON: match a non-string \`_id\` with \`{"$oid": ...}\` or \`{"$binary": {"base64": ..., "subType": ...}}\`.`,
+      description: `Executes a read-only query and returns the rows — on one connection, or on several at once via \`connectionIds\` to compare environments. At most ${MCP_MAX_ROWS} rows come back by default — pass a larger \`limit\` when you need more, and check the first line of the result, which says when the answer was cut short. Rows come back as CSV: a header line, then one line per row; an empty field is NULL, \`""\` is an empty string, nested values are JSON. Cells longer than ${DEFAULT_MAX_CELL_CHARS} characters are cut and marked \`…[+N chars]\`. Writes (INSERT/UPDATE/DELETE) and DDL are rejected — those go through D-Pilot's write-approval workflow in the UI. PHI columns come back tokenized; the result names which ones. Do the work in the query — filter, join and aggregate (COUNT, GROUP BY) there and select only the columns you need, rather than fetching rows to count or compare yourself. Postgres/SQL Server take SQL. MongoDB: \`db.<collection>.find({filter}, {projection}).sort({...}).limit(N)\`, \`findOne\`, \`aggregate([...])\`, \`countDocuments({...})\` or \`distinct("field", {...})\`, arguments in strict Extended JSON with quoted keys — no \`ObjectId()\`/\`ISODate()\`: write \`{"$oid": ...}\`, \`{"$date": ...}\`, \`{"$binary": {"base64": ..., "subType": ...}}\`. Elasticsearch: \`GET /<index>/_search {"query": {...}, "size": N, "_source": [...]}\` or \`GET /<index>/_count {...}\`; list_tables lists the indices.`,
       inputSchema: {
-        connectionId: z.string(),
+        connectionId: z.string().optional(),
+        connectionIds: z
+          .array(z.string())
+          .max(MAX_QUERY_CONNECTIONS)
+          .optional()
+          .describe(
+            `Run the same query on several connections at once (up to ${MAX_QUERY_CONNECTIONS}), e.g. QA and UAT, to compare environments in one call. Each result is headed \`## <connectionId>\`.`,
+          ),
         sql: z.string().describe("The read-only query to run."),
         schema: z
           .string()
@@ -300,46 +512,52 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
           .describe(
             `Maximum rows to return. Defaults to ${MCP_MAX_ROWS} on this server; raise it to read more of a large result (the server's own MAX_ROWS setting is the final ceiling).`,
           ),
+        format: z
+          .enum(["csv", "json"])
+          .optional()
+          .describe(
+            "`csv` (default, about half the tokens) or `json` — one compact object per row, when you need values' JSON types.",
+          ),
+        maxCellChars: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            `Longest cell returned before it is cut (default ${DEFAULT_MAX_CELL_CHARS}). Raise it only to read a long value — a payload, a stack trace — in full.`,
+          ),
       },
       annotations: readOnly,
     },
-    ({ connectionId, sql, schema, limit }) =>
+    ({ connectionId, connectionIds, ...query }) =>
       guard(async () => {
-        const maxRows = limit ?? MCP_MAX_ROWS;
-        const result = await client.post<any>("/query/execute", {
-          connectionId,
-          sql,
-          schema,
-          // Ask for one row past the cap: getting it back proves more rows exist,
-          // which turns "there may be more" into a definite statement without a
-          // second count query. The extra row is dropped below.
-          defaultLimit: maxRows + 1,
-        });
+        const ids = [
+          ...new Set([
+            ...(connectionId ? [connectionId] : []),
+            ...(connectionIds ?? []),
+          ]),
+        ];
+        if (!ids.length)
+          throw new Error("Pass `connectionId` or `connectionIds`.");
+        if (ids.length === 1) return text(await queryText(ids[0], query));
 
-        // A LIMIT is injected only when the query lacks one, so an explicit
-        // `LIMIT 5000` still lands here in full — cap it before it reaches the
-        // agent's context window.
-        const hasMore = result.rows.length > maxRows;
-        const rows = result.rows.slice(0, maxRows);
-
-        // Always say when the cap truncated the answer, and name the knob —
-        // otherwise an agent reads a slice as the whole result.
-        const notes = [
-          `${rows.length} row(s) in ${result.executionTimeMs}ms`,
-          hasMore
-            ? `more rows exist — stopped at the ${maxRows}-row limit${
-                limit ? "" : ` (this server's default)`
-              }; call again with a larger \`limit\``
-            : null,
-          result.truncated
-            ? `the server's own MAX_ROWS cap also applied`
-            : null,
-          result.maskedFields?.length
-            ? `PHI-tokenized columns: ${result.maskedFields.join(", ")}`
-            : null,
-        ].filter(Boolean);
-
-        return text(`${notes.join(" · ")}\n\n${JSON.stringify(rows, null, 2)}`);
+        // Each connection is its own /query/execute call, so every one is
+        // checked, masked and audited exactly as if it had been asked alone.
+        // They share the result budget, so a comparison stays one result's size.
+        const budget = Math.floor(RESULT_BUDGET_CHARS / ids.length);
+        const blocks = await Promise.all(
+          ids.map(async (id) => {
+            try {
+              return { ok: true, text: await queryText(id, query, budget) };
+            } catch (err: any) {
+              return { ok: false, text: `Error: ${err.message}` };
+            }
+          }),
+        );
+        return {
+          ...text(blocks.map((b, i) => `## ${ids[i]}\n${b.text}`).join("\n\n")),
+          ...(blocks.every((b) => !b.ok) ? { isError: true } : {}),
+        };
       }),
   );
 
@@ -351,7 +569,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
   // approval workflow and executes nothing — the environment's direct-write
   // policy is not consulted until a human submits it as themselves.
 
-  server.registerTool(
+  tool(
     "create_write_request",
     {
       title: "Save a write request",
@@ -401,7 +619,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       }),
   );
 
-  server.registerTool(
+  tool(
     "get_write_request",
     {
       title: "Read a write request",
@@ -424,7 +642,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       ),
   );
 
-  server.registerTool(
+  tool(
     "update_write_request",
     {
       title: "Update a write request",
@@ -503,7 +721,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
     "Prefer a table to a paragraph for anything with columns, and a diagram to a paragraph for anything with arrows.",
   ].join("\n");
 
-  server.registerTool(
+  tool(
     "create_artifact",
     {
       title: "Create an artifact",
@@ -539,7 +757,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       }),
   );
 
-  server.registerTool(
+  tool(
     "update_artifact",
     {
       title: "Update an artifact",
@@ -582,7 +800,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       }),
   );
 
-  server.registerTool(
+  tool(
     "get_artifact",
     {
       title: "Read an artifact",
@@ -597,7 +815,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       ),
   );
 
-  server.registerTool(
+  tool(
     "list_artifacts",
     {
       title: "List artifacts",
@@ -641,7 +859,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       }),
   );
 
-  server.registerTool(
+  tool(
     "archive_artifact",
     {
       title: "Archive or restore an artifact",

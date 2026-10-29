@@ -57,6 +57,7 @@ export const AUDIT_COLUMNS: (keyof AuditEntry)[] = [
   "phiFieldsUnmasked",
   "phiUnmaskReason",
   "phiUnmaskNotes",
+  "source",
   "userId",
   "id",
 ];
@@ -67,6 +68,7 @@ export const HISTORY_COLUMNS: (keyof AuditEntry)[] = [
   "sql",
   "rowsReturned",
   "executionMs",
+  "source",
 ];
 
 /**

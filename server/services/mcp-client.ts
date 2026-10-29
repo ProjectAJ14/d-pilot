@@ -9,6 +9,8 @@
  * username/password for a JWT, hold it in memory, re-login once when it expires.
  */
 
+import { SOURCE_HEADER } from "./request-source.js";
+
 export interface DPilotApiClientOptions {
   baseUrl: string;
   username: string;
@@ -88,6 +90,8 @@ export class DPilotApiClient {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
+        // Lets the audit log tell an agent's queries from the UI's.
+        [SOURCE_HEADER]: "mcp",
         ...(init.headers as Record<string, string> | undefined),
       },
     });

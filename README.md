@@ -380,16 +380,18 @@ Agents just point at the URL everyone already uses.
 
 Its tools call D-Pilot's own REST API over loopback, so environment capabilities, PHI
 tokenization, row limits and audit logging are enforced exactly as they are for the UI and
-cannot be bypassed. Every agent query lands in the audit log under its service account.
+cannot be bypassed. Every agent query lands in the audit log under its service account,
+marked _via MCP_ (the audit drawer's **Via** field, and the `source` column of both CSV
+exports), so agent traffic can be told apart from people using the UI.
 
 | Tool                   | Does                                                                                 |
 | ---------------------- | ------------------------------------------------------------------------------------ |
 | `whoami`               | Which account is connected and which environments it may read                        |
-| `list_connections`     | Databases available, per environment (optional `env` filter)                         |
+| `list_connections`     | Databases available, one CSV line each (optional `env` filter)                       |
 | `list_schemas`         | Schemas on a connection (Postgres/SQL Server)                                        |
-| `list_tables`          | Tables, collections or indices                                                       |
-| `describe_table`       | Columns, types, nullability                                                          |
-| `run_query`            | Runs a read-only query, returns rows                                                 |
+| `list_tables`          | Tables, collections or indices; `withColumns` adds every table's columns in one call |
+| `describe_table`       | Columns, types, keys and FK targets of one table or several (`tables`)               |
+| `run_query`            | Runs a read-only query on one connection or several (`connectionIds`); compact CSV   |
 | `create_artifact`      | Publishes a shareable document (rich page + runnable read queries), returns its link |
 | `update_artifact`      | Edits an artifact the service account created                                        |
 | `get_artifact`         | Reads one artifact's full body                                                       |
@@ -398,6 +400,19 @@ cannot be bypassed. Every agent query lands in the audit log under its service a
 | `create_write_request` | Saves a **draft** change request for a human to review — it never runs               |
 | `get_write_request`    | Reads one request back, including the AI safety review a human ran on it             |
 | `update_write_request` | Edits a draft the service account saved — drafts only, and it stays a draft          |
+
+**Token cost:** an agent pays for every character a tool returns, for as long as it stays in
+its context, so tool output is kept compact. `run_query` returns rows as CSV under a one-line
+status (an empty field is NULL, `""` an empty string, nested values JSON) — about half the
+tokens of pretty JSON on real queries. Cells over 300 characters are cut and marked
+`…[+N chars]` (an agent raises `maxCellChars` to read a payload in full), and a result that
+would exceed ~25k tokens stops at whole rows with advice to aggregate or page. `format: "json"`
+returns one compact object per row instead. To compare environments an agent passes `connectionIds`
+(up to 6): the same query runs on each — every one its own checked, masked and audited
+`/query/execute` — and comes back in one labelled result. Schema tools answer in the same spirit:
+`describe_table` writes one line per column (`- id: bigint [PK, NOT NULL]`) instead of a JSON
+object per column, and `list_tables` names each schema once. The server log has one line per tool call with the
+size it returned (`[mcp] run_query 1840 chars (~460 tokens) 12ms`).
 
 Database writes are deliberately **not** exposed — those stay in the write-approval workflow,
 where a human reads the paired verify SELECT and a second person approves.

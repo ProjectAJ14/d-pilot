@@ -13,6 +13,7 @@ import {
   initAuthTables,
 } from "./middleware/auth.js";
 import { initDatabase, getPhiMaskedEnvs } from "./services/sqlite-store.js";
+import { requestSource } from "./services/request-source.js";
 import { getEnvironments } from "./config/connections.js";
 import { BASE_PATH, BASE_URL, withBase } from "./config/base-path.js";
 import { getConfig } from "./config/settings.js";
@@ -143,6 +144,9 @@ router.post("/api/auth/login", handleLogin);
 // present the service account's username/password as HTTP Basic rather than a
 // JWT; the route exchanges those for a token itself (see routes/mcp.ts).
 router.use("/api/mcp", mcpRoutes);
+
+// Tag every request as UI or MCP for the audit log (services/request-source.ts).
+router.use("/api", requestSource);
 
 // Auth middleware for all other /api routes
 router.use("/api", authMiddleware());

@@ -262,7 +262,7 @@ describe("query history", () => {
     expect(res.status).toBe(200);
     const csv = await res.text();
     expect(csv.split("\n")[0]).toBe(
-      "timestamp,connectionId,sql,rowsReturned,executionMs",
+      "timestamp,connectionId,sql,rowsReturned,executionMs,source",
     );
     expect(csv).toContain("SELECT in_range");
     expect(csv).toContain("SELECT before");

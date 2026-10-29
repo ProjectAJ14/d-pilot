@@ -36,6 +36,24 @@ describe("DPilotApiClient", () => {
     expect(calls[1][1].headers.Authorization).toBe("Bearer tok-1");
   });
 
+  // The audit log tells an agent's queries from the UI's by this header
+  // (services/request-source.ts). Login is not audited, so only API calls need it.
+  it("marks every API call as coming from MCP", async () => {
+    const fetchImpl = vi.fn(async (url: any) =>
+      String(url).endsWith("/api/auth/login")
+        ? jsonResponse(200, { token: "tok-1" })
+        : jsonResponse(200, { ok: true }),
+    ) as unknown as typeof fetch;
+
+    const client = clientWith(fetchImpl);
+    await client.get("/connections");
+    await client.post("/query/execute", { sql: "SELECT 1" });
+
+    const calls = (fetchImpl as any).mock.calls.slice(1);
+    for (const [, init] of calls)
+      expect(init.headers["X-DPilot-Source"]).toBe("mcp");
+  });
+
   it("re-logs in and replays once when the token has expired", async () => {
     let issued = 0;
     const fetchImpl = vi.fn(async (url: any, init: any) => {

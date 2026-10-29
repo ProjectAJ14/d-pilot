@@ -5,7 +5,7 @@ import type { ConnectionConfig } from "../types/index.js";
 // A write request's verify "SELECT" is run by the approver on preview, so the
 // Mongo read path must be unable to mutate. Fake the driver and record what
 // would reach it.
-const sent: { op: string; args: any }[] = [];
+const sent: { op: string; args: any; options?: any }[] = [];
 const cursor = (rows: any[]) => ({
   sort: () => cursor(rows),
   skip: () => cursor(rows),
@@ -20,7 +20,18 @@ vi.mock("mongodb", async (orig) => ({
     db() {
       return {
         collection: () => ({
-          find: (args: any) => (sent.push({ op: "find", args }), cursor([])),
+          find: (args: any, options?: any) => (
+            sent.push({ op: "find", args, options }),
+            cursor([])
+          ),
+          findOne: async (args: any, options?: any) => (
+            sent.push({ op: "findOne", args, options }),
+            null
+          ),
+          distinct: async (field: string, args: any) => (
+            sent.push({ op: "distinct", args: { field, filter: args } }),
+            []
+          ),
           aggregate: (args: any) => (
             sent.push({ op: "aggregate", args }),
             cursor([])
@@ -31,7 +42,8 @@ vi.mock("mongodb", async (orig) => ({
   },
 }));
 
-const { executeQuery, parseMongoJson } = await import("./query-executor.js");
+const { executeQuery, parseMongoJson, splitMongoArgs } =
+  await import("./query-executor.js");
 const conn = {
   id: "mongo-read-test",
   type: "mongodb",
@@ -174,5 +186,114 @@ describe("parseMongoJson", () => {
     expect(
       parseMongoJson('{"at": {"$date": "2024-01-02T00:00:00Z"}}').at,
     ).toEqual(new Date("2024-01-02T00:00:00Z"));
+  });
+});
+
+/**
+ * Agents write find(filter, projection) to keep documents small — the shell's
+ * own form. It used to be parsed as one JSON value and rejected: 17 of 50
+ * failed Mongo/ES queries in a week of production audit log were exactly this.
+ */
+describe("find/findOne projection", () => {
+  beforeEach(() => {
+    sent.length = 0;
+  });
+
+  it("passes the projection to the driver", async () => {
+    await executeQuery(
+      conn,
+      'db.orders.find({"status": "shipped"}, {"_id": 0, "orderId": 1}).limit(5)',
+    );
+    expect(sent).toEqual([
+      {
+        op: "find",
+        args: { status: "shipped" },
+        options: { projection: { _id: 0, orderId: 1 } },
+      },
+    ]);
+  });
+
+  it("does the same for findOne", async () => {
+    await executeQuery(conn, 'db.orders.findOne({"id": 7}, {"total": 1})');
+    expect(sent[0]).toEqual({
+      op: "findOne",
+      args: { id: 7 },
+      options: { projection: { total: 1 } },
+    });
+  });
+
+  it("still runs a find with only a filter", async () => {
+    await executeQuery(conn, 'db.orders.find({"a": [1, 2], "b": "x, y"})');
+    expect(sent[0]).toEqual({
+      op: "find",
+      args: { a: [1, 2], b: "x, y" },
+      options: undefined,
+    });
+  });
+
+  it("rejects a projection that is not a document", async () => {
+    await expect(
+      executeQuery(conn, 'db.orders.find({}, ["orderId"])'),
+    ).rejects.toThrow(/projection must be an object/);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("lets distinct take its filter", async () => {
+    await executeQuery(conn, 'db.orders.distinct("status", {"region": "EU"})');
+    expect(sent[0]).toEqual({
+      op: "distinct",
+      args: { field: "status", filter: { region: "EU" } },
+    });
+  });
+});
+
+describe("extra arguments", () => {
+  beforeEach(() => {
+    sent.length = 0;
+  });
+
+  it("rejects varargs aggregate stages instead of running only the first", async () => {
+    await expect(
+      executeQuery(
+        conn,
+        'db.orders.aggregate({"$match": {"status": "shipped"}}, {"$group": {"_id": "$region"}})',
+      ),
+    ).rejects.toThrow(
+      /aggregate takes at most 1 argument\(s\), got 2 — pass the stages as one array/,
+    );
+    expect(sent).toHaveLength(0);
+  });
+
+  it("rejects options to countDocuments and a third argument to find", async () => {
+    await expect(
+      executeQuery(conn, 'db.orders.countDocuments({}, {"limit": 10})'),
+    ).rejects.toThrow(/countDocuments takes at most 1/);
+    await expect(
+      executeQuery(conn, 'db.orders.find({}, {"a": 1}, {"skip": 5})'),
+    ).rejects.toThrow(/find takes at most 2/);
+    expect(sent).toHaveLength(0);
+  });
+});
+
+describe("splitMongoArgs", () => {
+  it("splits only at top-level commas", () => {
+    expect(
+      splitMongoArgs('{"a": {"b": 1, "c": [1, 2]}, "s": "x, y"}, {"a": 1}')
+        .args,
+    ).toEqual(['{"a": {"b": 1, "c": [1, 2]}, "s": "x, y"}', ' {"a": 1}']);
+  });
+
+  it("ignores quotes escaped inside strings", () => {
+    expect(splitMongoArgs('{"q": "say \\"a, b\\""}, {}').args).toEqual([
+      '{"q": "say \\"a, b\\""}',
+      " {}",
+    ]);
+  });
+
+  it("stops at the call's own close paren, not one inside a string", () => {
+    const text = 'find({"note": "smile :)"}).limit(5)';
+    const { args, end } = splitMongoArgs(text, 5);
+    expect(args).toEqual(['{"note": "smile :)"}']);
+    expect(text.slice(end)).toBe(".limit(5)");
   });
 });
