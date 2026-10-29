@@ -303,3 +303,183 @@ describe("run_query output", () => {
     await client.close();
   });
 });
+
+describe("schema and listing tools", () => {
+  /** A fake API that answers GETs by path. */
+  const answering = (routes: Record<string, unknown>) => {
+    const get = vi.fn(async (path: string) => {
+      if (!(path in routes)) throw new Error(`no route ${path}`);
+      const value = routes[path];
+      if (value instanceof Error) throw value;
+      return value;
+    });
+    return { get: get as any, paths: () => get.mock.calls.map((c) => c[0]) };
+  };
+
+  const col = (name: string, over: Record<string, unknown> = {}) => ({
+    name,
+    dataType: "integer",
+    nullable: true,
+    isPrimaryKey: false,
+    isForeignKey: false,
+    defaultValue: null,
+    isPhiField: false,
+    ...over,
+  });
+
+  it("list_connections is one CSV line per connection", async () => {
+    const api = answering({
+      "/connections": [
+        {
+          id: "qa-pg",
+          name: "Orders",
+          env: "QA",
+          type: "postgres",
+          database: "app",
+          schema: "app_core",
+        },
+        { id: "qa-mongo", name: "Docs, archived", env: "QA", type: "mongodb" },
+        {
+          id: "prod-pg",
+          name: "Orders",
+          env: "PROD",
+          type: "postgres",
+          database: "app",
+          schema: "app_core",
+        },
+      ],
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("list_connections", { env: "QA" });
+    expect(text).toBe(
+      'id,env,type,database,defaultSchema,name\nqa-pg,QA,postgres,app,app_core,Orders\nqa-mongo,QA,mongodb,,,"Docs, archived"',
+    );
+    await client.close();
+  });
+
+  it("list_tables groups names under their schema", async () => {
+    const api = answering({
+      "/schema/qa-pg/tables": [
+        { schema: "app_core", name: "orders", type: "TABLE" },
+        { schema: "app_core", name: "order_totals", type: "VIEW" },
+      ],
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("list_tables", { connectionId: "qa-pg" });
+    expect(text).toBe("app_core (2): orders, order_totals (view)");
+    await client.close();
+  });
+
+  it("list_tables withColumns reads the cached full schema once", async () => {
+    const api = answering({
+      "/schema/qa-pg/full?schema=app_core": {
+        tables: [
+          { name: "orders", type: "TABLE" },
+          { name: "customers", type: "TABLE" },
+        ],
+        columns: {
+          orders: [col("id"), col("customer_id")],
+          customers: [col("id"), col("email")],
+        },
+      },
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("list_tables", {
+      connectionId: "qa-pg",
+      schema: "app_core",
+      withColumns: true,
+    });
+    expect(text).toBe("orders: id, customer_id\ncustomers: id, email");
+    expect(api.paths()).toEqual(["/schema/qa-pg/full?schema=app_core"]);
+    await client.close();
+  });
+
+  it("describe_table writes schema text, not a JSON object per column", async () => {
+    const api = answering({
+      "/schema/qa-pg/tables/orders/columns": [
+        col("id", {
+          nullable: false,
+          isPrimaryKey: true,
+          defaultValue: "nextval('orders_id_seq')",
+        }),
+        col("customer_id", { isForeignKey: true, references: "customers.id" }),
+        col("email", { dataType: "text", isPhiField: true }),
+      ],
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("describe_table", {
+      connectionId: "qa-pg",
+      table: "orders",
+    });
+    expect(text).toBe(
+      "orders\n  - id: integer [PK, NOT NULL]\n  - customer_id: integer [FK -> customers.id]\n  - email: text [PHI]",
+    );
+    await client.close();
+  });
+
+  it("describe_table covers several tables in one call, failures inline", async () => {
+    const api = answering({
+      "/schema/qa-pg/tables/orders/columns": [col("id")],
+      "/schema/qa-pg/tables/customers/columns": [col("id")],
+      "/schema/qa-pg/tables/nope/columns": [],
+      "/schema/qa-pg/tables/locked/columns": new Error(
+        "You do not have access",
+      ),
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text, isError } = await call("describe_table", {
+      connectionId: "qa-pg",
+      table: "orders",
+      tables: ["orders", "customers", "nope", "locked"],
+    });
+    expect(isError).toBe(false);
+    expect(text.split("\n\n")).toEqual([
+      "orders\n  - id: integer",
+      "customers\n  - id: integer",
+      "nope\n  (no such table, or no columns)",
+      "locked\n  Error: You do not have access",
+    ]);
+    await client.close();
+  });
+
+  it("describe_table shows every column, not the AI prompt's 80", async () => {
+    const wide = Array.from({ length: 120 }, (_, i) => col(`c${i}`));
+    const api = answering({ "/schema/qa-pg/tables/wide/columns": wide });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("describe_table", {
+      connectionId: "qa-pg",
+      table: "wide",
+    });
+    expect(text.split("\n")).toHaveLength(121);
+    await client.close();
+  });
+
+  it("describe_table needs a table", async () => {
+    const { client, call } = await connect({ get: vi.fn() as any });
+    const res = await call("describe_table", { connectionId: "qa-pg" });
+    expect(res).toEqual({
+      text: "Error: Pass `table` or `tables`.",
+      isError: true,
+    });
+    await client.close();
+  });
+
+  it("returns compact JSON elsewhere", async () => {
+    const api = answering({
+      "/auth/me": {
+        username: "agent",
+        name: "A",
+        isAdmin: false,
+        allowedEnvironments: ["QA"],
+      },
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("whoami");
+    expect(text).not.toContain("\n");
+    expect(JSON.parse(text)).toMatchObject({
+      username: "agent",
+      readableEnvironments: ["QA"],
+    });
+    await client.close();
+  });
+});

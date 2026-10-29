@@ -387,10 +387,10 @@ exports), so agent traffic can be told apart from people using the UI.
 | Tool                   | Does                                                                                 |
 | ---------------------- | ------------------------------------------------------------------------------------ |
 | `whoami`               | Which account is connected and which environments it may read                        |
-| `list_connections`     | Databases available, per environment (optional `env` filter)                         |
+| `list_connections`     | Databases available, one CSV line each (optional `env` filter)                       |
 | `list_schemas`         | Schemas on a connection (Postgres/SQL Server)                                        |
-| `list_tables`          | Tables, collections or indices                                                       |
-| `describe_table`       | Columns, types, nullability                                                          |
+| `list_tables`          | Tables, collections or indices; `withColumns` adds every table's columns in one call |
+| `describe_table`       | Columns, types, keys and FK targets of one table or several (`tables`)               |
 | `run_query`            | Runs a read-only query, returns rows as compact CSV                                  |
 | `create_artifact`      | Publishes a shareable document (rich page + runnable read queries), returns its link |
 | `update_artifact`      | Edits an artifact the service account created                                        |
@@ -407,7 +407,9 @@ status (an empty field is NULL, `""` an empty string, nested values JSON) — ab
 tokens of pretty JSON on real queries. Cells over 300 characters are cut and marked
 `…[+N chars]` (an agent raises `maxCellChars` to read a payload in full), and a result that
 would exceed ~25k tokens stops at whole rows with advice to aggregate or page. `format: "json"`
-returns one compact object per row instead. The server log has one line per tool call with the
+returns one compact object per row instead. Schema tools answer in the same spirit:
+`describe_table` writes one line per column (`- id: bigint [PK, NOT NULL]`) instead of a JSON
+object per column, and `list_tables` names each schema once. The server log has one line per tool call with the
 size it returned (`[mcp] run_query 1840 chars (~460 tokens) 12ms`).
 
 Database writes are deliberately **not** exposed — those stay in the write-approval workflow,

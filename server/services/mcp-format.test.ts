@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { columnNames, formatRows } from "./mcp-format.js";
+import { columnNames, formatRows, tableList } from "./mcp-format.js";
 
 describe("formatRows (csv)", () => {
   it("writes a header and one line per row, in column order", () => {
@@ -129,5 +129,23 @@ describe("formatRows (json)", () => {
 describe("columnNames", () => {
   it("adds fields that only later documents carry", () => {
     expect(columnNames([{ a: 1 }, { a: 2, b: 3 }], ["a"])).toEqual(["a", "b"]);
+  });
+});
+
+describe("tableList", () => {
+  it("names each schema once and marks views", () => {
+    expect(
+      tableList([
+        { schema: "app_core", name: "orders", type: "TABLE" },
+        { schema: "app_core", name: "order_totals", type: "VIEW" },
+        { schema: "audit", name: "events", type: "TABLE" },
+      ]),
+    ).toBe("app_core (2): orders, order_totals (view)\naudit (1): events");
+  });
+
+  it("lists bare names when there is no schema (collections, indices)", () => {
+    expect(tableList([{ name: "orders" }, { name: "customers" }])).toBe(
+      "orders, customers",
+    );
   });
 });

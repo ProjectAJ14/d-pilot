@@ -143,3 +143,26 @@ export function formatRows(
   }
   return { text: [header, ...lines].join("\n"), rowsShown, cappedCells };
 }
+
+/**
+ * `list_tables` as text: one line per schema, its tables comma-separated, views
+ * marked — instead of an object per table repeating the schema name each time.
+ */
+export function tableList(
+  tables: { schema?: string; name: string; type?: string }[],
+): string {
+  const bySchema = new Map<string, string[]>();
+  for (const t of tables) {
+    const key = t.schema ?? "";
+    const names = bySchema.get(key) ?? [];
+    names.push(t.type === "VIEW" ? `${t.name} (view)` : t.name);
+    bySchema.set(key, names);
+  }
+  return [...bySchema]
+    .map(([schema, names]) =>
+      schema
+        ? `${schema} (${names.length}): ${names.join(", ")}`
+        : names.join(", "),
+    )
+    .join("\n");
+}

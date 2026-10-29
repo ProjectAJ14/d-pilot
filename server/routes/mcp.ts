@@ -43,7 +43,14 @@ import {
   DEFAULT_MAX_CELL_CHARS,
   RESULT_BUDGET_CHARS,
   formatRows,
+  tableList,
 } from "../services/mcp-format.js";
+import {
+  formatTable,
+  tableCatalog,
+  type FullSchema,
+} from "../services/schema-introspector.js";
+import type { ColumnInfo, TableInfo } from "../types/index.js";
 
 const router = Router();
 
@@ -118,8 +125,9 @@ const text = (value: string): ToolResult => ({
   content: [{ type: "text", text: value }],
 });
 
-const json = (value: unknown): ToolResult =>
-  text(JSON.stringify(value, null, 2));
+// Compact on purpose: indentation is pure token cost to an agent, and it reads
+// one-line JSON as easily as an indented one.
+const json = (value: unknown): ToolResult => text(JSON.stringify(value));
 
 /**
  * Turns an API failure into readable tool output rather than a protocol error:
@@ -166,6 +174,9 @@ const qs = (params: Record<string, string | undefined>): string => {
 
 const readOnly = { readOnlyHint: true, openWorldHint: true };
 
+/** Tables one describe_table call may cover — each is its own API request. */
+const MAX_DESCRIBE_TABLES = 20;
+
 export function createMcpServer(client: DPilotApiClient): McpServer {
   const server = new McpServer({ name: "d-pilot", version: "1.0.0" });
   // Default rows returned per query; agents can raise it per call via `limit`.
@@ -201,7 +212,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
     {
       title: "List databases",
       description:
-        "Databases this account can query, one entry per environment+database. Use the returned `id` as `connectionId` for the other tools.",
+        "Databases this account can query, one CSV line per environment+database. Use `id` as `connectionId` for the other tools. Pass `env` when you know it — a deployment can have a hundred connections.",
       inputSchema: {
         env: z
           .string()
@@ -225,15 +236,19 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
               : "No connections available for this account.",
           );
         }
-        return json(
-          filtered.map((c) => ({
-            id: c.id,
-            name: c.name,
-            env: c.env,
-            type: c.type,
-            database: c.database,
-            defaultSchema: c.schema,
-          })),
+        return text(
+          formatRows(
+            filtered.map((c) => ({
+              id: c.id,
+              env: c.env,
+              type: c.type,
+              database: c.database,
+              defaultSchema: c.schema,
+              name: c.name,
+            })),
+            undefined,
+            { maxCellChars: Infinity, budgetChars: Infinity },
+          ).text,
         );
       }),
   );
@@ -262,47 +277,83 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
     {
       title: "List tables",
       description:
-        "Tables on a connection. For MongoDB and Elasticsearch this lists collections and indices.",
+        "Tables on a connection, one line per schema (views marked). For MongoDB and Elasticsearch this lists collections and indices. Pass `withColumns: true` to get every table's column names too — one call instead of a describe_table or an information_schema query per table.",
       inputSchema: {
         connectionId: z.string(),
         schema: z
           .string()
           .optional()
           .describe("Defaults to the connection's schema."),
+        withColumns: z
+          .boolean()
+          .optional()
+          .describe(
+            "Also list each table's column names, one line per table: `table: col, col, …`. Served from D-Pilot's schema cache, so it is cheap.",
+          ),
       },
       annotations: readOnly,
     },
-    ({ connectionId, schema }) =>
-      guard("list_tables", async () =>
-        json(
-          await client.get<unknown>(
-            `/schema/${encodeURIComponent(connectionId)}/tables${qs({ schema })}`,
-          ),
-        ),
-      ),
+    ({ connectionId, schema, withColumns }) =>
+      guard("list_tables", async () => {
+        const id = encodeURIComponent(connectionId);
+        // Formatting only — the data still comes through the REST API, so read
+        // access to this connection's environment is checked as for the UI.
+        if (withColumns) {
+          const full = await client.get<FullSchema>(
+            `/schema/${id}/full${qs({ schema })}`,
+          );
+          return text(tableCatalog(full) || "No tables.");
+        }
+        const tables = await client.get<TableInfo[]>(
+          `/schema/${id}/tables${qs({ schema })}`,
+        );
+        return text(tableList(tables) || "No tables.");
+      }),
   );
 
   server.registerTool(
     "describe_table",
     {
-      title: "Describe table",
+      title: "Describe tables",
       description:
-        "Columns, types, nullability, primary keys and foreign keys for one table. FK columns carry a `references` field naming the `table.column` they point at — use it to join instead of guessing.",
+        "Columns of one table (`table`) or several at once (`tables`), one line each: `- column: type [PK, FK -> table.column, NOT NULL, PHI]`. Join on the FK targets instead of guessing.",
       inputSchema: {
         connectionId: z.string(),
-        table: z.string(),
+        table: z.string().optional(),
+        tables: z
+          .array(z.string())
+          .max(MAX_DESCRIBE_TABLES)
+          .optional()
+          .describe(
+            `Several tables in one call (up to ${MAX_DESCRIBE_TABLES}) — cheaper than one call each.`,
+          ),
         schema: z.string().optional(),
       },
       annotations: readOnly,
     },
-    ({ connectionId, table, schema }) =>
-      guard("describe_table", async () =>
-        json(
-          await client.get<unknown>(
-            `/schema/${encodeURIComponent(connectionId)}/tables/${encodeURIComponent(table)}/columns${qs({ schema })}`,
-          ),
-        ),
-      ),
+    ({ connectionId, table, tables, schema }) =>
+      guard("describe_table", async () => {
+        const names = [
+          ...new Set([...(table ? [table] : []), ...(tables ?? [])]),
+        ];
+        if (!names.length) throw new Error("Pass `table` or `tables`.");
+        const id = encodeURIComponent(connectionId);
+        const described = await Promise.all(
+          names.map(async (name) => {
+            try {
+              const cols = await client.get<ColumnInfo[]>(
+                `/schema/${id}/tables/${encodeURIComponent(name)}/columns${qs({ schema })}`,
+              );
+              if (!cols.length)
+                return `${name}\n  (no such table, or no columns)`;
+              return formatTable(name, "TABLE", cols, false, Infinity);
+            } catch (err: any) {
+              return `${name}\n  Error: ${err.message}`;
+            }
+          }),
+        );
+        return text(described.join("\n\n"));
+      }),
   );
 
   /**
