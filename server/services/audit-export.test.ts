@@ -94,6 +94,14 @@ describe("toAuditCsv", () => {
     ]);
   });
 
+  it("neutralises a formula that arrives inside an array", () => {
+    const csv = toAuditCsv(
+      [entry({ phiFieldsUnmasked: ['=HYPERLINK("http://x")', "email"] })],
+      ["phiFieldsUnmasked"],
+    );
+    expect(csv.split("\n")[1]).toBe(`"'=HYPERLINK(""http://x""); email"`);
+  });
+
   it("leaves numbers alone and flattens arrays and booleans", () => {
     const csv = toAuditCsv(
       [

@@ -77,7 +77,11 @@ export const HISTORY_COLUMNS: (keyof AuditEntry)[] = [
 function csvCell(value: unknown): string {
   if (value === null || value === undefined) return "";
   let text = Array.isArray(value) ? value.join("; ") : String(value);
-  if (typeof value === "string" && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  // Check the final text, not the input type: a joined array (PHI column names
+  // come from the target database's schema) can start with `=` just as well.
+  // Numbers and booleans are ours, and "-1" must stay a number.
+  const ours = typeof value === "number" || typeof value === "boolean";
+  if (!ours && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
