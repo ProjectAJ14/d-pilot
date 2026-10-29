@@ -175,6 +175,32 @@ function reviveMongoJson(v: any): any {
  * a field keeps the type the app writes); only the wrappers above become BSON
  * types, each validated strictly, so what a reviewer approves is what runs.
  */
+/**
+ * Splits a call's argument list at its top-level commas — `{a: 1}, {b: 1}` is
+ * two arguments, a comma inside a document, array or string is not.
+ */
+export function splitMongoArgs(text: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let inString = false;
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === "\\") i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') inString = true;
+    else if (ch === "{" || ch === "[" || ch === "(") depth++;
+    else if (ch === "}" || ch === "]" || ch === ")") depth--;
+    else if (ch === "," && depth === 0) {
+      parts.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+
 export function parseMongoJson(text: string): any {
   // JSON.parse has already rounded a long integer by the time we see it, so
   // check the source text. Exponent/decimal literals are intended doubles.
@@ -658,6 +684,7 @@ async function executeMongo(
     throw new Error(
       "MongoDB queries must be in format:\n" +
         "  db.collection.find({...})\n" +
+        '  db.collection.find({...}, {"field": 1})   — with a projection\n' +
         "  db.collection.find({...}).limit(100)\n" +
         "  db.collection.find({...}).sort({field: -1}).limit(50)\n" +
         "  db.collection.aggregate([...])\n" +
@@ -670,9 +697,23 @@ async function executeMongo(
   const [, collectionName, operation, argsStr, chainStr] = mongoMatch;
   const collection = db.collection(collectionName);
 
+  // find/findOne take an optional projection after the filter, as in the
+  // shell. It was once parsed as part of the filter and rejected, so agents
+  // trying to keep a document small got an error instead.
+  const [first, second] = splitMongoArgs(argsStr ?? "");
   let args: any;
+  let projection: Record<string, unknown> | undefined;
   try {
-    args = argsStr?.trim() ? parseMongoJson(argsStr) : {};
+    args = first?.trim() ? parseMongoJson(first) : {};
+    if (second?.trim() && (operation === "find" || operation === "findOne")) {
+      projection = parseMongoJson(second);
+      if (
+        !projection ||
+        typeof projection !== "object" ||
+        Array.isArray(projection)
+      )
+        throw new Error("the projection must be an object");
+    }
   } catch (err: any) {
     throw new Error(`Invalid query arguments (${err.message}): ${argsStr}`);
   }
@@ -693,7 +734,7 @@ async function executeMongo(
 
   switch (operation) {
     case "find": {
-      let cursor = collection.find(args);
+      let cursor = collection.find(args, projection && { projection });
       if (sort) cursor = cursor.sort(sort);
       if (skip) cursor = cursor.skip(skip);
       rows = (await cursor.limit(limit).toArray()) as Record<string, unknown>[];
@@ -718,7 +759,7 @@ async function executeMongo(
       rows = [{ count: await collection.countDocuments(args) }];
       break;
     case "findOne": {
-      const doc = await collection.findOne(args);
+      const doc = await collection.findOne(args, projection && { projection });
       rows = doc ? [doc as Record<string, unknown>] : [];
       break;
     }

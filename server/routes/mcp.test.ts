@@ -575,3 +575,23 @@ describe("run_query across connections", () => {
     await client.close();
   });
 });
+
+/**
+ * A week of production audit log had MongoDB queries failing 22% of the time
+ * and Elasticsearch 24%, against 7% for SQL — mostly syntax the executor does
+ * not accept. Each failure is a wasted agent round trip, so run_query spells
+ * the accepted forms out.
+ */
+describe("run_query description", () => {
+  it("teaches the Mongo and ES forms the executor accepts, and SQL-first", async () => {
+    const { client } = await connect({});
+    const { tools } = await client.listTools();
+    const d = tools.find((t) => t.name === "run_query")!.description!;
+    expect(d).toContain("find({filter}, {projection})");
+    expect(d).toContain('distinct("field", {...})');
+    expect(d).toContain('{"$oid": ...}');
+    expect(d).toContain("GET /<index>/_search");
+    expect(d).toContain("aggregate (COUNT, GROUP BY)");
+    await client.close();
+  });
+});
