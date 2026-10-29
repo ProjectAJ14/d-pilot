@@ -167,6 +167,43 @@ function reviveMongoJson(v: any): any {
 }
 
 /**
+ * Reads a call's argument list starting at `from` (just past its open paren)
+ * up to the matching close paren, or the end of `text`, split at top-level
+ * commas — `{a: 1}, {b: 1}` is two arguments. Brackets and commas inside a
+ * string are data: `{"note": "smile :)"}` ends nothing. `end` is the index
+ * just past the close paren, where any `.limit()`/`.sort()` chain begins.
+ */
+export function splitMongoArgs(
+  text: string,
+  from = 0,
+): { args: string[]; end: number } {
+  const args: string[] = [];
+  let depth = 0;
+  let inString = false;
+  let start = from;
+  for (let i = from; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === "\\") i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') inString = true;
+    else if (ch === "{" || ch === "[" || ch === "(") depth++;
+    else if (ch === "}" || ch === "]" || ch === ")") {
+      if (depth === 0) {
+        args.push(text.slice(start, i));
+        return { args, end: i + 1 };
+      }
+      depth--;
+    } else if (ch === "," && depth === 0) {
+      args.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  args.push(text.slice(start));
+  return { args, end: text.length };
+}
+
+/**
  * Parses a MongoDB query/write argument as Extended JSON, so a filter can name
  * the BSON types plain JSON cannot — `{"$oid": ...}`, `{"$binary": ...}`,
  * `{"$date": ...}`. Without it no document is reachable by a non-string `_id`.
@@ -175,32 +212,6 @@ function reviveMongoJson(v: any): any {
  * a field keeps the type the app writes); only the wrappers above become BSON
  * types, each validated strictly, so what a reviewer approves is what runs.
  */
-/**
- * Splits a call's argument list at its top-level commas — `{a: 1}, {b: 1}` is
- * two arguments, a comma inside a document, array or string is not.
- */
-export function splitMongoArgs(text: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let inString = false;
-  let start = 0;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (inString) {
-      if (ch === "\\") i++;
-      else if (ch === '"') inString = false;
-    } else if (ch === '"') inString = true;
-    else if (ch === "{" || ch === "[" || ch === "(") depth++;
-    else if (ch === "}" || ch === "]" || ch === ")") depth--;
-    else if (ch === "," && depth === 0) {
-      parts.push(text.slice(start, i));
-      start = i + 1;
-    }
-  }
-  parts.push(text.slice(start));
-  return parts;
-}
-
 export function parseMongoJson(text: string): any {
   // JSON.parse has already rounded a long integer by the time we see it, so
   // check the source text. Exponent/decimal literals are intended doubles.
@@ -650,37 +661,7 @@ async function executeMongo(
   const opMatch = sql.match(
     /(?:db\.)?(\w+)\.(find|aggregate|countDocuments|distinct|findOne)\(/s,
   );
-  let mongoMatch: RegExpMatchArray | null = null;
-
-  if (opMatch) {
-    const argsStart = (opMatch.index ?? 0) + opMatch[0].length;
-    // Find the matching closing paren by counting depth. Brackets inside a
-    // string are data — `{"note": "smile :)"}` must not end the arguments.
-    let depth = 1;
-    let i = argsStart;
-    let inString = false;
-    while (i < sql.length && depth > 0) {
-      const ch = sql[i];
-      if (inString) {
-        if (ch === "\\") i++;
-        else if (ch === '"') inString = false;
-      } else if (ch === '"') inString = true;
-      else if (ch === "(" || ch === "{" || ch === "[") depth++;
-      else if (ch === ")" || ch === "}" || ch === "]") depth--;
-      i++;
-    }
-    const argsStr = sql.slice(argsStart, i - 1);
-    const chainStr = sql.slice(i);
-    mongoMatch = [
-      sql,
-      opMatch[1],
-      opMatch[2],
-      argsStr,
-      chainStr,
-    ] as unknown as RegExpMatchArray;
-  }
-
-  if (!mongoMatch) {
+  if (!opMatch) {
     throw new Error(
       "MongoDB queries must be in format:\n" +
         "  db.collection.find({...})\n" +
@@ -694,18 +675,34 @@ async function executeMongo(
     );
   }
 
-  const [, collectionName, operation, argsStr, chainStr] = mongoMatch;
+  const [opText, collectionName, operation] = opMatch;
   const collection = db.collection(collectionName);
+  const { args: parts, end } = splitMongoArgs(
+    sql,
+    (opMatch.index ?? 0) + opText.length,
+  );
+  const argsStr = parts.join(",");
+  const chainStr = sql.slice(end);
 
+  // Anything past what the operation reads would be dropped, not run — e.g.
+  // the shell's varargs aggregate(stage1, stage2) would silently lose stage2.
+  const maxArgs = ["find", "findOne", "distinct"].includes(operation) ? 2 : 1;
+  if (parts.length > maxArgs)
+    throw new Error(
+      `${operation} takes at most ${maxArgs} argument(s), got ${parts.length}` +
+        (operation === "aggregate" ? " — pass the stages as one array" : ""),
+    );
   // find/findOne take an optional projection after the filter, as in the
-  // shell. It was once parsed as part of the filter and rejected, so agents
-  // trying to keep a document small got an error instead.
-  const [first, second] = splitMongoArgs(argsStr ?? "");
+  // shell, and distinct a filter after its field name.
+  const [first, second] = parts;
   let args: any;
   let projection: Record<string, unknown> | undefined;
+  let distinctFilter: any = {};
   try {
     args = first?.trim() ? parseMongoJson(first) : {};
-    if (second?.trim() && (operation === "find" || operation === "findOne")) {
+    if (second?.trim() && operation === "distinct")
+      distinctFilter = parseMongoJson(second);
+    else if (second?.trim()) {
       projection = parseMongoJson(second);
       if (
         !projection ||
@@ -764,17 +761,12 @@ async function executeMongo(
       break;
     }
     case "distinct": {
-      // distinct("field", query) — argsStr contains both field and query
-      const distinctMatch = argsStr.match(/^"([^"]+)"(?:\s*,\s*([\s\S]+))?$/);
-      if (!distinctMatch)
+      if (typeof args !== "string" || !args)
         throw new Error(
           'distinct requires a field name: db.collection.distinct("field", {query})',
         );
-      const field = distinctMatch[1];
-      const filter = distinctMatch[2]?.trim()
-        ? parseMongoJson(distinctMatch[2])
-        : {};
-      const values = await collection.distinct(field, filter);
+      const field = args;
+      const values = await collection.distinct(field, distinctFilter);
       rows = values.map((v: any) => ({ [field]: v }));
       break;
     }

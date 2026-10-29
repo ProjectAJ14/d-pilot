@@ -247,17 +247,53 @@ describe("find/findOne projection", () => {
   });
 });
 
+describe("extra arguments", () => {
+  beforeEach(() => {
+    sent.length = 0;
+  });
+
+  it("rejects varargs aggregate stages instead of running only the first", async () => {
+    await expect(
+      executeQuery(
+        conn,
+        'db.orders.aggregate({"$match": {"status": "shipped"}}, {"$group": {"_id": "$region"}})',
+      ),
+    ).rejects.toThrow(
+      /aggregate takes at most 1 argument\(s\), got 2 — pass the stages as one array/,
+    );
+    expect(sent).toHaveLength(0);
+  });
+
+  it("rejects options to countDocuments and a third argument to find", async () => {
+    await expect(
+      executeQuery(conn, 'db.orders.countDocuments({}, {"limit": 10})'),
+    ).rejects.toThrow(/countDocuments takes at most 1/);
+    await expect(
+      executeQuery(conn, 'db.orders.find({}, {"a": 1}, {"skip": 5})'),
+    ).rejects.toThrow(/find takes at most 2/);
+    expect(sent).toHaveLength(0);
+  });
+});
+
 describe("splitMongoArgs", () => {
   it("splits only at top-level commas", () => {
     expect(
-      splitMongoArgs('{"a": {"b": 1, "c": [1, 2]}, "s": "x, y"}, {"a": 1}'),
+      splitMongoArgs('{"a": {"b": 1, "c": [1, 2]}, "s": "x, y"}, {"a": 1}')
+        .args,
     ).toEqual(['{"a": {"b": 1, "c": [1, 2]}, "s": "x, y"}', ' {"a": 1}']);
   });
 
   it("ignores quotes escaped inside strings", () => {
-    expect(splitMongoArgs('{"q": "say \\"a, b\\""}, {}')).toEqual([
+    expect(splitMongoArgs('{"q": "say \\"a, b\\""}, {}').args).toEqual([
       '{"q": "say \\"a, b\\""}',
       " {}",
     ]);
+  });
+
+  it("stops at the call's own close paren, not one inside a string", () => {
+    const text = 'find({"note": "smile :)"}).limit(5)';
+    const { args, end } = splitMongoArgs(text, 5);
+    expect(args).toEqual(['{"note": "smile :)"}']);
+    expect(text.slice(end)).toBe(".limit(5)");
   });
 });
