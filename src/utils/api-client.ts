@@ -176,6 +176,29 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json();
 }
 
+interface AuditQuery {
+  limit?: number;
+  offset?: number;
+  from?: string;
+  to?: string;
+  action?: string;
+  userId?: string;
+  /** PHI access of any kind (unmasked query, unmask, denied unmask). */
+  phi?: boolean;
+}
+
+function auditParams(params: AuditQuery): string {
+  const q = new URLSearchParams();
+  if (params.limit) q.set("limit", String(params.limit));
+  if (params.offset) q.set("offset", String(params.offset));
+  if (params.from) q.set("from", params.from);
+  if (params.to) q.set("to", params.to);
+  if (params.action) q.set("action", params.action);
+  if (params.userId) q.set("userId", params.userId);
+  if (params.phi) q.set("phi", "1");
+  return q.toString();
+}
+
 export const api = {
   // Config (public, no auth)
   getConfig: () =>
@@ -380,8 +403,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ connectionId, sql, defaultLimit, schema }),
     }),
-  getQueryHistory: (limit = 50) =>
-    request<any[]>(`/query/history?limit=${limit}`),
+  getQueryHistory: (limit = 50, offset = 0) =>
+    request<any[]>(`/query/history?limit=${limit}&offset=${offset}`),
+  /** CSV of your own history over a ≤14-day range; dates are YYYY-MM-DD. */
+  exportQueryHistory: (from: string, to: string) =>
+    request<string>(
+      `/query/history/export?${new URLSearchParams({ from, to })}`,
+    ),
 
   // Saved Queries
   getSavedQueries: () => request<any[]>("/saved-queries"),
@@ -501,40 +529,17 @@ export const api = {
     }),
 
   // Audit
-  getAuditLog: (
-    params: {
-      limit?: number;
-      offset?: number;
-      from?: string;
-      to?: string;
-      action?: string;
-      userId?: string;
-    } = {},
-  ) => {
-    const q = new URLSearchParams();
-    if (params.limit) q.set("limit", String(params.limit));
-    if (params.offset) q.set("offset", String(params.offset));
-    if (params.from) q.set("from", params.from);
-    if (params.to) q.set("to", params.to);
-    if (params.action) q.set("action", params.action);
-    if (params.userId) q.set("userId", params.userId);
-    return request<any[]>(`/audit?${q.toString()}`);
-  },
-  getArchiveLog: (
-    params: {
-      limit?: number;
-      offset?: number;
-      from?: string;
-      to?: string;
-    } = {},
-  ) => {
-    const q = new URLSearchParams();
-    if (params.limit) q.set("limit", String(params.limit));
-    if (params.offset) q.set("offset", String(params.offset));
-    if (params.from) q.set("from", params.from);
-    if (params.to) q.set("to", params.to);
-    return request<any[]>(`/audit/archive?${q.toString()}`);
-  },
+  getAuditLog: (params: AuditQuery = {}) =>
+    request<any[]>(`/audit?${auditParams(params)}`),
+  getArchiveLog: (params: AuditQuery = {}) =>
+    request<any[]>(`/audit/archive?${auditParams(params)}`),
+  /** CSV of a ≤14-day range; `from`/`to` are YYYY-MM-DD. */
+  exportAuditLog: (
+    params: AuditQuery & { from: string; to: string; source: string },
+  ) =>
+    request<string>(
+      `/audit/export?${auditParams(params)}&source=${params.source}`,
+    ),
   triggerArchive: () =>
     request<{ archived: number; message: string }>("/audit/archive", {
       method: "POST",

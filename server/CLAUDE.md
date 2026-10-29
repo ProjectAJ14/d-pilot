@@ -64,13 +64,13 @@ name rather than one baked in at build time. In production `express.static` also
 
 | Mount             | File                | Notes                                                                                                                                                                           |
 | ----------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/query`          | `query.ts`          | `POST /execute` (read-only), `GET /history`                                                                                                                                     |
+| `/query`          | `query.ts`          | `POST /execute` (read-only), `GET /history` (paged), `GET /history/export` (own CSV, audited)                                                                                   |
 | `/connections`    | `connections.ts`    | list / `writable` / `grouped` / `:id/test`                                                                                                                                      |
 | `/schema`         | `schema.ts`         | `:connectionId` full / schemas / tables / columns                                                                                                                               |
 | `/saved-queries`  | `saved-queries.ts`  | CRUD; shared-by-default; `GET /:id` backs share links                                                                                                                           |
 | `/artifacts`      | `artifacts.ts`      | CRUD; shared-by-default; `GET /:id` backs share links. `parseBlocks` is the only gate on document shape                                                                         |
 | `/phi-config`     | `phi-config.ts`     | masked-envs, `POST /unmask` (audited), rule CRUD (admin), CSV `GET /export` / `POST /import` + `DELETE /` bulk delete (admin, audited)                                          |
-| `/audit`          | `audit.ts`          | log + archive read, manual archive (admin)                                                                                                                                      |
+| `/audit`          | `audit.ts`          | log + archive read (paged), CSV `GET /export` (audited), manual archive (admin)                                                                                                 |
 | `/export`         | `export.ts`         | `POST /csv`, `POST /json` (masking enforced + audited)                                                                                                                          |
 | `/users`          | `users.ts`          | user CRUD + reset-password (admin)                                                                                                                                              |
 | `/azure-ai`       | `azure-ai.ts`       | `test`, `generate-query`, `settings` (admin), `schema-cache/clear` (admin), `chat-log` (admin)                                                                                  |
@@ -125,6 +125,11 @@ provider errors are 500, an unusable model reply is 422, and connectivity failur
 `write_requests`, `write_request_events` (the `users` table is created by
 `initAuthTables`). Audit entries older than 30 days are moved to a separate
 `data/audit_archive.sqlite` by `archiveOldAuditEntries`; `archiveIfDue` runs on login.
+The live table gained `phi_unmask_*` by `ALTER`, so its column order differs from the
+archive's — copy between them by `AUDIT_LOG_COLUMNS`, never `SELECT *`. CSV export of
+audit/history (`services/audit-export.ts`) takes a ≤14-day UTC date range and refuses
+(422) past 10,000 rows rather than truncating; each export is audited
+(`AUDIT_EXPORT` / `HISTORY_EXPORT`).
 
 - **Settings** (`app_settings`) — PHI masked envs (`getPhiMaskedEnvs`, PROD always
   included), write-mode toggle (`getWriteModeEnabled`), direct-write envs

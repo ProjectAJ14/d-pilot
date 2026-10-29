@@ -65,7 +65,7 @@ ever leaving the building in the clear.
 ### Access control & governance
 
 - **Capability-based access control** — each user has an `isAdmin` flag plus four **per-environment** capability lists: **read**, **unmask PHI**, **write**, and **approve**. Admin implies all capabilities on all environments.
-- **Audit log** — every query, error, export, PHI unmask (and denial), and write-lifecycle event is recorded, with date/type filtering and automatic 30-day archival to a separate database.
+- **Audit log** — every query, error, export, PHI unmask (and denial), and write-lifecycle event is recorded, with date/type filtering, paging, automatic 30-day archival to a separate database, and audited CSV export (up to 14 days / 10,000 entries at a time). Users can export their own query history the same way.
 - **Usage analytics** — admin dashboard: users, DAU/WAU/MAU, query volume/latency, AI usage and success rate, PHI unmasks, top users, per-connection activity.
 - **Read-only enforcement** — the read path blocks all DML/DDL; writes only ever go through the governed write workflow (a separate executor).
 - **White-label branding** — custom app name, logo (light/dark), and favicon via environment variables.

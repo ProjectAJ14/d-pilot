@@ -8,7 +8,17 @@ import {
   logAudit,
   getQueryHistory,
   getPhiMaskedEnvs,
+  getAuditLog,
+  queryArchive,
 } from "../services/sqlite-store.js";
+import {
+  EXPORT_MAX_ROWS,
+  HISTORY_COLUMNS,
+  TOO_MANY_ROWS,
+  parseExportRange,
+  sendCsv,
+  toAuditCsv,
+} from "../services/audit-export.js";
 import {
   connectionFailedMessage,
   isConnectionError,
@@ -139,8 +149,46 @@ router.post("/execute", async (req: Request, res: Response) => {
 
 router.get("/history", (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
-  const history = getQueryHistory(req.user!.sub, limit);
-  res.json(history);
+  const offset = parseInt(req.query.offset as string) || 0;
+  res.json(getQueryHistory(req.user!.sub, limit, offset));
+});
+
+// The caller's own query history as CSV (≤ 14 days, ≤ 10,000 rows). Entries
+// older than 30 days live in the archive, so read both. Audited.
+router.get("/history/export", (req: Request, res: Response) => {
+  const user = req.user!;
+  const range = parseExportRange(req.query.from, req.query.to);
+  if ("error" in range) {
+    res.status(400).json({ error: range.error });
+    return;
+  }
+  const filter = {
+    ...range,
+    userId: user.sub,
+    action: "QUERY_EXECUTE",
+    limit: EXPORT_MAX_ROWS + 1,
+  };
+  const entries = [...getAuditLog(filter), ...queryArchive(filter)]
+    .filter((e) => e.sql)
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  if (entries.length > EXPORT_MAX_ROWS) {
+    res.status(422).json({ error: TOO_MANY_ROWS });
+    return;
+  }
+
+  logAudit({
+    userId: user.sub,
+    userEmail: user.email,
+    action: "HISTORY_EXPORT",
+    sql: `Exported ${entries.length} history entries, ${req.query.from} to ${req.query.to}`,
+    rowsReturned: entries.length,
+    phiAccessed: false,
+  });
+  sendCsv(
+    res,
+    `query-history-${req.query.from}-to-${req.query.to}.csv`,
+    toAuditCsv(entries, HISTORY_COLUMNS),
+  );
 });
 
 export default router;

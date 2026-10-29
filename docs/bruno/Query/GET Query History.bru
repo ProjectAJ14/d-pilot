@@ -5,17 +5,18 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/api/query/history?limit=50
+  url: {{baseUrl}}/api/query/history?limit=50&offset=0
   body: none
   auth: inherit
 }
 
 params:query {
   limit: 50
+  offset: 0
 }
 
 docs {
-  Your recent query history (max 200).
+  Your recent query history, newest first (max 200 per page; page with `offset`).
 
   Requires a valid Bearer JWT ({{token}}).
 }

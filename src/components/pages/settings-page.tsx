@@ -2696,6 +2696,8 @@ const ACTION_COLORS: Record<string, string> = {
   PHI_RULES_IMPORT: "teal",
   PHI_RULES_EXPORT: "teal",
   PHI_RULES_DELETE_ALL: "red",
+  AUDIT_EXPORT: "teal",
+  HISTORY_EXPORT: "teal",
   WRITE_SAVE: "gray",
   WRITE_SUBMIT: "grape",
   WRITE_RESUBMIT: "grape",
@@ -2719,6 +2721,8 @@ const ACTION_LABELS: Record<string, string> = {
   PHI_RULES_IMPORT: "PHI Rules Import",
   PHI_RULES_EXPORT: "PHI Rules Export",
   PHI_RULES_DELETE_ALL: "PHI Rules Purge",
+  AUDIT_EXPORT: "Audit Export",
+  HISTORY_EXPORT: "History Export",
   WRITE_SAVE: "Write Saved",
   WRITE_SUBMIT: "Write Submitted",
   WRITE_RESUBMIT: "Write Resubmitted",
@@ -2748,6 +2752,10 @@ interface AuditEntry {
   timestamp: string;
 }
 
+const AUDIT_PAGE_SIZE = 100;
+/** Mirrors the server's EXPORT_MAX_DAYS (server/services/audit-export.ts). */
+const EXPORT_MAX_DAYS = 14;
+
 function AuditLogTab() {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2757,21 +2765,33 @@ function AuditLogTab() {
   const [toDate, setToDate] = useState("");
   const [source, setSource] = useState<string>("live");
   const [archiving, setArchiving] = useState(false);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
-  const loadAudit = async () => {
+  const filterParams = () => ({
+    action: filter !== "all" && filter !== "phi" ? filter : undefined,
+    phi: filter === "phi",
+  });
+
+  const loadAudit = async (p = 0) => {
     setLoading(true);
     try {
-      const params: any = { limit: 500 };
-      if (fromDate) params.from = fromDate;
-      if (toDate) params.to = toDate + "T23:59:59";
-      // Server-side action filter (except "phi" which is client-side composite)
-      if (filter !== "all" && filter !== "phi") params.action = filter;
-
+      // One extra row tells us whether there is a next page.
+      const params = {
+        ...filterParams(),
+        limit: AUDIT_PAGE_SIZE + 1,
+        offset: p * AUDIT_PAGE_SIZE,
+        from: fromDate || undefined,
+        to: toDate ? toDate + "T23:59:59" : undefined,
+      };
       const data =
         source === "archive"
           ? await api.getArchiveLog(params)
           : await api.getAuditLog(params);
-      setEntries(data);
+      setEntries(data.slice(0, AUDIT_PAGE_SIZE));
+      setHasMore(data.length > AUDIT_PAGE_SIZE);
+      setPage(p);
     } catch (err: any) {
       notifyError(err, "Settings");
     } finally {
@@ -2783,22 +2803,31 @@ function AuditLogTab() {
     loadAudit();
   }, [source]);
 
-  const filtered =
-    filter === "phi"
-      ? entries.filter(
-          (e) =>
-            e.phiAccessed ||
-            e.action === "PHI_UNMASK" ||
-            e.action === "PHI_UNMASK_DENIED",
-        )
-      : entries;
+  // Server-side, so it covers the whole range rather than the loaded page.
+  // The server enforces the 14-day / 10,000-row limits and explains a refusal.
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const csv = await api.exportAuditLog({
+        ...filterParams(),
+        from: fromDate,
+        to: toDate,
+        source,
+      });
+      downloadTextFile(`audit-log-${source}-${fromDate}-to-${toDate}.csv`, csv);
+    } catch (err: any) {
+      notifyError(err, "Settings", { title: "Export failed" });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleArchive = async () => {
     setArchiving(true);
     try {
       const result = await api.triggerArchive();
       notifications.show({ message: result.message, color: "green" });
-      if (result.archived > 0) loadAudit();
+      if (result.archived > 0) loadAudit(0);
     } catch (err: any) {
       notifyError(err, "Settings");
     } finally {
@@ -2844,7 +2873,7 @@ function AuditLogTab() {
           <Button
             size="xs"
             variant="light"
-            onClick={loadAudit}
+            onClick={() => loadAudit(0)}
             loading={loading}
           >
             Search
@@ -2884,11 +2913,32 @@ function AuditLogTab() {
               Archive Now
             </Button>
           </Tooltip>
+          <Tooltip
+            label={
+              fromDate && toDate
+                ? `Download every matching entry from ${fromDate} to ${toDate} (UTC)`
+                : `Pick a From and To date first (up to ${EXPORT_MAX_DAYS} days)`
+            }
+          >
+            {/* A disabled button gets no hover; the span carries the tooltip. */}
+            <span>
+              <Button
+                size="xs"
+                variant="subtle"
+                leftSection={<IconDownload size={14} />}
+                onClick={handleExport}
+                loading={exporting}
+                disabled={!fromDate || !toDate}
+              >
+                Export CSV
+              </Button>
+            </span>
+          </Tooltip>
           <Button
             size="xs"
             variant="subtle"
             leftSection={<IconRefresh size={14} />}
-            onClick={loadAudit}
+            onClick={() => loadAudit(page)}
             loading={loading}
           >
             Refresh
@@ -2897,7 +2947,9 @@ function AuditLogTab() {
       </Group>
 
       <Text size="xs" c="dimmed" mb="sm">
-        {filtered.length} event{filtered.length !== 1 ? "s" : ""}
+        {entries.length === 0
+          ? "No events"
+          : `Events ${page * AUDIT_PAGE_SIZE + 1}–${page * AUDIT_PAGE_SIZE + entries.length}`}
         {source === "archive" && " (from archive)"}
       </Text>
 
@@ -2931,7 +2983,7 @@ function AuditLogTab() {
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {filtered.map((entry) => (
+              {entries.map((entry) => (
                 <Table.Tr
                   key={entry.id}
                   onClick={() =>
@@ -3011,7 +3063,7 @@ function AuditLogTab() {
                   </Table.Td>
                 </Table.Tr>
               ))}
-              {filtered.length === 0 && !loading && (
+              {entries.length === 0 && !loading && (
                 <Table.Tr>
                   <Table.Td colSpan={6}>
                     <Text ta="center" c="dimmed" py="lg">
@@ -3025,9 +3077,33 @@ function AuditLogTab() {
         </div>
       </div>
 
+      {(page > 0 || hasMore) && (
+        <Group justify="flex-end" gap="xs" mt="sm">
+          <Button
+            size="xs"
+            variant="subtle"
+            disabled={page === 0 || loading}
+            onClick={() => loadAudit(page - 1)}
+          >
+            Previous
+          </Button>
+          <Text size="xs" c="dimmed">
+            Page {page + 1}
+          </Text>
+          <Button
+            size="xs"
+            variant="subtle"
+            disabled={!hasMore || loading}
+            onClick={() => loadAudit(page + 1)}
+          >
+            Next
+          </Button>
+        </Group>
+      )}
+
       {/* Expanded detail modal */}
       <AuditDetailModal
-        entry={filtered.find((e) => e.id === expandedId) || null}
+        entry={entries.find((e) => e.id === expandedId) || null}
         onClose={() => setExpandedId(null)}
       />
     </>

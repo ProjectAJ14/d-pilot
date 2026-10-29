@@ -27,6 +27,7 @@ import {
   Alert,
   Button,
   Anchor,
+  Popover,
 } from "@mantine/core";
 import {
   IconArchive,
@@ -41,6 +42,7 @@ import {
   IconColumns,
   IconKey as IconPK,
   IconHistory,
+  IconDownload,
   IconClock,
   IconDots,
   IconEye,
@@ -56,6 +58,7 @@ import { notifications } from "@mantine/notifications";
 import { useStore } from "../../store";
 import { api, ApiError } from "../../utils/api-client";
 import { notifyError } from "../../utils/notify-error";
+import { downloadTextFile } from "../../utils/download-file";
 import { isServerUnreachable } from "../../utils/server-reachability";
 import { copyToClipboard } from "../../utils/clipboard";
 import {
@@ -137,6 +140,8 @@ export function Sidebar() {
   >("explorer");
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [selectedEnv, setSelectedEnv] = useState<string | null>(null);
   const [expandedConn, setExpandedConn] = useState<string | null>(null);
   const [tables, setTables] = useState<Record<string, TableInfo[]>>({});
@@ -391,12 +396,24 @@ export function Sidebar() {
 
   const loadHistory = () => {
     if (!historyLoaded) {
-      api
-        .getQueryHistory(50)
-        .then(setHistory)
-        .catch(() => {});
+      loadMoreHistory();
       setHistoryLoaded(true);
     }
+  };
+
+  // Pages of HISTORY_PAGE; a short page means there is nothing older. Guarded
+  // so a double click cannot fetch (and append) the same offset twice.
+  const loadMoreHistory = () => {
+    if (historyLoading) return;
+    setHistoryLoading(true);
+    api
+      .getQueryHistory(HISTORY_PAGE, history.length)
+      .then((page) => {
+        setHistory((prev) => [...prev, ...page]);
+        setHistoryHasMore(page.length === HISTORY_PAGE);
+      })
+      .catch(() => {})
+      .finally(() => setHistoryLoading(false));
   };
 
   const loadHistoryQuery = (sql: string, connectionId?: string) => {
@@ -579,6 +596,19 @@ export function Sidebar() {
           }}
         />
       </div>
+
+      {/* Outside the scroll area so it stays reachable after "Load more". */}
+      {activeSection === "history" && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            padding: "0 12px 4px",
+          }}
+        >
+          <HistoryExportButton />
+        </div>
+      )}
 
       {/* Content */}
       <ScrollArea style={{ flex: 1 }} scrollbarSize={4}>
@@ -1537,6 +1567,19 @@ export function Sidebar() {
                 </Text>
               </div>
             )}
+            {historyHasMore && (
+              <Button
+                fullWidth
+                size="compact-xs"
+                variant="subtle"
+                color="gray"
+                mt={4}
+                loading={historyLoading}
+                onClick={loadMoreHistory}
+              >
+                Load more
+              </Button>
+            )}
           </div>
         )}
       </ScrollArea>
@@ -1657,4 +1700,81 @@ function groupByEnv(
     if (grouped[env] && !sorted[env]) sorted[env] = grouped[env];
   }
   return sorted;
+}
+
+const HISTORY_PAGE = 50;
+
+const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+
+/**
+ * Export your own history for a date range. The server reads the archive too
+ * and enforces the 14-day / 10,000-row limits; its refusal is shown as-is.
+ */
+function HistoryExportButton() {
+  const today = new Date();
+  const [opened, setOpened] = useState(false);
+  const [from, setFrom] = useState(() =>
+    isoDay(new Date(today.getTime() - 13 * 86_400_000)),
+  );
+  const [to, setTo] = useState(() => isoDay(today));
+  const [exporting, setExporting] = useState(false);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const csv = await api.exportQueryHistory(from, to);
+      downloadTextFile(`query-history-${from}-to-${to}.csv`, csv);
+      setOpened(false);
+    } catch (err: any) {
+      notifyError(err, "Explorer", { title: "Export failed" });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <Popover opened={opened} onChange={setOpened} position="bottom-end">
+      <Popover.Target>
+        <Button
+          size="compact-xs"
+          variant="subtle"
+          color="gray"
+          leftSection={<IconDownload size={12} />}
+          onClick={() => setOpened((o) => !o)}
+        >
+          Export CSV
+        </Button>
+      </Popover.Target>
+      <Popover.Dropdown>
+        <TextInput
+          size="xs"
+          type="date"
+          label="From"
+          value={from}
+          onChange={(e) => setFrom(e.currentTarget.value)}
+        />
+        <TextInput
+          size="xs"
+          type="date"
+          label="To"
+          mt={6}
+          value={to}
+          onChange={(e) => setTo(e.currentTarget.value)}
+        />
+        <Text size="xs" c="dimmed" mt={6}>
+          Up to 14 days (UTC), 10,000 queries.
+        </Text>
+        <Button
+          size="xs"
+          fullWidth
+          mt="xs"
+          onClick={handleExport}
+          loading={exporting}
+          disabled={!from || !to}
+        >
+          Download
+        </Button>
+      </Popover.Dropdown>
+    </Popover>
+  );
 }

@@ -960,46 +960,58 @@ export function logAudit(entry: Omit<AuditEntry, "id" | "timestamp">): void {
   );
 }
 
-export function getAuditLog(
-  options: {
-    limit?: number;
-    offset?: number;
-    from?: string;
-    to?: string;
-    action?: string;
-    userId?: string;
-  } = {},
-): AuditEntry[] {
-  const limit = Math.min(options.limit ?? 100, 1000);
-  const offset = options.offset ?? 0;
+export interface AuditFilter {
+  limit?: number;
+  offset?: number;
+  from?: string;
+  to?: string;
+  action?: string;
+  userId?: string;
+  /** PHI access of any kind: an unmasked query, an unmask, or a denied unmask. */
+  phiOnly?: boolean;
+}
 
+/** Room for one export batch (10,000) plus the row that says it overflowed. */
+const AUDIT_READ_MAX = 10_001;
+
+// One query for the live table and the archive, which share a schema.
+function selectAudit(conn: Database.Database, f: AuditFilter): AuditEntry[] {
   const conditions: string[] = [];
   const params: any[] = [];
-
-  if (options.from) {
+  if (f.from) {
     conditions.push("timestamp >= ?");
-    params.push(options.from);
+    params.push(f.from);
   }
-  if (options.to) {
+  if (f.to) {
     conditions.push("timestamp <= ?");
-    params.push(options.to);
+    params.push(f.to);
   }
-  if (options.action) {
+  if (f.action) {
     conditions.push("action = ?");
-    params.push(options.action);
+    params.push(f.action);
   }
-  if (options.userId) {
+  if (f.userId) {
     conditions.push("user_id = ?");
-    params.push(options.userId);
+    params.push(f.userId);
   }
-
+  if (f.phiOnly) {
+    conditions.push(
+      "(phi_accessed = 1 OR action IN ('PHI_UNMASK', 'PHI_UNMASK_DENIED'))",
+    );
+  }
   const where =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-  const sql = `SELECT * FROM audit_log ${where} ORDER BY timestamp DESC LIMIT ? OFFSET ?`;
-  params.push(limit, offset);
-
-  const rows = db.prepare(sql).all(...params) as any[];
+  params.push(Math.min(f.limit ?? 100, AUDIT_READ_MAX), f.offset ?? 0);
+  const rows = conn
+    .prepare(
+      `SELECT * FROM audit_log ${where} ORDER BY timestamp DESC, rowid DESC LIMIT ? OFFSET ?`,
+    )
+    .all(...params) as any[];
   return rows.map(mapAuditRow);
+}
+
+export function getAuditLog(options: AuditFilter = {}): AuditEntry[] {
+  return selectAudit(db, options);
 }
 
 // --- Analytics ---
@@ -1220,14 +1232,18 @@ export function getAnalytics(): any {
 
 // --- Query History ---
 
-export function getQueryHistory(userId: string, limit = 50): AuditEntry[] {
+export function getQueryHistory(
+  userId: string,
+  limit = 50,
+  offset = 0,
+): AuditEntry[] {
   const rows = db
     .prepare(
       `SELECT * FROM audit_log
        WHERE user_id = ? AND action = 'QUERY_EXECUTE' AND sql IS NOT NULL
-       ORDER BY timestamp DESC LIMIT ?`,
+       ORDER BY timestamp DESC, rowid DESC LIMIT ? OFFSET ?`,
     )
-    .all(userId, limit) as any[];
+    .all(userId, limit, offset) as any[];
   return rows.map(mapAuditRow);
 }
 
@@ -1360,6 +1376,9 @@ function mapAiChatRow(r: any): AiChatLogEntry {
 
 // --- Audit Archival ---
 
+const AUDIT_LOG_COLUMNS =
+  "id, user_id, user_email, action, sql, connection_id, rows_returned, execution_ms, phi_accessed, phi_fields_unmasked, phi_unmask_reason, phi_unmask_notes, timestamp";
+
 const AUDIT_LOG_SCHEMA = `
   CREATE TABLE IF NOT EXISTS audit_log (
     id TEXT PRIMARY KEY,
@@ -1409,15 +1428,21 @@ export function archiveOldAuditEntries(daysToKeep = 30): { archived: number } {
         .get(`-${daysToKeep} days`) as { cutoff: string };
 
       const move = db.transaction(() => {
+        // Named columns: the live table gained phi_unmask_* by ALTER, so its
+        // column order differs from the archive's. A positional SELECT * shifted
+        // values, tripped NOT NULL, and OR IGNORE dropped the row unarchived.
         const insertResult = db
           .prepare(
-            `INSERT OR IGNORE INTO archive.audit_log SELECT * FROM main.audit_log WHERE timestamp < ?`,
+            `INSERT OR IGNORE INTO archive.audit_log (${AUDIT_LOG_COLUMNS})
+             SELECT ${AUDIT_LOG_COLUMNS} FROM main.audit_log WHERE timestamp < ?`,
           )
           .run(cutoff.cutoff);
 
-        db.prepare(`DELETE FROM main.audit_log WHERE timestamp < ?`).run(
-          cutoff.cutoff,
-        );
+        // Only delete what the archive now holds — never lose an entry.
+        db.prepare(
+          `DELETE FROM main.audit_log WHERE timestamp < ?
+           AND id IN (SELECT id FROM archive.audit_log)`,
+        ).run(cutoff.cutoff);
 
         return insertResult.changes;
       });
@@ -1461,44 +1486,15 @@ export function archiveIfDue(): void {
   }
 }
 
-export function queryArchive(
-  options: {
-    limit?: number;
-    offset?: number;
-    from?: string;
-    to?: string;
-  } = {},
-): AuditEntry[] {
+export function queryArchive(options: AuditFilter = {}): AuditEntry[] {
   const dataDir = path.resolve(process.cwd(), process.env.DATA_DIR || "data");
   const archivePath = path.join(dataDir, "audit_archive.sqlite");
 
   if (!fs.existsSync(archivePath)) return [];
 
   const archiveDb = new Database(archivePath, { readonly: true });
-
   try {
-    const limit = Math.min(options.limit ?? 100, 1000);
-    const offset = options.offset ?? 0;
-
-    const conditions: string[] = [];
-    const params: any[] = [];
-
-    if (options.from) {
-      conditions.push("timestamp >= ?");
-      params.push(options.from);
-    }
-    if (options.to) {
-      conditions.push("timestamp <= ?");
-      params.push(options.to);
-    }
-
-    const where =
-      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-    const sql = `SELECT * FROM audit_log ${where} ORDER BY timestamp DESC LIMIT ? OFFSET ?`;
-    params.push(limit, offset);
-
-    const rows = archiveDb.prepare(sql).all(...params) as any[];
-    return rows.map(mapAuditRow);
+    return selectAudit(archiveDb, options);
   } finally {
     archiveDb.close();
   }

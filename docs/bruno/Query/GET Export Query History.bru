@@ -1,0 +1,27 @@
+meta {
+  name: Export Query History
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/query/history/export?from=2026-01-01&to=2026-01-14
+  body: none
+  auth: inherit
+}
+
+params:query {
+  from: 2026-01-01
+  to: 2026-01-14
+}
+
+docs {
+  Download your own query history as CSV (`text/csv`), including archived
+  entries. `from`/`to` are required UTC dates (YYYY-MM-DD, inclusive) at most
+  14 days apart.
+
+  400 for a missing or too-wide range; 422 when the range holds more than
+  10,000 queries. Each export is audited as `HISTORY_EXPORT`.
+
+  Requires a valid Bearer JWT ({{token}}).
+}

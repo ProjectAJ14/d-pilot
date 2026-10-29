@@ -15,10 +15,14 @@ params:query {
   offset: 0
   ~from: 2025-01-01
   ~to: 2025-12-31
+  ~action: QUERY_EXECUTE
+  ~userId: {{userId}}
+  ~phi: 1
 }
 
 docs {
-  Query archived audit entries (older than 30 days).
+  Query archived audit entries (older than 30 days). Same filters as
+  the live log.
 
   Requires a valid Bearer JWT ({{token}}).
   **Admin only.**

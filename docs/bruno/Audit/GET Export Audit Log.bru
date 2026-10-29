@@ -1,0 +1,33 @@
+meta {
+  name: Export Audit Log
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/audit/export?from=2026-01-01&to=2026-01-14&source=live
+  body: none
+  auth: inherit
+}
+
+params:query {
+  from: 2026-01-01
+  to: 2026-01-14
+  source: live
+  ~action: QUERY_EXECUTE
+  ~userId: {{userId}}
+  ~phi: 1
+}
+
+docs {
+  Download audit entries as CSV (`text/csv`). `from`/`to` are required UTC dates
+  (YYYY-MM-DD, inclusive) at most 14 days apart; `source` is `live` (default) or
+  `archive`. Takes the same filters as the list.
+
+  400 for a missing or too-wide range; 422 when the range holds more than
+  10,000 entries (narrow it — the file is never truncated). Each export is
+  audited as `AUDIT_EXPORT`.
+
+  Requires a valid Bearer JWT ({{token}}).
+  **Admin only.**
+}
