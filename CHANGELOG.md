@@ -5,6 +5,28 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [2.6.0](https://github.com/ProjectAJ14/d-pilot/compare/v2.5.0...v2.6.0) (2026-10-29)
+
+
+### Bug Fixes
+
+* **audit:** label requests from neither the UI nor MCP as api ([adeb3c6](https://github.com/ProjectAJ14/d-pilot/commit/adeb3c6e824aca24e5db09b7f6595dc270cb6131))
+* **mcp:** accurate run_query notes, full withColumns, bounded describe_table ([8c7cc90](https://github.com/ProjectAJ14/d-pilot/commit/8c7cc90b93d8182a1dfe46002b0edc95388cfd0b))
+* **mongo:** accept a projection in find and findOne; spell out query forms for agents ([2f53da2](https://github.com/ProjectAJ14/d-pilot/commit/2f53da2524db7475517c71f9b82706da4fc1c805))
+* **mongo:** reject call arguments an operation would drop ([57d794d](https://github.com/ProjectAJ14/d-pilot/commit/57d794d10410b5482bed233796f486d0b0844243))
+
+
+### Features
+
+* **audit:** record whether each entry came from the UI or an MCP agent ([b0af8c1](https://github.com/ProjectAJ14/d-pilot/commit/b0af8c162c61ff636e63185ebe47b622ce825a35))
+* **mcp:** run one query on several connections in a single call ([45b527a](https://github.com/ProjectAJ14/d-pilot/commit/45b527a14fbe94a5faac63b3cc0d732b2d27837f))
+
+
+### Performance Improvements
+
+* **mcp:** compact schema and listing output, batch describe_table ([91fc635](https://github.com/ProjectAJ14/d-pilot/commit/91fc6356a5fb35d5cb29825201043545e4c06194))
+* **mcp:** return query rows as compact CSV with a per-cell cap ([439fa36](https://github.com/ProjectAJ14/d-pilot/commit/439fa365acdada376b8a3976ae7cc329da9fad53))
+
 # [2.5.0](https://github.com/ProjectAJ14/d-pilot/compare/v2.4.0...v2.5.0) (2026-10-29)
 
 
