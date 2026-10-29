@@ -200,6 +200,25 @@ describe("tool call logging", () => {
   });
 });
 
+describe("tool call logging, on failure", () => {
+  it("logs a failed call under its registered name, marked as an error", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const { client, call } = await connect({
+      get: (async () => {
+        throw new Error("down");
+      }) as any,
+    });
+    expect(
+      (await call("list_schemas", { connectionId: "qa-pg" })).isError,
+    ).toBe(true);
+    expect(log).toHaveBeenCalledWith(
+      expect.stringMatching(/^\[mcp\] list_schemas \d+ chars .* error$/),
+    );
+    log.mockRestore();
+    await client.close();
+  });
+});
+
 describe("run_query output", () => {
   const execute = (result: Record<string, unknown>) => {
     const post = vi.fn(async () => ({
@@ -247,6 +266,23 @@ describe("run_query output", () => {
     await client.close();
   });
 
+  it("does not blame MAX_ROWS when Mongo flags its own limit as truncated", async () => {
+    // Mongo/ES set `truncated` whenever more rows exist, far below MAX_ROWS.
+    const api = execute({
+      rows: [{ id: 1 }, { id: 2 }, { id: 3 }],
+      truncated: true,
+    });
+    const { client, call } = await connect({ post: api.post });
+    const { text } = await call("run_query", {
+      connectionId: "qa-mongo",
+      sql: "db.orders.find({})",
+      limit: 2,
+    });
+    expect(text).toContain("more rows exist");
+    expect(text).not.toContain("MAX_ROWS");
+    await client.close();
+  });
+
   it("cuts long cells, says so, and lets the agent raise the cap", async () => {
     const api = execute({
       columns: [{ name: "payload" }],
@@ -285,7 +321,7 @@ describe("run_query output", () => {
       sql: "SELECT * FROM big",
       limit: 3000,
     });
-    expect(text.length).toBeLessThan(101_000);
+    expect(text.length).toBeLessThanOrEqual(100_000);
     expect(text).toMatch(/3000 row\(s\) in 3ms · only the first \d+ are shown/);
     expect(text).toContain("aggregate in SQL");
     await client.close();
@@ -391,6 +427,54 @@ describe("schema and listing tools", () => {
     });
     expect(text).toBe("orders: id, customer_id\ncustomers: id, email");
     expect(api.paths()).toEqual(["/schema/qa-pg/full?schema=app_core"]);
+    await client.close();
+  });
+
+  it("list_tables withColumns shows every column and names unsampled collections", async () => {
+    const wide = Array.from({ length: 60 }, (_, i) => col(`c${i}`));
+    const api = answering({
+      "/schema/qa-mongo/full": {
+        tables: [
+          { name: "orders", type: "COLLECTION" },
+          { name: "events", type: "COLLECTION" },
+          { name: "logs", type: "COLLECTION" },
+        ],
+        // Mongo samples only the first collections: the rest have no entry.
+        columns: { orders: wide },
+      },
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("list_tables", {
+      connectionId: "qa-mongo",
+      withColumns: true,
+    });
+    const [first, second] = text.split("\n");
+    expect(first).toBe(`orders: ${wide.map((c) => c.name).join(", ")}`);
+    expect(second).toBe(
+      "Columns not loaded for 2 more (only the first 1 are sampled) — describe_table them: events, logs",
+    );
+    await client.close();
+  });
+
+  it("describe_table introspects a few tables at a time, not all at once", async () => {
+    let running = 0;
+    let peak = 0;
+    const get = vi.fn(async () => {
+      peak = Math.max(peak, ++running);
+      await new Promise((r) => setTimeout(r, 5));
+      running--;
+      return [col("id")];
+    });
+    const { client, call } = await connect({ get: get as any });
+    const tables = Array.from({ length: 20 }, (_, i) => `t${i}`);
+    const { text } = await call("describe_table", {
+      connectionId: "qa-mongo",
+      tables,
+    });
+    expect(get).toHaveBeenCalledTimes(20);
+    expect(peak).toBeLessThanOrEqual(4);
+    // Order is still the order asked for.
+    expect(text.split("\n\n").map((b) => b.split("\n")[0])).toEqual(tables);
     await client.close();
   });
 
@@ -561,7 +645,8 @@ describe("run_query across connections", () => {
       sql: "SELECT * FROM t",
       limit: 2000,
     });
-    expect(text.length).toBeLessThan(102_000);
+    // Status lines and `## id` headers included, not just the rows.
+    expect(text.length).toBeLessThanOrEqual(100_000);
     expect(text.match(/only the first \d+ are shown/g)).toHaveLength(3);
     await client.close();
   });

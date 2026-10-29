@@ -135,19 +135,12 @@ const json = (value: unknown): ToolResult => text(JSON.stringify(value));
  * access to PROD environment") are exactly the feedback an agent needs to
  * correct itself.
  */
-async function guard(
-  tool: string,
-  run: () => Promise<ToolResult>,
-): Promise<ToolResult> {
-  const started = Date.now();
-  let result: ToolResult;
+async function guard(run: () => Promise<ToolResult>): Promise<ToolResult> {
   try {
-    result = await run();
+    return await run();
   } catch (err: any) {
-    result = { ...text(`Error: ${err.message}`), isError: true };
+    return { ...text(`Error: ${err.message}`), isError: true };
   }
-  logToolCall(tool, result, Date.now() - started);
-  return result;
 }
 
 /**
@@ -174,11 +167,37 @@ const qs = (params: Record<string, string | undefined>): string => {
 
 const readOnly = { readOnlyHint: true, openWorldHint: true };
 
+/** Room kept for a run_query status line and header, out of its budget. */
+const STATUS_RESERVE_CHARS = 1_000;
+
 /** Connections one run_query call may span — each is its own query. */
 const MAX_QUERY_CONNECTIONS = 6;
 
 /** Tables one describe_table call may cover — each is its own API request. */
 const MAX_DESCRIBE_TABLES = 20;
+
+/** Of those, how many are introspected at once. */
+const DESCRIBE_CONCURRENCY = 4;
+
+/** `Promise.all(items.map(fn))`, with at most `limit` running at once. */
+async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker),
+  );
+  return out;
+}
 
 export function createMcpServer(client: DPilotApiClient): McpServer {
   const server = new McpServer({ name: "d-pilot", version: "1.0.0" });
@@ -188,7 +207,19 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
   // the default rather than one that truncates every result to zero rows.
   const MCP_MAX_ROWS = getConfigNumber("MCP_MAX_ROWS");
 
-  server.registerTool(
+  // registerTool, logging each call under the name it was registered with —
+  // so the `[mcp] <tool>` line can't name the wrong tool.
+  const tool: typeof server.registerTool = (name, config, cb) =>
+    server.registerTool(name, config, (async (...args: unknown[]) => {
+      const started = Date.now();
+      const result = await (cb as (...a: unknown[]) => Promise<ToolResult>)(
+        ...args,
+      );
+      logToolCall(name, result, Date.now() - started);
+      return result;
+    }) as typeof cb);
+
+  tool(
     "whoami",
     {
       title: "Who am I",
@@ -197,7 +228,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     () =>
-      guard("whoami", async () => {
+      guard(async () => {
         const me = await client.get<any>("/auth/me");
         return json({
           username: me.username,
@@ -210,7 +241,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       }),
   );
 
-  server.registerTool(
+  tool(
     "list_connections",
     {
       title: "List databases",
@@ -227,7 +258,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     ({ env }) =>
-      guard("list_connections", async () => {
+      guard(async () => {
         const connections = await client.get<any[]>("/connections");
         const filtered = env
           ? connections.filter((c) => c.env === env)
@@ -256,7 +287,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       }),
   );
 
-  server.registerTool(
+  tool(
     "list_schemas",
     {
       title: "List schemas",
@@ -266,7 +297,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     ({ connectionId }) =>
-      guard("list_schemas", async () =>
+      guard(async () =>
         json(
           await client.get<unknown>(
             `/schema/${encodeURIComponent(connectionId)}/schemas`,
@@ -275,7 +306,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       ),
   );
 
-  server.registerTool(
+  tool(
     "list_tables",
     {
       title: "List tables",
@@ -297,7 +328,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     ({ connectionId, schema, withColumns }) =>
-      guard("list_tables", async () => {
+      guard(async () => {
         const id = encodeURIComponent(connectionId);
         // Formatting only — the data still comes through the REST API, so read
         // access to this connection's environment is checked as for the UI.
@@ -305,7 +336,24 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
           const full = await client.get<FullSchema>(
             `/schema/${id}/full${qs({ schema })}`,
           );
-          return text(tableCatalog(full) || "No tables.");
+          // Mongo/ES sample only the first collections; the rest have no
+          // entry at all, which a bare `name: ` line would pass off as empty.
+          const sampled = full.tables.filter((t) => t.name in full.columns);
+          const skipped = full.tables.length - sampled.length;
+          const catalog = tableCatalog({ ...full, tables: sampled }, Infinity);
+          return text(
+            [
+              catalog,
+              skipped
+                ? `Columns not loaded for ${skipped} more (only the first ${sampled.length} are sampled) — describe_table them: ${full.tables
+                    .filter((t) => !(t.name in full.columns))
+                    .map((t) => t.name)
+                    .join(", ")}`
+                : "",
+            ]
+              .filter(Boolean)
+              .join("\n") || "No tables.",
+          );
         }
         const tables = await client.get<TableInfo[]>(
           `/schema/${id}/tables${qs({ schema })}`,
@@ -314,7 +362,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       }),
   );
 
-  server.registerTool(
+  tool(
     "describe_table",
     {
       title: "Describe tables",
@@ -335,14 +383,18 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     ({ connectionId, table, tables, schema }) =>
-      guard("describe_table", async () => {
+      guard(async () => {
         const names = [
           ...new Set([...(table ? [table] : []), ...(tables ?? [])]),
         ];
         if (!names.length) throw new Error("Pass `table` or `tables`.");
         const id = encodeURIComponent(connectionId);
-        const described = await Promise.all(
-          names.map(async (name) => {
+        // Each name is a live introspection (for Mongo/ES, its own client
+        // sampling documents), so run a few at a time, not all twenty.
+        const described = await mapLimit(
+          names,
+          DESCRIBE_CONCURRENCY,
+          async (name) => {
             try {
               const cols = await client.get<ColumnInfo[]>(
                 `/schema/${id}/tables/${encodeURIComponent(name)}/columns${qs({ schema })}`,
@@ -353,7 +405,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
             } catch (err: any) {
               return `${name}\n  Error: ${err.message}`;
             }
-          }),
+          },
         );
         return text(described.join("\n\n"));
       }),
@@ -400,7 +452,9 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
     const out = formatRows(rows, result.columns, {
       format,
       maxCellChars,
-      budgetChars,
+      // The status line and a multi-connection `## id` header come on top of
+      // the rows; reserve room so the whole answer stays within the budget.
+      budgetChars: budgetChars - STATUS_RESERVE_CHARS,
     });
 
     // Always say when the answer was cut short, and name the knob — otherwise
@@ -412,7 +466,11 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
             limit ? "" : ` (this server's default)`
           }; call again with a larger \`limit\``
         : null,
-      result.truncated ? `the server's own MAX_ROWS cap also applied` : null,
+      // `truncated` means "more rows exist" for Mongo/ES, not "the cap was
+      // hit", so name the cap only when the result actually reached it.
+      result.truncated && result.rows.length >= getConfigNumber("MAX_ROWS")
+        ? `the server's own MAX_ROWS cap also applied`
+        : null,
       out.rowsShown < rows.length
         ? `only the first ${out.rowsShown} are shown: the rest would exceed ~${Math.round(budgetChars / 4000)}k tokens — aggregate in SQL, select fewer columns, or page with LIMIT/OFFSET`
         : null,
@@ -427,7 +485,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
     return `${notes.join(" · ")}\n\n${out.text}`;
   };
 
-  server.registerTool(
+  tool(
     "run_query",
     {
       title: "Run a read-only query",
@@ -472,7 +530,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     ({ connectionId, connectionIds, ...query }) =>
-      guard("run_query", async () => {
+      guard(async () => {
         const ids = [
           ...new Set([
             ...(connectionId ? [connectionId] : []),
@@ -511,7 +569,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
   // approval workflow and executes nothing — the environment's direct-write
   // policy is not consulted until a human submits it as themselves.
 
-  server.registerTool(
+  tool(
     "create_write_request",
     {
       title: "Save a write request",
@@ -545,7 +603,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: writes,
     },
     (input) =>
-      guard("create_write_request", async () => {
+      guard(async () => {
         const wr = await client.post<any>("/write-requests", {
           ...input,
           draft: true,
@@ -561,7 +619,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       }),
   );
 
-  server.registerTool(
+  tool(
     "get_write_request",
     {
       title: "Read a write request",
@@ -575,7 +633,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     ({ id }) =>
-      guard("get_write_request", async () =>
+      guard(async () =>
         json(
           await client.get<unknown>(
             `/write-requests/${encodeURIComponent(id)}`,
@@ -584,7 +642,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       ),
   );
 
-  server.registerTool(
+  tool(
     "update_write_request",
     {
       title: "Update a write request",
@@ -616,7 +674,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: writes,
     },
     ({ id, ...updates }) =>
-      guard("update_write_request", async () => {
+      guard(async () => {
         const wr = await client.post<any>(
           `/write-requests/${encodeURIComponent(id)}/revise`,
           { ...updates, draft: true },
@@ -663,7 +721,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
     "Prefer a table to a paragraph for anything with columns, and a diagram to a paragraph for anything with arrows.",
   ].join("\n");
 
-  server.registerTool(
+  tool(
     "create_artifact",
     {
       title: "Create an artifact",
@@ -688,7 +746,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: writes,
     },
     (input) =>
-      guard("create_artifact", async () => {
+      guard(async () => {
         const artifact = await client.post<any>("/artifacts", input);
         return json({
           id: artifact.id,
@@ -699,7 +757,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       }),
   );
 
-  server.registerTool(
+  tool(
     "update_artifact",
     {
       title: "Update an artifact",
@@ -727,7 +785,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: writes,
     },
     ({ id, ...updates }) =>
-      guard("update_artifact", async () => {
+      guard(async () => {
         const artifact = await client.put<any>(
           `/artifacts/${encodeURIComponent(id)}`,
           updates,
@@ -742,7 +800,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       }),
   );
 
-  server.registerTool(
+  tool(
     "get_artifact",
     {
       title: "Read an artifact",
@@ -752,12 +810,12 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     ({ id }) =>
-      guard("get_artifact", async () =>
+      guard(async () =>
         json(await client.get<unknown>(`/artifacts/${encodeURIComponent(id)}`)),
       ),
   );
 
-  server.registerTool(
+  tool(
     "list_artifacts",
     {
       title: "List artifacts",
@@ -772,7 +830,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     ({ search }) =>
-      guard("list_artifacts", async () => {
+      guard(async () => {
         const all = await client.get<any[]>("/artifacts");
         const needle = search?.toLowerCase();
         const matched = needle
@@ -801,7 +859,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       }),
   );
 
-  server.registerTool(
+  tool(
     "archive_artifact",
     {
       title: "Archive or restore an artifact",
@@ -819,7 +877,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: { ...writes, idempotentHint: true },
     },
     ({ id, archived }) =>
-      guard("archive_artifact", async () => {
+      guard(async () => {
         const next = archived ?? true;
         const artifact = await client.put<any>(
           `/artifacts/${encodeURIComponent(id)}`,
