@@ -1,6 +1,10 @@
 import { Router, Request, Response } from "express";
 import { requireAdmin, resolveReadableConnection } from "../middleware/auth.js";
 import {
+  connectionFailedMessage,
+  isConnectionError,
+} from "../services/connection-errors.js";
+import {
   getCachedFullSchema,
   summarizeTables,
   tableCatalog,
@@ -412,8 +416,15 @@ router.post("/generate-query", async (req: Request, res: Response) => {
       status: "error",
       errorMessage: `Failed to introspect schema: ${err?.message || err}`,
     });
+    if (isConnectionError(err)) {
+      res.status(503).json({
+        error: connectionFailedMessage(conn),
+        code: "CONNECTION_FAILED",
+      });
+      return;
+    }
     res
-      .status(502)
+      .status(500)
       .json({ error: `Failed to introspect schema: ${err?.message || err}` });
     return;
   }
@@ -512,7 +523,7 @@ router.post("/generate-query", async (req: Request, res: Response) => {
         completionTokens: result.usage?.completionTokens,
         totalTokens: result.usage?.totalTokens,
       });
-      res.status(502).json({
+      res.status(422).json({
         error:
           "The model did not return a usable query. Try rephrasing your request.",
       });

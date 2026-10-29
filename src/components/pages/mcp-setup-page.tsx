@@ -7,13 +7,17 @@ import {
   Tabs,
   Code,
   List,
+  Alert,
+  SegmentedControl,
 } from "@mantine/core";
 import {
   IconArrowLeft,
   IconRobot,
   IconKey,
+  IconTerminal2,
   IconCopy,
   IconShieldLock,
+  IconLifebuoy,
 } from "@tabler/icons-react";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../../store";
@@ -21,32 +25,39 @@ import { BASE_PATH } from "../../utils/base-path";
 import { copyToClipboard } from "../../utils/clipboard";
 import { Card } from "./profile-page";
 import {
-  basicAuthValue,
-  claudeCodePrompt,
-  claudeDesktopConfig,
-  claudeDesktopPrompt,
+  copyButtonLabel,
+  defaultMcpUsername,
+  detectOs,
+  setupSteps,
+  type SetupClient,
+  type SetupOs,
+  type SetupStep,
 } from "../../utils/mcp-setup";
 
+/** Chromium's client hint where there is one, else the user agent. */
+const platform = () =>
+  (navigator as Navigator & { userAgentData?: { platform?: string } })
+    .userAgentData?.platform || navigator.userAgent;
+
 /**
- * Generates a ready-to-paste prompt that has an AI agent register the
- * `/api/mcp` endpoint itself, so nobody base64-encodes credentials by hand.
- * The password is encoded here in the browser and never sent anywhere.
+ * Manual, numbered steps for connecting an agent to `/api/mcp`, run by the user
+ * in their own terminal. Nothing here is meant to be pasted into an AI chat.
+ * The credential is encoded in this browser, never sent anywhere, and only
+ * ever in the copied text — the screen shows it masked.
  */
 export function McpSetupPage() {
   const navigate = useNavigate();
   const appName = useStore((s) => s.config.appName);
   const user = useStore((s) => s.user);
-  const [username, setUsername] = useState(user?.email || user?.username || "");
+  const [username, setUsername] = useState(() => defaultMcpUsername(user));
   const [password, setPassword] = useState("");
+  const [os, setOs] = useState<SetupOs>(() => detectOs(platform()));
 
   // Assembled at runtime, so it has to carry the sub-path itself.
   const mcpUrl = `${window.location.origin}${BASE_PATH}/api/mcp`;
-  const ready = !!username.trim() && !!password;
-  const auth = ready ? basicAuthValue(username.trim(), password) : "";
-  // What is shown on screen hides the credential; the copy carries the real one.
-  const shown = ready
-    ? "Basic ••••••••"
-    : "Basic <enter your username and password above>";
+  const steps = (client: SetupClient) =>
+    setupSteps(client, os, mcpUrl, username.trim(), password);
+  const shell = os === "windows" ? "PowerShell" : "a terminal";
 
   return (
     <div style={{ flex: 1, minWidth: 0, overflow: "auto" }}>
@@ -96,63 +107,138 @@ export function McpSetupPage() {
 
         <Card
           icon={<IconKey size={16} color="var(--accent)" />}
-          title="Credentials"
-          desc="Your own login, or a service account's. The password never leaves this browser — it is encoded here and not sent anywhere."
+          title="Account"
+          desc="Your own login, or a service account's. The password is encoded in this browser, never sent anywhere, and only goes into the text you copy."
         >
           <TextInput
             label="Username"
             value={username}
             onChange={(e) => setUsername(e.currentTarget.value)}
+            autoComplete="off"
             mb="sm"
           />
+          {/* Typed on purpose, never autofilled: a saved login is not
+              necessarily the account the agent should use. */}
           <PasswordInput
             label="Password"
             placeholder="Password for this account"
+            autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.currentTarget.value)}
           />
         </Card>
 
         <Card
-          icon={<IconCopy size={16} color="var(--accent)" />}
-          title="Agent prompt"
-          desc="Copy the prompt and paste it into Claude Code — it does the setup itself."
+          icon={<IconTerminal2 size={16} color="var(--accent)" />}
+          title="Setup steps"
         >
-          <Tabs defaultValue="code">
+          <Alert color="orange" variant="light" mb="md" p="sm">
+            <Text size="xs" c="var(--text)">
+              Run these <strong>yourself, in your own terminal</strong> — not
+              through an agent. Don't use Claude Code's <Code>!</Code> prefix
+              and don't paste them into a chat: anything an AI sees ends up in
+              its context and its transcript.
+            </Text>
+          </Alert>
+          <SegmentedControl
+            size="xs"
+            mb="md"
+            value={os}
+            onChange={(v) => setOs(v as SetupOs)}
+            aria-label="Operating system"
+            styles={{
+              root: { "--sc-color": "var(--selected)", "--sc-shadow": "none" },
+              indicator: { border: "1px solid var(--accent)" },
+            }}
+            data={[
+              { value: "posix", label: "macOS / Linux" },
+              { value: "windows", label: "Windows" },
+            ]}
+          />
+          <Tabs defaultValue="bridge">
             <Tabs.List mb="md">
-              <Tabs.Tab value="code">Claude Code</Tabs.Tab>
+              <Tabs.Tab value="bridge">Claude Code (recommended)</Tabs.Tab>
+              <Tabs.Tab value="http">Claude Code, direct HTTP</Tabs.Tab>
               <Tabs.Tab value="desktop">Claude Desktop</Tabs.Tab>
             </Tabs.List>
-            <Tabs.Panel value="code">
-              <Snippet
-                label="Claude Code prompt"
-                shown={claudeCodePrompt(mcpUrl, shown)}
-                copy={ready ? claudeCodePrompt(mcpUrl, auth) : null}
+            <Tabs.Panel value="bridge">
+              <Text size="xs" c="dimmed" mb="md">
+                Goes through a small local bridge (Node 18+, no dependencies).
+                When {appName} is unreachable — the VPN is off, say — the agent
+                is told why instead of the server just failing, and the tools
+                come back by themselves once it is reachable again. Run these in{" "}
+                {shell}.
+              </Text>
+              <Steps
+                steps={steps("bridge")}
+                creds={[username.trim(), password]}
+              />
+            </Tabs.Panel>
+            <Tabs.Panel value="http">
+              <Text size="xs" c="dimmed" mb="md">
+                No Node needed, but no explanation when {appName} is unreachable
+                and no automatic recovery: you reconnect the server by hand. Run
+                these in {shell}.
+              </Text>
+              <Steps
+                steps={steps("http")}
+                creds={[username.trim(), password]}
               />
             </Tabs.Panel>
             <Tabs.Panel value="desktop">
-              <Text size="xs" c="dimmed" mb="sm">
-                Paste this into Claude Code (or any agent that can edit files);
-                it adds the server to Claude Desktop's config. Claude Desktop
-                only launches local servers, so this goes through the{" "}
-                <Code>mcp-remote</Code> bridge.
+              <Text size="xs" c="dimmed" mb="md">
+                Claude Desktop launches local servers only, so it runs the same
+                bridge, and the bridge adds itself to Desktop's config — no
+                paths to look up. Run these in {shell}.
               </Text>
-              <Snippet
-                label="Claude Desktop prompt"
-                shown={claudeDesktopPrompt(mcpUrl, shown)}
-                copy={ready ? claudeDesktopPrompt(mcpUrl, auth) : null}
-              />
-              <Text size="xs" c="dimmed" mt="md" mb="sm">
-                Doing it by hand? Merge this into <Code>mcpServers</Code>, then
-                fully quit and reopen Claude Desktop.
-              </Text>
-              <Snippet
-                label="Claude Desktop config"
-                shown={claudeDesktopConfig(mcpUrl, shown)}
-                copy={ready ? claudeDesktopConfig(mcpUrl, auth) : null}
+              <Steps
+                steps={steps("desktop")}
+                creds={[username.trim(), password]}
               />
             </Tabs.Panel>
           </Tabs>
+        </Card>
+
+        <Card
+          icon={<IconLifebuoy size={16} color="var(--accent)" />}
+          title="Troubleshooting"
+        >
+          <List size="sm" spacing={8} c="var(--text)">
+            <List.Item>
+              <strong>d-pilot doesn't show up in Claude Desktop.</strong> Its
+              config was most likely changed while it was running, and it wrote
+              its own copy back. Quit it fully (Windows: right-click the tray
+              icon, then Quit), run the install command again, then start it.
+              The Microsoft Store version keeps its config under{" "}
+              <Code>%LOCALAPPDATA%\Packages\Claude_*</Code>; the install command
+              prints the path it used.
+            </List.Item>
+            <List.Item>
+              <strong>Claude Desktop's logs.</strong> Windows:{" "}
+              <Code>%LOCALAPPDATA%\Claude\logs\mcp-server-d-pilot.log</Code>, or
+              under the Store package folder for the Microsoft Store version.
+              macOS: <Code>~/Library/Logs/Claude/mcp-server-d-pilot.log</Code>.
+            </List.Item>
+            <List.Item>
+              <strong>
+                <Code>UNABLE_TO_GET_ISSUER_CERT_LOCALLY</Code> or another
+                certificate error.
+              </strong>{" "}
+              A VPN or proxy that inspects HTTPS re-signs traffic with its own
+              certificate, which Node doesn't trust by default. With Node 22.15
+              or newer, add <Code>--use-system-ca</Code> before the bridge path
+              to trust the system's certificates (for Claude Desktop, run the
+              install command again with that Node: it adds the flag), or set{" "}
+              <Code>NODE_EXTRA_CA_CERTS</Code> to the CA's PEM file in the
+              server's env.
+            </List.Item>
+            <List.Item>
+              <strong>Off the VPN.</strong> Through the bridge, the agent is
+              told {appName} can't be reached, and the tools come back by
+              themselves when you reconnect. A direct HTTP setup just times out;
+              reconnect the server by hand.
+            </List.Item>
+          </List>
         </Card>
 
         <Card
@@ -161,8 +247,9 @@ export function McpSetupPage() {
         >
           <List size="sm" spacing={4} c="var(--text)">
             <List.Item>
-              The copied prompt contains a credential equivalent to the
-              password. Don't commit it or share it.
+              The copied commands contain a credential equivalent to the
+              password, and so do your shell history and Claude's config
+              afterwards. Don't commit or share them.
             </List.Item>
             <List.Item>
               Serve {appName} over HTTPS — the credential is sent on every
@@ -182,15 +269,56 @@ export function McpSetupPage() {
   );
 }
 
+/** Numbered steps; each code block copies `step.copy`, the real credential behind the masked one. */
+function Steps({
+  steps,
+  creds: [username, password],
+}: {
+  steps: SetupStep[];
+  creds: [string, string];
+}) {
+  return (
+    <List type="ordered" size="sm" spacing="md" c="var(--text)">
+      {steps.map((step, i) => (
+        <List.Item key={step.title}>
+          <Text size="sm" fw={500} mb={step.code || step.note ? 6 : 0}>
+            {step.title}
+          </Text>
+          {step.code && (
+            <Snippet
+              label={`step ${i + 1}`}
+              shown={step.code}
+              copy={step.copy ?? null}
+              buttonLabel={copyButtonLabel(
+                `step ${i + 1}`,
+                !!step.copy,
+                username,
+                password,
+              )}
+            />
+          )}
+          {step.note && (
+            <Text size="xs" c="dimmed" mt={6}>
+              {step.note}
+            </Text>
+          )}
+        </List.Item>
+      ))}
+    </List>
+  );
+}
+
 /** A read-only text block with a copy button; disabled until `copy` is set. */
 function Snippet({
   label,
   shown,
   copy,
+  buttonLabel,
 }: {
   label: string;
   shown: string;
   copy: string | null;
+  buttonLabel: string;
 }) {
   return (
     <div>
@@ -206,9 +334,9 @@ function Snippet({
         variant="light"
         leftSection={<IconCopy size={14} />}
         disabled={!copy}
-        onClick={() => copy && copyToClipboard(copy, label)}
+        onClick={() => copy && copyToClipboard(copy, label, shown)}
       >
-        {copy ? `Copy ${label}` : "Enter a password to copy"}
+        {buttonLabel}
       </Button>
     </div>
   );

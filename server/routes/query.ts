@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { resolveReadableConnection } from "../middleware/auth.js";
+import { unmaskHeaders } from "../middleware/phi-headers.js";
 import { validateQuery, executeQuery } from "../services/query-executor.js";
 import { maskQueryResults } from "../services/phi-masking.js";
 import { fkTargetsForColumns } from "../services/schema-introspector.js";
@@ -18,6 +19,10 @@ import {
   sendCsv,
   toAuditCsv,
 } from "../services/audit-export.js";
+import {
+  connectionFailedMessage,
+  isConnectionError,
+} from "../services/connection-errors.js";
 import type { QueryRequest, QueryResult, Environment } from "../types/index.js";
 
 const router = Router();
@@ -48,10 +53,7 @@ router.post("/execute", async (req: Request, res: Response) => {
     const maskedEnvs = getPhiMaskedEnvs();
     const envRequiresMasking = maskedEnvs.includes(conn.env as Environment);
     const clientRequestsUnmask = req.headers["x-phi-shield"] === "off";
-    const unmaskReason = req.headers["x-phi-unmask-reason"] as
-      | string
-      | undefined;
-    const unmaskNotes = req.headers["x-phi-unmask-notes"] as string | undefined;
+    const { reason: unmaskReason, notes: unmaskNotes } = unmaskHeaders(req);
 
     // PHI unmasking is environment-scoped: the user must hold the unmask
     // capability for this connection's environment (admins hold all).
@@ -131,6 +133,13 @@ router.post("/execute", async (req: Request, res: Response) => {
       phiAccessed: false,
     });
 
+    if (isConnectionError(err)) {
+      res.status(503).json({
+        error: connectionFailedMessage(conn),
+        code: "CONNECTION_FAILED",
+      });
+      return;
+    }
     res.status(500).json({
       error: err.message || "Query execution failed",
       code: err.code,

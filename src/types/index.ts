@@ -43,11 +43,15 @@ export interface CopyFormat {
 }
 
 // Machine-readable error codes returned by the API (body: { error, code? }).
-export type ApiErrorCode = "CONNECTION_FAILED";
+// SERVER_UNREACHABLE is client-only — the server can't send it; api-client sets
+// it when there was no response (or a proxy 502/504), so server/types omits it.
+export type ApiErrorCode = "CONNECTION_FAILED" | "SERVER_UNREACHABLE";
 
 export interface ApiErrorBody {
   error: string;
   code?: ApiErrorCode;
+  /** Write routes, on a 503 CONNECTION_FAILED: the request as it now is (DRAFT or PENDING). */
+  request?: WriteRequest;
 }
 
 export interface ConnectionInfo {
@@ -269,6 +273,7 @@ export interface WriteRequestEvent {
     | "RESUBMITTED"
     | "EXECUTED"
     | "FAILED"
+    | "NOT_RUN"
     | "CANCELLED";
   notes?: string;
   timestamp: string;

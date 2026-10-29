@@ -32,6 +32,7 @@ const h = vi.hoisted(() => ({
   setSetting: vi.fn(),
   logAiChat: vi.fn(),
   clearSchemaCache: vi.fn(() => ({ cleared: 0 })),
+  schemaError: null as unknown,
 }));
 
 vi.mock("../config/connections.js", async (orig) => ({
@@ -60,12 +61,15 @@ vi.mock("../services/sqlite-store.js", async (orig) => ({
 vi.mock("../services/schema-introspector.js", async (orig) => ({
   ...(await orig<object>()),
   clearSchemaCache: h.clearSchemaCache,
-  getCachedFullSchema: async () => ({
-    schema: { tables: [{ name: "orders", type: "TABLE" }], columns: {} },
-    cached: true,
-    cachedAt: "x",
-    ttlHours: 24,
-  }),
+  getCachedFullSchema: async () => {
+    if (h.schemaError) throw h.schemaError;
+    return {
+      schema: { tables: [{ name: "orders", type: "TABLE" }], columns: {} },
+      cached: true,
+      cachedAt: "x",
+      ttlHours: 24,
+    };
+  },
 }));
 vi.mock("../services/azure-openai.js", async (orig) => ({
   ...(await orig<object>()),
@@ -110,6 +114,7 @@ beforeAll(async () => {
 afterAll(() => server.close());
 beforeEach(() => {
   h.isAdmin = true;
+  h.schemaError = null;
   vi.clearAllMocks();
 });
 
@@ -196,13 +201,53 @@ describe("content-filter refusals", () => {
     });
   });
 
-  it("other Azure errors keep their 502", async () => {
+  // 502 is a proxy saying D-Pilot is down; the browser shows the
+  // "can't reach the D-Pilot server" banner for it. D-Pilot never sends one.
+  it("other Azure errors are a 500, not a 502", async () => {
     h.azureChat.mockRejectedValue(new AzureOpenAIError("boom", 500));
     const r = await call("POST", "/wr/suggest-write", {
       connectionId: "local-pg",
       selectSql: "SELECT * FROM orders",
     });
-    expect(r.status).toBe(502);
+    expect(r).toEqual({ status: 500, body: { error: "boom" } });
+  });
+});
+
+describe("generate-query failures D-Pilot reports itself", () => {
+  const generate = () =>
+    call("POST", "/ai/generate-query", {
+      connectionId: "local-pg",
+      prompt: "list orders",
+    });
+
+  it("an unreachable database during introspection is 503 CONNECTION_FAILED", async () => {
+    h.schemaError = Object.assign(new Error("getaddrinfo ENOTFOUND db"), {
+      code: "ENOTFOUND",
+    });
+    const r = await generate();
+    expect(r.status).toBe(503);
+    expect(r.body.code).toBe("CONNECTION_FAILED");
+    expect(r.body.error).toContain("the Local (DEV) database");
+    expect(h.logAiChat.mock.calls.at(-1)?.[0].status).toBe("error");
+  });
+
+  it("any other introspection failure is a 500", async () => {
+    h.schemaError = new Error("permission denied for schema app_core");
+    const r = await generate();
+    expect(r).toEqual({
+      status: 500,
+      body: {
+        error:
+          "Failed to introspect schema: permission denied for schema app_core",
+      },
+    });
+  });
+
+  it("a reply with no usable query is a 422 asking to rephrase", async () => {
+    h.azureChat.mockResolvedValue({ content: "{}" });
+    const r = await generate();
+    expect(r.status).toBe(422);
+    expect(r.body.error).toMatch(/Try rephrasing/);
   });
 });
 

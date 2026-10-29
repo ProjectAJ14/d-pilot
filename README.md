@@ -246,6 +246,8 @@ LIGHT_LOGO_URL=/logo/your-logo-light.svg  # light-ink mark, shown on the dark th
 FAVICON_URL=/logo/favicon.svg         # optional
 # LOGIN_TAGLINE="Internal query tool"     # login-page lines under the app name;
 # LOGIN_SUBTITLE="HIPAA · PHI tokenized"  # save one empty in Settings to hide it
+# NETWORK_HINT="Connect to the VPN and retry."  # shown when a database can't be reached, and in
+#                                               # the server-unreachable banner and sign-in error
 EMAIL_DOMAIN=yourcompany.com          # enforced on user creation, used for the default admin seed
 # APP_BASE_URL=https://d-pilot.internal   # origin for artifact links in MCP output
 
@@ -429,34 +431,91 @@ paths.
    that person and bounded by their capabilities. Grant _only_ the Read capability, on _only_
    the environments agents should reach — not an admin. Add Write on an environment only if
    agents should be able to save draft write requests there (they still cannot run one).
-2. **Point the agent at the URL.** The easiest way is the in-app **`/docs/mcp`** page (account
-   menu → _Connect an AI agent_): enter the password and it generates a ready-to-paste prompt
-   for Claude Code or Claude Desktop, with the credentials encoded in the browser. To do it by
-   hand instead, for Claude Code:
+2. **Connect the agent — by hand, in your own terminal.** Not through an agent: don't use
+   Claude Code's `!` prefix or paste these into a chat, because anything an AI sees ends up in
+   its context and its transcript. The in-app **`/docs/mcp`** page (account menu → _Connect an
+   AI agent_) builds these commands for you: your URL and username are filled in, you type the
+   password on the page, and the browser encodes it (it is never sent anywhere). The screen
+   shows the credential masked; only the copied text carries it. It picks macOS / Linux or
+   Windows from your browser, and you can switch.
+
+   Below, `<base64 of user:password>` is `base64("username:password")` — the setup page builds
+   it for you. The commands contain that credential, so it ends up in your shell history and in
+   Claude's config: don't share them.
+
+   **Claude Code, through the local bridge (recommended — see
+   [Behind a VPN?](#behind-a-vpn-use-the-local-bridge)).** Needs Node 18+. Download the
+   bridge, register it, then restart Claude Code and check that `claude mcp list` shows d-pilot
+   as Connected.
+
+   macOS / Linux (bash, zsh):
 
    ```bash
-   claude mcp add --transport http d-pilot https://d-pilot.internal/api/mcp \
-     --header "Authorization: Basic $(printf 'agent@example.com:the-password' | base64)"
+   mkdir -p ~/.d-pilot && curl -fsSo ~/.d-pilot/mcp-bridge.mjs 'https://d-pilot.example.com/mcp-bridge.mjs'
+   claude mcp add -s user -e 'DPILOT_MCP_URL=https://d-pilot.example.com/api/mcp' \
+     -e 'DPILOT_MCP_AUTH=Basic <base64 of user:password>' -t stdio d-pilot node ~/.d-pilot/mcp-bridge.mjs
    ```
 
-   Or in any MCP client's config file:
+   Windows (PowerShell 5.1 or 7):
 
-   ```json
-   {
-     "mcpServers": {
-       "d-pilot": {
-         "type": "http",
-         "url": "https://d-pilot.internal/api/mcp",
-         "headers": {
-           "Authorization": "Basic YWdlbnRAZXhhbXBsZS5jb206dGhlLXBhc3N3b3Jk"
-         }
-       }
-     }
-   }
+   ```powershell
+   New-Item -ItemType Directory -Force "$HOME\.d-pilot" | Out-Null; Invoke-WebRequest -UseBasicParsing -Uri 'https://d-pilot.example.com/mcp-bridge.mjs' -OutFile "$HOME\.d-pilot\mcp-bridge.mjs"
+   claude mcp add -s user -e 'DPILOT_MCP_URL=https://d-pilot.example.com/api/mcp' -e 'DPILOT_MCP_AUTH=Basic <base64 of user:password>' -t stdio d-pilot node "$HOME\.d-pilot\mcp-bridge.mjs"
    ```
 
-   That `Basic` value is just `base64("username:password")` — generate it with
-   `printf 'user:pass' | base64`.
+   Then ask the agent to "call the d-pilot whoami tool" — a prompt like that carries no
+   credential. If Node comes from nvm or another version manager, use the absolute path from
+   `command -v node` (Windows: `(Get-Command node).Source`) instead of `node`. If `d-pilot`
+   already exists, run `claude mcp remove d-pilot -s user` first. `-t stdio` ends the list of
+   `-e` values, so the command needs no `--` (which PowerShell has not always passed on to
+   native programs).
+
+   **Claude Code, direct HTTP (no Node).** Registers the endpoint itself. Simpler, but while
+   D-Pilot is unreachable the server just fails with no reason given, and you reconnect it by
+   hand. The same line works in bash, zsh and PowerShell:
+
+   ```bash
+   claude mcp add --scope user --transport http d-pilot 'https://d-pilot.example.com/api/mcp' --header 'Authorization: Basic <base64 of user:password>'
+   ```
+
+   **Claude Desktop** launches local servers only, so it runs the same bridge — and the bridge
+   adds itself to Desktop's config, with absolute paths to this `node` and to itself, so there
+   is no JSON to edit and no path to look up. In this order:
+   1. Download the bridge as above.
+   2. **Fully quit Claude Desktop.** It rewrites its config while it runs, so a change made
+      then is lost. Windows: right-click the tray icon, then Quit — closing the window is not
+      enough. macOS: Cmd+Q. Linux: quit from the tray or menu.
+   3. Run the install command:
+
+   ```bash
+   node ~/.d-pilot/mcp-bridge.mjs --install-desktop 'https://d-pilot.example.com/api/mcp' 'Basic <base64 of user:password>'
+   ```
+
+   ```powershell
+   node "$HOME\.d-pilot\mcp-bridge.mjs" --install-desktop 'https://d-pilot.example.com/api/mcp' 'Basic <base64 of user:password>'
+   ```
+
+   4. Start Claude Desktop: Settings → Developer lists d-pilot.
+
+   It sets `mcpServers["d-pilot"]` in `claude_desktop_config.json` (macOS
+   `~/Library/Application Support/Claude/`, Windows `%APPDATA%\Claude\`, Linux
+   `~/.config/Claude/`; `DPILOT_DESKTOP_CONFIG` overrides it), keeps everything else, and saves
+   the previous file as `claude_desktop_config.json.bak`. The Microsoft Store version of Claude
+   Desktop keeps its config in its package folder instead,
+   `%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache\Roaming\Claude\`; the command finds it
+   (any `Claude_*` package; of several, the one that already has a config) and prints the path
+   with "(Microsoft Store version)". It warns if Claude Desktop looks like it is still running
+   (Windows matches `claude.exe`, which a native Claude Code install shares). A file it cannot
+   parse is left untouched. It records `node` as `PATH` finds it (e.g.
+   `/opt/homebrew/bin/node`), so Homebrew upgrades keep working; with nvm, whose path changes
+   per version, run it again after switching versions. With Node 22.15 or newer it also adds
+   `--use-system-ca`, so the bridge trusts the OS certificate store as the browser does. A
+   symlinked config is updated in place. On Windows it needs `%APPDATA%` (or
+   `DPILOT_DESKTOP_CONFIG`) unless it finds the Store version.
+
+   Any other MCP client works the same way: run the bridge as a stdio server with
+   `DPILOT_MCP_URL` and `DPILOT_MCP_AUTH` (`Basic <base64 of user:password>`), or point an
+   HTTP client at `/api/mcp` with an `Authorization: Basic …` header.
 
 **Why Basic auth:** MCP clients can send static headers but cannot run D-Pilot's
 username/password login flow, so `/api/mcp` accepts the credentials directly and exchanges
@@ -480,6 +539,51 @@ requires a human-supplied reason.
 _new_ logins but does not kill a token already issued — as everywhere else in D-Pilot, a JWT
 stays valid until it expires, so revocation takes effect within `JWT_EXPIRES_IN` (24h by
 default). Lower that value if you need a tighter window.
+
+### Behind a VPN? Use the local bridge
+
+If D-Pilot is only reachable over a VPN, an agent pointed straight at the URL just times out
+while the VPN is off: the server shows as failed with no reason given, and stays failed until
+you reconnect it by hand. No request reaches D-Pilot, so D-Pilot cannot explain anything.
+
+That is what the bridge in the setup steps above is for. D-Pilot serves it at
+`/mcp-bridge.mjs` (under `BASE_PATH` too): one file, Node 18+, no dependencies, configured by
+`DPILOT_MCP_URL` and `DPILOT_MCP_AUTH`. The agent launches it as a local (stdio) server and it
+relays to `/api/mcp`. It always starts, and while D-Pilot is unreachable it offers a single
+`dpilot_status` tool that tells the agent (and so you) that D-Pilot is probably fine and your
+network/VPN can't reach it. It checks D-Pilot's health every 10 seconds and, the moment the
+VPN is back, tells the agent to re-list its tools — the real tools come back without a
+reconnect.
+
+With the VPN off, the agent sees only `dpilot_status`, and a call already under way returns
+"D-Pilot at https://d-pilot.example.com can't be reached from this machine (…). D-Pilot itself
+is probably running — check your network or VPN connection." Turn the VPN on and the full tool
+list is back within about 10 seconds. Bad credentials are reported as such, not as an outage.
+
+- Any answer from the health check except 502/503/504 counts as reachable, and `tools/list`
+  always tries D-Pilot itself, so a wrong guess never hides the tools for good.
+- A captive portal or VPN login page answering in D-Pilot's place is reported as unreachable,
+  with that as the reason.
+- An untrusted HTTPS certificate is reported as configuration, not an outage: see
+  [Troubleshooting](#troubleshooting-the-mcp-connection).
+
+### Troubleshooting the MCP connection
+
+- **d-pilot doesn't show up in Claude Desktop.** Its config was most likely changed while it was
+  running, and it wrote its own copy back. Quit it fully (Windows: right-click the tray icon,
+  then Quit), run `--install-desktop` again, then start it. For the Microsoft Store version,
+  check the path the install command printed (under `%LOCALAPPDATA%\Packages\Claude_*`).
+- **Logs.** Windows: `%LOCALAPPDATA%\Claude\logs\mcp-server-d-pilot.log`, or under the Store
+  package folder for the Microsoft Store version. macOS:
+  `~/Library/Logs/Claude/mcp-server-d-pilot.log`.
+- **`UNABLE_TO_GET_ISSUER_CERT_LOCALLY` or another certificate error.** A VPN or proxy that
+  inspects HTTPS re-signs traffic with its own certificate, and Node doesn't use the OS
+  certificate store by default. With Node 22.15 or newer, add `--use-system-ca` before the
+  bridge path (`--install-desktop` adds it for you; run it again after upgrading Node).
+  Otherwise set `NODE_EXTRA_CA_CERTS` to that CA's PEM file in the bridge's `env`.
+- **Off the VPN.** Through the bridge, the agent is told D-Pilot can't be reached, and the tools
+  come back by themselves when you reconnect. A direct HTTP setup just times out; reconnect it
+  by hand.
 
 ## Install as an App (PWA)
 

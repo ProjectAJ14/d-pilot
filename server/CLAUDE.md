@@ -79,6 +79,10 @@ name rather than one baked in at build time. In production `express.static` also
 | `/settings`       | `settings.ts`       | admin runtime config: settings list/update/reset, connection CRUD + pre-save `POST /connections/test` + all-or-nothing `POST /connections/import` (secrets write-only, audited) |
 | `/mcp`            | `mcp.ts`            | **read-only MCP endpoint for AI agents — mounted _before_ `authMiddleware`** (HTTP Basic, not Bearer)                                                                           |
 
+**D-Pilot never sends 502/504 itself** (the client reads them as "server unreachable"): AI
+provider errors are 500, an unusable model reply is 422, and connectivity failures anywhere are
+503 `CONNECTION_FAILED`.
+
 ## Services (`services/`)
 
 - **`query-executor.ts`** — read path for all four DB types. `validateQuery`/`isReadQuery`
@@ -90,7 +94,9 @@ name rather than one baked in at build time. In production `express.static` also
   Mongo `updateOne/Many`,`insertOne/Many`,`deleteOne/Many`,`replaceOne`; ES
   `_doc`/`_create`/`_update`/`_update_by_query`/`_delete_by_query`) and flags whether it's
   `scoped` (UPDATE/DELETE need a WHERE/filter). `executeWrite` runs transactionally where
-  the engine supports it.
+  the engine supports it. Each step that sends no statement (connect, pool acquire, begin,
+  ping) runs inside `beforeSend`, which tags what it throws with `markPreConnect`
+  (`connection-errors.ts`) — the only errors `isPreConnectError` can accept.
 - **`phi-masking.ts`** — `findMatchingRule` (pattern match on column name), `maskValue`
   (FULL/PARTIAL/HASH/REDACT), `maskQueryResults`. `alwaysMasked` rules never unmask.
 - **`schema-introspector.ts`** — table/column/schema discovery per DB type; builds the
@@ -146,6 +152,11 @@ audit/history (`services/audit-export.ts`) takes a ≤14-day UTC date range and 
 - **Secrets** (connection password/URI, `AZURE_OPENAI_KEY`) are AES-256-GCM encrypted
   (`config/secrets.ts`) with `SETTINGS_ENCRYPTION_KEY`, else a key generated once into
   `DATA_DIR/settings.key` (0600). The key never goes in SQLite; losing it loses the secrets.
+- **Unmask headers** — `X-PHI-Unmask-Reason`/`-Notes` arrive URI-encoded (the client's
+  `encodeURIComponent`; a header carries only Latin-1). Read them only through
+  `unmaskHeaders(req)` (`middleware/phi-headers.ts`), which decodes them for the audit log
+  and keeps an old client's raw value when it isn't valid encoding. `query.ts`, `export.ts`
+  and the write preview use it; the MCP endpoint never sends them (it is always masked).
 - **Audit** — `logAudit`/`getAuditLog` capture every query, error, export, PHI unmask (and
   denial), and write-lifecycle event. `getAnalytics`/`getWriteAnalytics` power the admin
   dashboard.
@@ -154,8 +165,27 @@ audit/history (`services/audit-export.ts`) takes a ≤14-day UTC date range and 
 
 Status: `DRAFT → PENDING → APPROVED → EXECUTED` (or `FAILED`/`REJECTED`/`CANCELLED`).
 Each transition appends a `write_request_events` row (`SAVED`, `SUBMITTED`, `AI_REVIEWED`,
-`APPROVED`/`AUTO_APPROVED`/`OVERRIDDEN`, `REJECTED`, `RESUBMITTED`, `EXECUTED`, `FAILED`, `CANCELLED`)
+`APPROVED`/`AUTO_APPROVED`/`OVERRIDDEN`, `REJECTED`, `RESUBMITTED`, `EXECUTED`, `FAILED`, `NOT_RUN`, `CANCELLED`)
 for the timeline.
+
+**A write that never reached its database is not `FAILED`.** `isPreConnectError` accepts only
+errors tagged at the executor's connect/acquire/begin/ping steps _and_ network-shaped. For
+those, approve/override release the claim back to `PENDING`, and direct execution
+(create/submit/revise) returns the request to `DRAFT`; the route answers 503
+`CONNECTION_FAILED` with `request` (its current state) audits `WRITE_EXECUTE_ERROR`, and appends a `NOT_RUN` timeline event.
+Anything after a statement was sent has an unknown outcome and is `FAILED`.
+
+**Execute-once covers direct execution too.** `runDirectExecution` claims the request
+`PENDING → APPROVED` (`claimWriteRequestForApproval`, the same claim approve takes) before
+it sends anything, so an approve, override or cancel that arrives mid-run 409s instead of
+running it again or overwriting the result. `APPROVED` is the status every execution runs
+under; the timeline shows `AUTO_APPROVED` and analytics never count `APPROVED`, so the brief
+claim is not misreported. A pre-connect failure releases it `APPROVED → DRAFT`; if that
+release loses its claim the route answers 409 with the request as it is, never a silent
+"back to draft". `cancel` claims from the status it read (`PENDING`/`DRAFT`) and 409s if
+the row moved. Every status change goes through `claimWriteRequestStatus` — never an
+unconditional `updateWriteRequest({ status })` on a row someone else can act on. Elasticsearch writes
+use `maxRetries: 0` (a driver retry could run one twice); Mongo writes ping before sending.
 
 **Admin override** (`POST /:id/override`, `planDecision` — exported, unit-tested) runs a
 `PENDING` request without any approver, own requests included. Admin-only (`requireAdmin`
@@ -178,7 +208,9 @@ Editing goes through `POST /:id/revise` for both drafts and revisable
 (`REJECTED`/`CANCELLED`/`FAILED`) requests; `planRevise` (exported, unit-tested) decides
 refuse / stay a draft / resubmit-and-maybe-run. A draft edit must never execute — that is the
 whole point of the draft gate — so `reviseWriteRequest` takes the target status from the caller
-rather than hardcoding `PENDING`.
+rather than hardcoding `PENDING`. It also takes the status the route checked and applies only
+while the row is still in it (else the route 409s): revise awaits SQL validation, and two
+revises racing through it must not both resubmit — and both run — the same request.
 
 `DELETE /:id` removes a request and its events outright — requester or admin, and only once it
 is not live (`PENDING` and `APPROVED` must be cancelled first, since one is someone else's

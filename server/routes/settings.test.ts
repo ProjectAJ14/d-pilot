@@ -1014,6 +1014,35 @@ describe("login page text", () => {
   });
 });
 
+describe("network hint", () => {
+  const entry = async (key: string) =>
+    (await (await call("GET")).json()).find((s: any) => s.key === key);
+
+  it("is an empty branding default, takes .env, then a saved value", async () => {
+    expect(await entry("NETWORK_HINT")).toMatchObject({
+      group: "branding",
+      source: "default",
+    });
+    expect(getConfig("NETWORK_HINT") ?? "").toBe("");
+    vi.stubEnv("NETWORK_HINT", "Env hint");
+    expect(await entry("NETWORK_HINT")).toMatchObject({
+      value: "Env hint",
+      source: "env",
+    });
+    const res = await call("PUT", "", {
+      values: { NETWORK_HINT: "Connect to the VPN and retry." },
+    });
+    expect(res.status).toBe(200);
+    expect(await entry("NETWORK_HINT")).toMatchObject({
+      value: "Connect to the VPN and retry.",
+      source: "db",
+    });
+    await call("DELETE", "/NETWORK_HINT");
+    expect(getConfig("NETWORK_HINT")).toBe("Env hint");
+    vi.stubEnv("NETWORK_HINT", "");
+  });
+});
+
 describe("logo and favicon URLs", () => {
   it("accept empty, a root-relative path or an http(s) URL — nothing else", async () => {
     for (const key of ["LOGO_URL", "LIGHT_LOGO_URL", "FAVICON_URL"]) {

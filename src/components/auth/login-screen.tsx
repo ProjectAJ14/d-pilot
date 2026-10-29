@@ -2,6 +2,7 @@ import { useState } from "react";
 import { TextInput, PasswordInput, Button, Text } from "@mantine/core";
 import { useStore } from "../../store";
 import { api } from "../../utils/api-client";
+import { loginErrorMessage } from "../../utils/server-reachability";
 
 export function LoginScreen() {
   const login = useStore((s) => s.login);
@@ -12,6 +13,7 @@ export function LoginScreen() {
     emailDomain,
     loginTagline,
     loginSubtitle,
+    networkHint,
   } = useStore((s) => s.config);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -30,8 +32,9 @@ export function LoginScreen() {
     try {
       const { token, user } = await api.login(username, password);
       login(token, user);
-    } catch (err: any) {
-      setError(err.message || "Invalid credentials");
+    } catch (err) {
+      // networkHint is the locally saved one when /api/config can't load.
+      setError(loginErrorMessage(err, navigator.onLine, networkHint));
     } finally {
       setLoading(false);
     }

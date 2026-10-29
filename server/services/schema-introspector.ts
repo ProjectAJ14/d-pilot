@@ -10,7 +10,7 @@ import type {
 import { findMatchingRule } from "./phi-masking.js";
 import { getAiColumnValuesEnabled } from "./sqlite-store.js";
 import { scanSql } from "./sql-scan.js";
-import { mongoUri } from "./query-executor.js";
+import { logDroppedConnections, mongoUri } from "./query-executor.js";
 import { getConfigNumber } from "../config/settings.js";
 
 /** The default schema for a connection when none is explicitly selected. */
@@ -87,16 +87,38 @@ export async function getSchemas(
   return { schemas, default: def };
 }
 
+// Short-lived pools, one per introspection call. Each logs a connection that
+// drops (the VPN going down) instead of letting the unheard 'error' crash the server.
+const introspectPgPool = (conn: ConnectionConfig) =>
+  logDroppedConnections(
+    conn,
+    new pg.Pool({
+      host: conn.host,
+      port: conn.port || 5432,
+      database: conn.database,
+      user: conn.username,
+      password: conn.password,
+      max: 2,
+      connectionTimeoutMillis: 10000,
+    }),
+  );
+
+const introspectMssqlPool = (conn: ConnectionConfig) =>
+  logDroppedConnections(
+    conn,
+    new mssql.ConnectionPool({
+      server: conn.host || "localhost",
+      port: conn.port || 1433,
+      database: conn.database,
+      user: conn.username,
+      password: conn.password,
+      options: { encrypt: false, trustServerCertificate: true },
+      connectionTimeout: 10000,
+    }),
+  );
+
 async function getPostgresSchemas(conn: ConnectionConfig): Promise<string[]> {
-  const pool = new pg.Pool({
-    host: conn.host,
-    port: conn.port || 5432,
-    database: conn.database,
-    user: conn.username,
-    password: conn.password,
-    max: 2,
-    connectionTimeoutMillis: 10000,
-  });
+  const pool = introspectPgPool(conn);
   try {
     const res = await pool.query(
       `SELECT schema_name FROM information_schema.schemata
@@ -110,15 +132,7 @@ async function getPostgresSchemas(conn: ConnectionConfig): Promise<string[]> {
 }
 
 async function getMssqlSchemas(conn: ConnectionConfig): Promise<string[]> {
-  const pool = new mssql.ConnectionPool({
-    server: conn.host || "localhost",
-    port: conn.port || 1433,
-    database: conn.database,
-    user: conn.username,
-    password: conn.password,
-    options: { encrypt: false, trustServerCertificate: true },
-    connectionTimeout: 10000,
-  });
+  const pool = introspectMssqlPool(conn);
   try {
     await pool.connect();
     const res = await pool.request().query(
@@ -141,15 +155,7 @@ async function getPostgresTables(
   conn: ConnectionConfig,
   schema: string,
 ): Promise<TableInfo[]> {
-  const pool = new pg.Pool({
-    host: conn.host,
-    port: conn.port || 5432,
-    database: conn.database,
-    user: conn.username,
-    password: conn.password,
-    max: 2,
-    connectionTimeoutMillis: 10000,
-  });
+  const pool = introspectPgPool(conn);
 
   try {
     const result = await pool.query(
@@ -226,15 +232,7 @@ async function getPostgresColumns(
   tableName: string,
   schema: string,
 ): Promise<ColumnInfo[]> {
-  const pool = new pg.Pool({
-    host: conn.host,
-    port: conn.port || 5432,
-    database: conn.database,
-    user: conn.username,
-    password: conn.password,
-    max: 2,
-    connectionTimeoutMillis: 10000,
-  });
+  const pool = introspectPgPool(conn);
 
   try {
     const [colResult, fkResult] = await Promise.all([
@@ -278,15 +276,7 @@ async function getMssqlTables(
   conn: ConnectionConfig,
   schema: string,
 ): Promise<TableInfo[]> {
-  const pool = new mssql.ConnectionPool({
-    server: conn.host || "localhost",
-    port: conn.port || 1433,
-    database: conn.database,
-    user: conn.username,
-    password: conn.password,
-    options: { encrypt: false, trustServerCertificate: true },
-    connectionTimeout: 10000,
-  });
+  const pool = introspectMssqlPool(conn);
 
   try {
     await pool.connect();
@@ -315,15 +305,7 @@ async function getMssqlColumns(
   tableName: string,
   schema: string,
 ): Promise<ColumnInfo[]> {
-  const pool = new mssql.ConnectionPool({
-    server: conn.host || "localhost",
-    port: conn.port || 1433,
-    database: conn.database,
-    user: conn.username,
-    password: conn.password,
-    options: { encrypt: false, trustServerCertificate: true },
-    connectionTimeout: 10000,
-  });
+  const pool = introspectMssqlPool(conn);
 
   try {
     await pool.connect();
@@ -951,15 +933,7 @@ async function getPostgresFullSchema(
   conn: ConnectionConfig,
   schema: string,
 ): Promise<FullSchema> {
-  const pool = new pg.Pool({
-    host: conn.host,
-    port: conn.port || 5432,
-    database: conn.database,
-    user: conn.username,
-    password: conn.password,
-    max: 2,
-    connectionTimeoutMillis: 10000,
-  });
+  const pool = introspectPgPool(conn);
 
   try {
     const [tablesRes, colsRes, pkRes, fkRes, statsRes] = await Promise.all([
@@ -1026,15 +1000,7 @@ async function getMssqlFullSchema(
   conn: ConnectionConfig,
   schema: string,
 ): Promise<FullSchema> {
-  const pool = new mssql.ConnectionPool({
-    server: conn.host || "localhost",
-    port: conn.port || 1433,
-    database: conn.database,
-    user: conn.username,
-    password: conn.password,
-    options: { encrypt: false, trustServerCertificate: true },
-    connectionTimeout: 10000,
-  });
+  const pool = introspectMssqlPool(conn);
 
   try {
     await pool.connect();

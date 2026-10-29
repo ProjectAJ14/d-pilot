@@ -47,3 +47,14 @@ export async function loadConnections(): Promise<void> {
   if (!conns.some((c) => c.id === activeConnectionId))
     setActiveConnection(conns[0]?.id ?? null);
 }
+
+/**
+ * Runs `reload` each time the D-Pilot server comes back (serverUnreachable
+ * true → false), so an app that booted with the VPN off fills itself in
+ * without a manual reload. Returns the unsubscribe, for an effect's cleanup.
+ */
+export function reloadOnRecovery(reload: () => void): () => void {
+  return useStore.subscribe((s, prev) => {
+    if (prev.serverUnreachable && !s.serverUnreachable) reload();
+  });
+}

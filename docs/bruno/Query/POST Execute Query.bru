@@ -13,8 +13,8 @@ post {
 headers {
   Content-Type: application/json
   ~X-PHI-Shield: off
-  ~X-PHI-Unmask-Reason: Investigating a data issue
-  ~X-PHI-Unmask-Notes: ticket OPP-000
+  ~X-PHI-Unmask-Reason: Investigating%20a%20data%20issue
+  ~X-PHI-Unmask-Notes: ticket%20OPP-000
 }
 
 body:json {
@@ -31,5 +31,5 @@ docs {
   `defaultLimit`: a number caps the rows (at most MAX_ROWS); `null` turns the auto-limit off (up to MAX_ROWS); omitted uses the built-in 500. Ignored when the query sets its own limit.
 
   Requires a valid Bearer JWT ({{token}}).
-  Supports PHI unmask headers (disabled by default; enable to reveal PHI where permitted).
+  Supports PHI unmask headers (disabled by default; enable to reveal PHI where permitted). Reason and notes are URI-encoded (`encodeURIComponent`) free text; the audit log stores them decoded.
 }

@@ -38,6 +38,8 @@ docs {
 
   Set `draft: true` to save it instead: the request is stored as DRAFT and neither queued for approval nor executed, whatever the environment's policy says, until someone calls **Submit Write Request**. This is what the MCP `create_write_request` tool sends, so an agent can never reach a target database.
 
+  503 `CONNECTION_FAILED` when a direct run can't reach the database before sending anything: nothing ran, the request is back in DRAFT, and the body carries it as `request`. Audited as `WRITE_EXECUTE_ERROR`.
+
   Requires a valid Bearer JWT ({{token}}).
   Requires **write mode** to be enabled.
 }

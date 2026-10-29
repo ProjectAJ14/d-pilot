@@ -32,6 +32,12 @@ import {
   tag,
 } from "../services/azure-openai.js";
 import { requireAdmin } from "../middleware/auth.js";
+import { unmaskHeaders } from "../middleware/phi-headers.js";
+import {
+  connectionFailedMessage,
+  isConnectionError,
+  isPreConnectError,
+} from "../services/connection-errors.js";
 import {
   createWriteRequest,
   getWriteRequest,
@@ -334,7 +340,21 @@ const changedWhileChecking = (id: string) =>
 /**
  * Executes a request immediately on a DIRECT-policy environment (an authorized
  * author self-serves), transitioning it to EXECUTED or FAILED and recording the
- * events + audit. Used by both create and revise.
+ * events + audit. Used by create, submit and revise.
+ *
+ * The run claims the request PENDING → APPROVED first, exactly as approve
+ * does, so an approve, override or cancel arriving mid-run finds it no longer
+ * PENDING and is refused: the write runs once. APPROVED is the status every
+ * execution runs under (the timeline shows AUTO_APPROVED; analytics count only
+ * PENDING/EXECUTED/FAILED/REJECTED), so the brief claim reads as what it is.
+ *
+ * "not-reached": the database could not be reached at all, nothing ran, so
+ * the request is not FAILED but handed back as a DRAFT, which its author
+ * submits again to retry — the one-step retry a FAILED request's revise gives
+ * today, without parking a direct-write request in an approval queue.
+ * "taken": someone else claimed it first; nothing was run here.
+ * "moved": nothing ran, but the release back to DRAFT lost its claim — the
+ * request is not a draft, and the caller must not say it is.
  */
 async function runDirectExecution(
   id: string,
@@ -344,7 +364,8 @@ async function runDirectExecution(
   opts: { isMigration: boolean; noTransaction?: boolean } = {
     isMigration: false,
   },
-): Promise<void> {
+): Promise<"ran" | "not-reached" | "taken" | "moved"> {
+  if (!claimWriteRequestForApproval(id)) return "taken";
   const now = new Date().toISOString();
   addWriteRequestEvent(
     id,
@@ -385,12 +406,8 @@ async function runDirectExecution(
       executionMs: result.executionMs,
       phiAccessed: false,
     });
+    return "ran";
   } catch (err: any) {
-    updateWriteRequest(id, {
-      status: "FAILED",
-      executionError: err?.message || "Write failed",
-    });
-    addWriteRequestEvent(id, user.sub, user.email, "FAILED", err?.message);
     logAudit({
       userId: user.sub,
       userEmail: user.email,
@@ -399,7 +416,63 @@ async function runDirectExecution(
       connectionId: conn.id,
       phiAccessed: false,
     });
+    if (isPreConnectError(err)) {
+      return claimWriteRequestStatus(id, "APPROVED", "DRAFT")
+        ? "not-reached"
+        : "moved";
+    }
+    updateWriteRequest(id, {
+      status: "FAILED",
+      executionError: err?.message || "Write failed",
+    });
+    addWriteRequestEvent(id, user.sub, user.email, "FAILED", err?.message);
+    return "ran";
   }
+}
+
+/** 503 for a write that never reached its database, with the request as it now is. */
+function sendNotReached(
+  res: Response,
+  id: string,
+  conn: { name: string; env: string },
+  user: { sub: string; email: string },
+): void {
+  const error = connectionFailedMessage(conn);
+  // Without this the timeline would end on APPROVED/SUBMITTED for a write
+  // that never ran.
+  addWriteRequestEvent(id, user.sub, user.email, "NOT_RUN", error);
+  res.status(503).json({
+    error,
+    code: "CONNECTION_FAILED",
+    request: getWriteRequest(id),
+  });
+}
+
+/** Answers a direct execution that did not run; `outcome` is runDirectExecution's. */
+function sendDirectNotRun(
+  res: Response,
+  outcome: "not-reached" | "taken" | "moved",
+  id: string,
+  conn: { name: string; env: string },
+  user: { sub: string; email: string },
+): void {
+  if (outcome === "not-reached") return sendNotReached(res, id, conn, user);
+  if (outcome === "moved") {
+    addWriteRequestEvent(
+      id,
+      user.sub,
+      user.email,
+      "NOT_RUN",
+      connectionFailedMessage(conn),
+    );
+  }
+  res.status(409).json({
+    error:
+      outcome === "taken"
+        ? "This request was already actioned by someone else."
+        : "This request was changed by someone else while it was running — nothing ran; check its current status.",
+    request: getWriteRequest(id),
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -550,10 +623,15 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
 
   // DIRECT-policy environments: an authorized author executes immediately.
   if (direct) {
-    await runDirectExecution(wr.id, conn, writeSql.trim(), user, {
-      isMigration,
-      noTransaction: noTx,
-    });
+    const outcome = await runDirectExecution(
+      wr.id,
+      conn,
+      writeSql.trim(),
+      user,
+      { isMigration, noTransaction: noTx },
+    );
+    if (outcome !== "ran")
+      return sendDirectNotRun(res, outcome, wr.id, conn, user);
   }
 
   res.status(201).json(getWriteRequest(wr.id));
@@ -850,9 +928,7 @@ router.post("/:id/preview", async (req: Request, res: Response) => {
     const maskedEnvs = getPhiMaskedEnvs();
     const envRequiresMasking = maskedEnvs.includes(conn.env);
     const clientRequestsUnmask = req.headers["x-phi-shield"] === "off";
-    const unmaskReason = req.headers["x-phi-unmask-reason"] as
-      | string
-      | undefined;
+    const { reason: unmaskReason, notes: unmaskNotes } = unmaskHeaders(req);
 
     const canUnmaskHere =
       user.isAdmin || user.unmaskEnvironments.includes(conn.env);
@@ -891,10 +967,19 @@ router.post("/:id/preview", async (req: Request, res: Response) => {
       rowsReturned: raw.totalRows,
       executionMs: raw.executionTimeMs,
       phiAccessed: !phiEnabled && maskedFieldNames.length > 0,
+      phiUnmaskReason: !phiEnabled ? unmaskReason : undefined,
+      phiUnmaskNotes: !phiEnabled ? unmaskNotes : undefined,
     });
 
     res.json(result);
   } catch (err: any) {
+    if (isConnectionError(err)) {
+      res.status(503).json({
+        error: connectionFailedMessage(conn),
+        code: "CONNECTION_FAILED",
+      });
+      return;
+    }
     res.status(500).json({ error: err?.message || "Preview query failed" });
   }
 });
@@ -1070,6 +1155,20 @@ function decideAndRun(override: boolean) {
       });
       res.json(getWriteRequest(updated!.id));
     } catch (err: any) {
+      if (isPreConnectError(err)) {
+        // Nothing reached the database: release the claim, so the request is
+        // PENDING exactly as before and the next approve (or override) runs it.
+        claimWriteRequestStatus(wr.id, "APPROVED", "PENDING");
+        logAudit({
+          userId: user.sub,
+          userEmail: user.email,
+          action: "WRITE_EXECUTE_ERROR",
+          sql: wr.writeSql,
+          connectionId: wr.connectionId,
+          phiAccessed: false,
+        });
+        return sendNotReached(res, wr.id, conn, user);
+      }
       updateWriteRequest(wr.id, {
         status: "FAILED",
         reviewedBy: user.sub,
@@ -1132,8 +1231,13 @@ router.post("/:id/reject", requireWriteMode, (req: Request, res: Response) => {
     return;
   }
 
+  if (!claimWriteRequestStatus(wr.id, "PENDING", "REJECTED")) {
+    res
+      .status(409)
+      .json({ error: "This request was already actioned by someone else." });
+    return;
+  }
   updateWriteRequest(wr.id, {
-    status: "REJECTED",
     reviewedBy: user.sub,
     reviewedByEmail: user.email,
     reviewedAt: new Date().toISOString(),
@@ -1238,10 +1342,12 @@ router.post(
     });
 
     if (plan.runNow) {
-      await runDirectExecution(wr.id, conn, wr.writeSql, user, {
+      const outcome = await runDirectExecution(wr.id, conn, wr.writeSql, user, {
         isMigration: !!wr.isMigration,
         noTransaction: wr.noTransaction,
       });
+      if (outcome !== "ran")
+        return sendDirectNotRun(res, outcome, wr.id, conn, user);
     }
 
     res.json(getWriteRequest(wr.id));
@@ -1261,13 +1367,17 @@ router.post("/:id/cancel", (req: Request, res: Response) => {
       .json({ error: "Only the requester can cancel this request" });
     return;
   }
-  if (wr.status !== "PENDING" && wr.status !== "DRAFT") {
+  // Claimed from the status just read, so a request that moved meanwhile (a
+  // direct run claiming it, an approval) is never overwritten with CANCELLED.
+  if (
+    (wr.status !== "PENDING" && wr.status !== "DRAFT") ||
+    !claimWriteRequestStatus(wr.id, wr.status, "CANCELLED")
+  ) {
     res.status(409).json({
-      error: `Request is ${wr.status} and can no longer be cancelled`,
+      error: `Request is ${getWriteRequest(wr.id)?.status ?? wr.status} and can no longer be cancelled`,
     });
     return;
   }
-  updateWriteRequest(wr.id, { status: "CANCELLED" });
   addWriteRequestEvent(wr.id, user.sub, user.email, "CANCELLED");
   res.json(getWriteRequest(wr.id));
 });
@@ -1399,17 +1509,28 @@ router.post(
 
     // Revising re-binds the request to the connection as it is now, so its env
     // (what approval is judged on) becomes the connection's current env too.
-    reviseWriteRequest(wr.id, {
-      env: conn.env,
-      connectionName: conn.name,
-      title: newTitle,
-      description: newDescription,
-      selectSql: isMigration ? undefined : newSelect,
-      writeSql: newWrite,
-      isMigration,
-      noTransaction: noTx,
-      status: plan.keepDraft ? "DRAFT" : "PENDING",
-    });
+    const revised = reviseWriteRequest(
+      wr.id,
+      {
+        env: conn.env,
+        connectionName: conn.name,
+        title: newTitle,
+        description: newDescription,
+        selectSql: isMigration ? undefined : newSelect,
+        writeSql: newWrite,
+        isMigration,
+        noTransaction: noTx,
+        status: plan.keepDraft ? "DRAFT" : "PENDING",
+      },
+      wr.status,
+    );
+    if (!revised) {
+      res.status(409).json({
+        error:
+          "This request was changed by someone else meanwhile — reload it.",
+      });
+      return;
+    }
     bindTarget(wr.id, conn);
     addWriteRequestEvent(
       wr.id,
@@ -1430,10 +1551,12 @@ router.post(
     // A DIRECT-policy environment re-runs immediately on resubmit — never on a
     // draft edit, which stays saved until a human submits it.
     if (plan.runNow) {
-      await runDirectExecution(wr.id, conn, newWrite, user, {
+      const outcome = await runDirectExecution(wr.id, conn, newWrite, user, {
         isMigration,
         noTransaction: noTx,
       });
+      if (outcome !== "ran")
+        return sendDirectNotRun(res, outcome, wr.id, conn, user);
     }
 
     res.json(getWriteRequest(wr.id));

@@ -28,9 +28,11 @@ body:json {
 docs {
   Edit a request in place (keeps the same id and history). A REJECTED/CANCELLED/FAILED request goes back to PENDING — and re-runs immediately on a direct-write environment. A DRAFT stays a DRAFT and runs nothing. Migration vs single-DML is re-classified from the new `writeSql` (see Create Write Request); `noTransaction` applies only to migrations.
 
-  Revising re-binds the request to its connection as it is now: the stored `env` becomes the connection's current env, and author rights are checked there. 409 if the connection is edited while the request is being validated (nothing is saved or run).
+  Revising re-binds the request to its connection as it is now: the stored `env` becomes the connection's current env, and author rights are checked there. 409 if the connection is edited while the request is being validated (nothing is saved or run). Also 409 if the request changed status meanwhile (another revise, a submit) — nothing is saved or run; reload it.
 
   Send `"draft": true` to refuse anything that is not a DRAFT (409). That is what the MCP `update_write_request` tool sends, so an agent can only edit a draft no human has taken on yet.
+
+  503 `CONNECTION_FAILED` when a direct run can't reach the database before sending anything: nothing ran, the request is back in DRAFT, and the body carries it as `request`. Audited as `WRITE_EXECUTE_ERROR`.
 
   Requires a valid Bearer JWT ({{token}}).
   Requires **write mode** to be enabled.

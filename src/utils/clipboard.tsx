@@ -28,12 +28,18 @@ const COPY_TOAST = "clipboard-copy";
  * had worked, and the next paste produced the wrong value. A copy tool that
  * lies about copying is worse than one that fails loudly.
  */
-export function copyToClipboard(text: string, label: string) {
+export function copyToClipboard(
+  text: string,
+  label: string,
+  /** What the toast quotes instead of `text` — e.g. with a credential masked. */
+  preview = text,
+) {
   const report = (ok: boolean) => {
     // Replace any toast still on screen rather than queueing behind it.
     notifications.hide(COPY_TOAST);
     if (ok) {
-      const display = text.length > 60 ? text.slice(0, 60) + "…" : text;
+      const display =
+        preview.length > 60 ? preview.slice(0, 60) + "…" : preview;
       notifications.show({
         id: COPY_TOAST,
         message: `Copied ${label}: ${display}`,

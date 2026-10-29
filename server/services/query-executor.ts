@@ -4,7 +4,7 @@ import { EJSON } from "bson";
 import { MongoClient } from "mongodb";
 import { Client as EsClient } from "@elastic/elasticsearch";
 import type { ConnectionConfig } from "../types/index.js";
-import { CONNECTION_ERROR_PATTERN } from "./connection-errors.js";
+import { isConnectionError } from "./connection-errors.js";
 import { scanSql } from "./sql-scan.js";
 import { getConfigNumber } from "../config/settings.js";
 
@@ -311,9 +311,8 @@ export async function validateSqlSyntax(
     // Mongo/ES: parsed at execution time; only structural validation applies.
     return { checked: false };
   } catch (err: any) {
-    const msg = String(err?.message || err);
-    if (CONNECTION_ERROR_PATTERN.test(msg)) return { checked: false };
-    return { checked: true, error: msg };
+    if (isConnectionError(err)) return { checked: false };
+    return { checked: true, error: String(err?.message || err) };
   }
 }
 
@@ -345,20 +344,35 @@ export function applyDefaultLimit(
 // How long to wait for a server to answer before giving up on it.
 const CONNECT_TIMEOUT_MS = 10000;
 
+// The database restarting or the VPN dropping closes idle pooled connections,
+// which the pool reports as an 'error' event. Unheard, Node throws it as an
+// uncaught exception and D-Pilot exits; the next query just reconnects.
+export function logDroppedConnections<T extends NodeJS.EventEmitter>(
+  conn: ConnectionConfig,
+  pool: T,
+): T {
+  return pool.on("error", (err: Error) =>
+    console.warn(`[${conn.id}] pooled connection dropped: ${err.message}`),
+  );
+}
+
 // Client builders: unpooled and unconnected. The get* functions below cache
 // them; the connection tester also uses them for throwaway clients.
 const createPgPool = (conn: ConnectionConfig) =>
-  new pg.Pool({
-    host: conn.host,
-    port: conn.port || 5432,
-    database: conn.database,
-    user: conn.username,
-    password: conn.password,
-    max: 5,
-    idleTimeoutMillis: 60000,
-    connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
-    statement_timeout: queryTimeout(),
-  });
+  logDroppedConnections(
+    conn,
+    new pg.Pool({
+      host: conn.host,
+      port: conn.port || 5432,
+      database: conn.database,
+      user: conn.username,
+      password: conn.password,
+      max: 5,
+      idleTimeoutMillis: 60000,
+      connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+      statement_timeout: queryTimeout(),
+    }),
+  );
 
 export async function getPgPool(conn: ConnectionConfig): Promise<pg.Pool> {
   touchPool(conn.id);
@@ -370,20 +384,23 @@ export async function getPgPool(conn: ConnectionConfig): Promise<pg.Pool> {
 }
 
 const createMssqlPool = (conn: ConnectionConfig) =>
-  new mssql.ConnectionPool({
-    server: conn.host || "localhost",
-    port: conn.port || 1433,
-    database: conn.database,
-    user: conn.username,
-    password: conn.password,
-    options: {
-      encrypt: false,
-      trustServerCertificate: true,
-    },
-    requestTimeout: queryTimeout(),
-    connectionTimeout: CONNECT_TIMEOUT_MS,
-    pool: { max: 5, min: 0, idleTimeoutMillis: 60000 },
-  });
+  logDroppedConnections(
+    conn,
+    new mssql.ConnectionPool({
+      server: conn.host || "localhost",
+      port: conn.port || 1433,
+      database: conn.database,
+      user: conn.username,
+      password: conn.password,
+      options: {
+        encrypt: false,
+        trustServerCertificate: true,
+      },
+      requestTimeout: queryTimeout(),
+      connectionTimeout: CONNECT_TIMEOUT_MS,
+      pool: { max: 5, min: 0, idleTimeoutMillis: 60000 },
+    }),
+  );
 
 export async function getMssqlPool(
   conn: ConnectionConfig,

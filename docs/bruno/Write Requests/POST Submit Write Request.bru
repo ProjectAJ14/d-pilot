@@ -17,6 +17,8 @@ docs {
 
   Whoever submits becomes the request's requester, so the approve route's self-approval block covers them: you cannot submit a draft and then approve it yourself.
 
+  503 `CONNECTION_FAILED` when a direct run can't reach the database before sending anything: nothing ran, the request is back in DRAFT, and the body carries it as `request`. Audited as `WRITE_EXECUTE_ERROR`.
+
   Requires **write** capability on the request's environment and a valid Bearer JWT ({{token}}).
   Requires **write mode** to be enabled.
 }

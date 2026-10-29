@@ -25,6 +25,8 @@ docs {
 
   409 if the request's connection was edited (env, type, host, port, database, username, default schema, URI), or deleted and re-created, since the request was submitted — "Connection <id> changed since this request was submitted — re-approve it…" — or no longer exists. Nothing runs and the request stays PENDING; cancel or reject it and resubmit (revise) to bind it to the current connection. Renaming the connection or rotating its password does not trigger this.
 
+  503 `CONNECTION_FAILED` when the database can't be reached before anything is sent: nothing ran, the request stays PENDING, and the body carries it as `request`. Audited as `WRITE_EXECUTE_ERROR`.
+
   Requires a valid Bearer JWT ({{token}}).
   Requires **write mode** to be enabled.
 }

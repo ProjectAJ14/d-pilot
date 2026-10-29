@@ -13,5 +13,7 @@ post {
 docs {
   Withdraw your own PENDING/DRAFT request.
 
+  409 if the request is no longer PENDING/DRAFT — including one a direct-write environment is running right now; it is never overwritten with CANCELLED.
+
   Requires a valid Bearer JWT ({{token}}).
 }
