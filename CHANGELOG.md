@@ -5,6 +5,19 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [2.5.0](https://github.com/ProjectAJ14/d-pilot/compare/v2.4.0...v2.5.0) (2026-10-29)
+
+
+### Bug Fixes
+
+* **audit:** guard joined array cells against CSV formula injection ([b73748b](https://github.com/ProjectAJ14/d-pilot/commit/b73748b9d843cf974662887c15ad55d8c1277c2a))
+* **audit:** stop archival from deleting entries it failed to copy ([456e33e](https://github.com/ProjectAJ14/d-pilot/commit/456e33e2f1fe0df5a2a23f2b6ccd4eb8e3da0d35))
+
+
+### Features
+
+* **audit:** export audit log and query history as CSV, with paging ([bee0978](https://github.com/ProjectAJ14/d-pilot/commit/bee09780036c1b70b52516f0f0c01c5f363e6fb9))
+
 # [2.4.0](https://github.com/ProjectAJ14/d-pilot/compare/v2.3.0...v2.4.0) (2026-10-23)
 
 
