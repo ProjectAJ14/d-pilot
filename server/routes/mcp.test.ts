@@ -199,3 +199,107 @@ describe("tool call logging", () => {
     await client.close();
   });
 });
+
+describe("run_query output", () => {
+  const execute = (result: Record<string, unknown>) => {
+    const post = vi.fn(async () => ({
+      executionTimeMs: 3,
+      columns: [{ name: "id" }, { name: "status" }],
+      ...result,
+    }));
+    return { post: post as any, calls: post.mock.calls as unknown[][] };
+  };
+
+  it("returns CSV under the status line, not pretty JSON", async () => {
+    const api = execute({
+      rows: [
+        { id: 1, status: "shipped" },
+        { id: 2, status: null },
+      ],
+      maskedFields: ["email"],
+    });
+    const { client, call } = await connect({ post: api.post });
+    const { text } = await call("run_query", {
+      connectionId: "qa-pg",
+      sql: "SELECT id, status FROM orders",
+    });
+    expect(text).toBe(
+      "2 row(s) in 3ms · PHI-tokenized columns: email\n\nid,status\n1,shipped\n2,",
+    );
+    await client.close();
+  });
+
+  it("still says when more rows exist, and asks for one extra to know", async () => {
+    const api = execute({
+      rows: [{ id: 1 }, { id: 2 }, { id: 3 }],
+    });
+    const { client, call } = await connect({ post: api.post });
+    const { text } = await call("run_query", {
+      connectionId: "qa-pg",
+      sql: "SELECT id FROM orders",
+      limit: 2,
+    });
+    expect(api.calls[0][1]).toMatchObject({ defaultLimit: 3 });
+    expect(text).toMatch(
+      /^2 row\(s\) in 3ms · more rows exist — stopped at the 2-row limit;/,
+    );
+    expect(text.split("\n\n")[1]).toBe("id,status\n1,\n2,");
+    await client.close();
+  });
+
+  it("cuts long cells, says so, and lets the agent raise the cap", async () => {
+    const api = execute({
+      columns: [{ name: "payload" }],
+      rows: [{ payload: "p".repeat(5000) }],
+    });
+    const { client, call } = await connect({ post: api.post });
+    const capped = await call("run_query", {
+      connectionId: "qa-pg",
+      sql: "SELECT payload FROM t",
+    });
+    expect(capped.text).toContain("1 cell(s) cut to 300 chars");
+    expect(capped.text).toContain("…[+4700 chars]");
+    expect(capped.text.length).toBeLessThan(600);
+
+    const whole = await call("run_query", {
+      connectionId: "qa-pg",
+      sql: "SELECT payload FROM t",
+      maxCellChars: 10000,
+    });
+    expect(whole.text).toContain("p".repeat(5000));
+    expect(whole.text).not.toContain("cut to");
+    await client.close();
+  });
+
+  it("stops a result that would swamp the context, with advice", async () => {
+    const api = execute({
+      columns: [{ name: "id" }, { name: "pad" }],
+      rows: Array.from({ length: 3000 }, (_, i) => ({
+        id: i,
+        pad: "x".repeat(200),
+      })),
+    });
+    const { client, call } = await connect({ post: api.post });
+    const { text } = await call("run_query", {
+      connectionId: "qa-pg",
+      sql: "SELECT * FROM big",
+      limit: 3000,
+    });
+    expect(text.length).toBeLessThan(101_000);
+    expect(text).toMatch(/3000 row\(s\) in 3ms · only the first \d+ are shown/);
+    expect(text).toContain("aggregate in SQL");
+    await client.close();
+  });
+
+  it("returns compact JSON when asked", async () => {
+    const api = execute({ rows: [{ id: 1, status: "shipped" }] });
+    const { client, call } = await connect({ post: api.post });
+    const { text } = await call("run_query", {
+      connectionId: "qa-pg",
+      sql: "SELECT 1",
+      format: "json",
+    });
+    expect(text.split("\n\n")[1]).toBe('[{"id":1,"status":"shipped"}]');
+    await client.close();
+  });
+});

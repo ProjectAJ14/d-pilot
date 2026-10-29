@@ -113,6 +113,9 @@ provider errors are 500, an unusable model reply is 422, and connectivity failur
 - **`query-examples.ts`** — picks few-shot examples from saved queries for AI prompts
   (`extractReferencedTables`, `selectExampleQueries`).
 - **`sqlite-store.ts`** — the app DB (see below) and all its accessors.
+- **`mcp-format.ts`** — how `run_query` writes rows for an agent: CSV under the status line,
+  cells capped at `DEFAULT_MAX_CELL_CHARS`, whole rows up to `RESULT_BUDGET_CHARS`. Agent
+  output only — the UI, exports and audit never go through it.
 - **`mcp-client.ts`** — session layer for the MCP endpoint: swaps an agent's Basic
   credentials for a JWT and calls this same server over loopback. `routes/mcp.ts` must keep
   going through the REST API this way rather than calling the executor directly, so masking,

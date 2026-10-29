@@ -39,6 +39,11 @@ import { DPilotApiClient } from "../services/mcp-client.js";
 import { blocksSchema } from "./artifacts.js";
 import { BASE_PATH, withBaseOrigin } from "../config/base-path.js";
 import { getConfig, getConfigNumber } from "../config/settings.js";
+import {
+  DEFAULT_MAX_CELL_CHARS,
+  RESULT_BUDGET_CHARS,
+  formatRows,
+} from "../services/mcp-format.js";
 
 const router = Router();
 
@@ -300,11 +305,74 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       ),
   );
 
+  /**
+   * One query on one connection, as the text an agent reads: a status line
+   * (row count, every way the answer was cut short, which columns are PHI
+   * tokens), then the rows in the compact format of services/mcp-format.ts.
+   */
+  const queryText = async (
+    connectionId: string,
+    {
+      sql,
+      schema,
+      limit,
+      format,
+      maxCellChars = DEFAULT_MAX_CELL_CHARS,
+    }: {
+      sql: string;
+      schema?: string;
+      limit?: number;
+      format?: "csv" | "json";
+      maxCellChars?: number;
+    },
+  ): Promise<string> => {
+    const maxRows = limit ?? MCP_MAX_ROWS;
+    const result = await client.post<any>("/query/execute", {
+      connectionId,
+      sql,
+      schema,
+      // Ask for one row past the cap: getting it back proves more rows exist,
+      // which turns "there may be more" into a definite statement without a
+      // second count query. The extra row is dropped below.
+      defaultLimit: maxRows + 1,
+    });
+
+    // A LIMIT is injected only when the query lacks one, so an explicit
+    // `LIMIT 5000` still lands here in full — cap it before it reaches the
+    // agent's context window.
+    const hasMore = result.rows.length > maxRows;
+    const rows = result.rows.slice(0, maxRows);
+    const out = formatRows(rows, result.columns, { format, maxCellChars });
+
+    // Always say when the answer was cut short, and name the knob — otherwise
+    // an agent reads a slice as the whole result.
+    const notes = [
+      `${rows.length} row(s) in ${result.executionTimeMs}ms`,
+      hasMore
+        ? `more rows exist — stopped at the ${maxRows}-row limit${
+            limit ? "" : ` (this server's default)`
+          }; call again with a larger \`limit\``
+        : null,
+      result.truncated ? `the server's own MAX_ROWS cap also applied` : null,
+      out.rowsShown < rows.length
+        ? `only the first ${out.rowsShown} are shown: the rest would exceed ~${Math.round(RESULT_BUDGET_CHARS / 4000)}k tokens — aggregate in SQL, select fewer columns, or page with LIMIT/OFFSET`
+        : null,
+      out.cappedCells
+        ? `${out.cappedCells} cell(s) cut to ${maxCellChars} chars where marked …[+N chars] — select that column alone, or pass a larger \`maxCellChars\`, to read it whole`
+        : null,
+      result.maskedFields?.length
+        ? `PHI-tokenized columns: ${result.maskedFields.join(", ")}`
+        : null,
+    ].filter(Boolean);
+
+    return `${notes.join(" · ")}\n\n${out.text}`;
+  };
+
   server.registerTool(
     "run_query",
     {
       title: "Run a read-only query",
-      description: `Executes a read-only query and returns the rows. At most ${MCP_MAX_ROWS} rows come back by default — pass a larger \`limit\` when you need more, and check the first line of the result, which says when the limit truncated the answer. Writes (INSERT/UPDATE/DELETE) and DDL are rejected — those go through D-Pilot's write-approval workflow in the UI. PHI columns come back tokenized; the result names which ones. SQL for Postgres/SQL Server; for MongoDB and Elasticsearch use the same query syntax the D-Pilot UI accepts. MongoDB arguments are Extended JSON: match a non-string \`_id\` with \`{"$oid": ...}\` or \`{"$binary": {"base64": ..., "subType": ...}}\`.`,
+      description: `Executes a read-only query and returns the rows. At most ${MCP_MAX_ROWS} rows come back by default — pass a larger \`limit\` when you need more, and check the first line of the result, which says when the answer was cut short. Rows come back as CSV: a header line, then one line per row; an empty field is NULL, \`""\` is an empty string, nested values are JSON. Cells longer than ${DEFAULT_MAX_CELL_CHARS} characters are cut and marked \`…[+N chars]\`. Writes (INSERT/UPDATE/DELETE) and DDL are rejected — those go through D-Pilot's write-approval workflow in the UI. PHI columns come back tokenized; the result names which ones. SQL for Postgres/SQL Server; for MongoDB and Elasticsearch use the same query syntax the D-Pilot UI accepts. MongoDB arguments are Extended JSON: match a non-string \`_id\` with \`{"$oid": ...}\` or \`{"$binary": {"base64": ..., "subType": ...}}\`.`,
       inputSchema: {
         connectionId: z.string(),
         sql: z.string().describe("The read-only query to run."),
@@ -320,47 +388,27 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
           .describe(
             `Maximum rows to return. Defaults to ${MCP_MAX_ROWS} on this server; raise it to read more of a large result (the server's own MAX_ROWS setting is the final ceiling).`,
           ),
+        format: z
+          .enum(["csv", "json"])
+          .optional()
+          .describe(
+            "`csv` (default, about half the tokens) or `json` — one compact object per row, when you need values' JSON types.",
+          ),
+        maxCellChars: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            `Longest cell returned before it is cut (default ${DEFAULT_MAX_CELL_CHARS}). Raise it only to read a long value — a payload, a stack trace — in full.`,
+          ),
       },
       annotations: readOnly,
     },
-    ({ connectionId, sql, schema, limit }) =>
-      guard("run_query", async () => {
-        const maxRows = limit ?? MCP_MAX_ROWS;
-        const result = await client.post<any>("/query/execute", {
-          connectionId,
-          sql,
-          schema,
-          // Ask for one row past the cap: getting it back proves more rows exist,
-          // which turns "there may be more" into a definite statement without a
-          // second count query. The extra row is dropped below.
-          defaultLimit: maxRows + 1,
-        });
-
-        // A LIMIT is injected only when the query lacks one, so an explicit
-        // `LIMIT 5000` still lands here in full — cap it before it reaches the
-        // agent's context window.
-        const hasMore = result.rows.length > maxRows;
-        const rows = result.rows.slice(0, maxRows);
-
-        // Always say when the cap truncated the answer, and name the knob —
-        // otherwise an agent reads a slice as the whole result.
-        const notes = [
-          `${rows.length} row(s) in ${result.executionTimeMs}ms`,
-          hasMore
-            ? `more rows exist — stopped at the ${maxRows}-row limit${
-                limit ? "" : ` (this server's default)`
-              }; call again with a larger \`limit\``
-            : null,
-          result.truncated
-            ? `the server's own MAX_ROWS cap also applied`
-            : null,
-          result.maskedFields?.length
-            ? `PHI-tokenized columns: ${result.maskedFields.join(", ")}`
-            : null,
-        ].filter(Boolean);
-
-        return text(`${notes.join(" · ")}\n\n${JSON.stringify(rows, null, 2)}`);
-      }),
+    ({ connectionId, ...query }) =>
+      guard("run_query", async () =>
+        text(await queryText(connectionId, query)),
+      ),
   );
 
   const writes = { readOnlyHint: false, openWorldHint: true };
