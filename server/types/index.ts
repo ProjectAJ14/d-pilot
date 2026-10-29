@@ -161,6 +161,9 @@ export interface PhiFieldRule {
   table?: string; // optional: limit to specific table
 }
 
+/** Which client made an audited request — see services/request-source.ts. */
+export type RequestSource = "ui" | "mcp";
+
 export interface AuditEntry {
   id: string;
   userId: string;
@@ -174,6 +177,8 @@ export interface AuditEntry {
   phiFieldsUnmasked?: string[];
   phiUnmaskReason?: string;
   phiUnmaskNotes?: string;
+  /** Absent on entries written before it was recorded. */
+  source?: RequestSource;
   timestamp: string;
 }
 

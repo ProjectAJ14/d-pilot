@@ -60,11 +60,18 @@ const entry = (over: Partial<AuditEntry>): AuditEntry => ({
 describe("toAuditCsv", () => {
   it("writes a header and one line per entry", () => {
     const csv = toAuditCsv(
-      [entry({ sql: "SELECT 1", rowsReturned: 1, executionMs: 3 })],
+      [
+        entry({
+          sql: "SELECT 1",
+          rowsReturned: 1,
+          executionMs: 3,
+          source: "mcp",
+        }),
+      ],
       HISTORY_COLUMNS,
     );
     expect(csv).toBe(
-      "timestamp,connectionId,sql,rowsReturned,executionMs\n2026-01-02 10:00:00,,SELECT 1,1,3",
+      "timestamp,connectionId,sql,rowsReturned,executionMs,source\n2026-01-02 10:00:00,,SELECT 1,1,3,mcp",
     );
   });
 

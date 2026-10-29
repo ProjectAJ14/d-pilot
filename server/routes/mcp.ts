@@ -122,12 +122,32 @@ const json = (value: unknown): ToolResult =>
  * access to PROD environment") are exactly the feedback an agent needs to
  * correct itself.
  */
-async function guard(run: () => Promise<ToolResult>): Promise<ToolResult> {
+async function guard(
+  tool: string,
+  run: () => Promise<ToolResult>,
+): Promise<ToolResult> {
+  const started = Date.now();
+  let result: ToolResult;
   try {
-    return await run();
+    result = await run();
   } catch (err: any) {
-    return { ...text(`Error: ${err.message}`), isError: true };
+    result = { ...text(`Error: ${err.message}`), isError: true };
   }
+  logToolCall(tool, result, Date.now() - started);
+  return result;
+}
+
+/**
+ * One line per tool call: which tool, how much text it handed the agent, how
+ * long it took. What an agent reads is what it pays for, so this is the number
+ * to watch when changing what a tool returns. No user or query in it — the
+ * audit log already holds those.
+ */
+function logToolCall(tool: string, result: ToolResult, ms: number): void {
+  const chars = result.content.reduce((n, c) => n + c.text.length, 0);
+  console.log(
+    `[mcp] ${tool} ${chars} chars (~${Math.ceil(chars / 4)} tokens) ${ms}ms${result.isError ? " error" : ""}`,
+  );
 }
 
 const qs = (params: Record<string, string | undefined>): string => {
@@ -158,7 +178,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     () =>
-      guard(async () => {
+      guard("whoami", async () => {
         const me = await client.get<any>("/auth/me");
         return json({
           username: me.username,
@@ -188,7 +208,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     ({ env }) =>
-      guard(async () => {
+      guard("list_connections", async () => {
         const connections = await client.get<any[]>("/connections");
         const filtered = env
           ? connections.filter((c) => c.env === env)
@@ -223,7 +243,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     ({ connectionId }) =>
-      guard(async () =>
+      guard("list_schemas", async () =>
         json(
           await client.get<unknown>(
             `/schema/${encodeURIComponent(connectionId)}/schemas`,
@@ -248,7 +268,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     ({ connectionId, schema }) =>
-      guard(async () =>
+      guard("list_tables", async () =>
         json(
           await client.get<unknown>(
             `/schema/${encodeURIComponent(connectionId)}/tables${qs({ schema })}`,
@@ -271,7 +291,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     ({ connectionId, table, schema }) =>
-      guard(async () =>
+      guard("describe_table", async () =>
         json(
           await client.get<unknown>(
             `/schema/${encodeURIComponent(connectionId)}/tables/${encodeURIComponent(table)}/columns${qs({ schema })}`,
@@ -304,7 +324,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     ({ connectionId, sql, schema, limit }) =>
-      guard(async () => {
+      guard("run_query", async () => {
         const maxRows = limit ?? MCP_MAX_ROWS;
         const result = await client.post<any>("/query/execute", {
           connectionId,
@@ -385,7 +405,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: writes,
     },
     (input) =>
-      guard(async () => {
+      guard("create_write_request", async () => {
         const wr = await client.post<any>("/write-requests", {
           ...input,
           draft: true,
@@ -415,7 +435,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     ({ id }) =>
-      guard(async () =>
+      guard("get_write_request", async () =>
         json(
           await client.get<unknown>(
             `/write-requests/${encodeURIComponent(id)}`,
@@ -456,7 +476,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: writes,
     },
     ({ id, ...updates }) =>
-      guard(async () => {
+      guard("update_write_request", async () => {
         const wr = await client.post<any>(
           `/write-requests/${encodeURIComponent(id)}/revise`,
           { ...updates, draft: true },
@@ -528,7 +548,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: writes,
     },
     (input) =>
-      guard(async () => {
+      guard("create_artifact", async () => {
         const artifact = await client.post<any>("/artifacts", input);
         return json({
           id: artifact.id,
@@ -567,7 +587,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: writes,
     },
     ({ id, ...updates }) =>
-      guard(async () => {
+      guard("update_artifact", async () => {
         const artifact = await client.put<any>(
           `/artifacts/${encodeURIComponent(id)}`,
           updates,
@@ -592,7 +612,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     ({ id }) =>
-      guard(async () =>
+      guard("get_artifact", async () =>
         json(await client.get<unknown>(`/artifacts/${encodeURIComponent(id)}`)),
       ),
   );
@@ -612,7 +632,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: readOnly,
     },
     ({ search }) =>
-      guard(async () => {
+      guard("list_artifacts", async () => {
         const all = await client.get<any[]>("/artifacts");
         const needle = search?.toLowerCase();
         const matched = needle
@@ -659,7 +679,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       annotations: { ...writes, idempotentHint: true },
     },
     ({ id, archived }) =>
-      guard(async () => {
+      guard("archive_artifact", async () => {
         const next = archived ?? true;
         const artifact = await client.put<any>(
           `/artifacts/${encodeURIComponent(id)}`,

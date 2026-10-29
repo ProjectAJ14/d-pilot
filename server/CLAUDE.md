@@ -159,7 +159,10 @@ audit/history (`services/audit-export.ts`) takes a ≤14-day UTC date range and 
   and the write preview use it; the MCP endpoint never sends them (it is always masked).
 - **Audit** — `logAudit`/`getAuditLog` capture every query, error, export, PHI unmask (and
   denial), and write-lifecycle event. `getAnalytics`/`getWriteAnalytics` power the admin
-  dashboard.
+  dashboard. Each entry records `source` (`ui` | `mcp`): the MCP loopback client sends
+  `X-DPilot-Source: mcp`, and `services/request-source.ts` holds it in AsyncLocalStorage for
+  the request so `logAudit` reads it without callers passing it. Self-reported — a label for
+  telling agent traffic apart, never an access check.
 
 ## Write-request lifecycle
 

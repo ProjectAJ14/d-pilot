@@ -9,6 +9,7 @@ import {
   isProductionEnv,
 } from "../config/connections.js";
 import { decryptSecret, encryptSecret } from "../config/secrets.js";
+import { currentSource } from "./request-source.js";
 import type {
   ConnectionConfig,
   Artifact,
@@ -211,6 +212,9 @@ export function initDatabase(): void {
   }
   if (!auditColNames.has("phi_unmask_notes")) {
     db.exec("ALTER TABLE audit_log ADD COLUMN phi_unmask_notes TEXT");
+  }
+  if (!auditColNames.has("source")) {
+    db.exec("ALTER TABLE audit_log ADD COLUMN source TEXT");
   }
 
   // Migrate write_requests: add migration-mode columns if missing
@@ -942,8 +946,8 @@ export function getWriteDirectEnvs(): Environment[] {
 
 export function logAudit(entry: Omit<AuditEntry, "id" | "timestamp">): void {
   db.prepare(
-    `INSERT INTO audit_log (id, user_id, user_email, action, sql, connection_id, rows_returned, execution_ms, phi_accessed, phi_fields_unmasked, phi_unmask_reason, phi_unmask_notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO audit_log (id, user_id, user_email, action, sql, connection_id, rows_returned, execution_ms, phi_accessed, phi_fields_unmasked, phi_unmask_reason, phi_unmask_notes, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     randomUUID(),
     entry.userId,
@@ -957,6 +961,7 @@ export function logAudit(entry: Omit<AuditEntry, "id" | "timestamp">): void {
     entry.phiFieldsUnmasked ? JSON.stringify(entry.phiFieldsUnmasked) : null,
     entry.phiUnmaskReason ?? null,
     entry.phiUnmaskNotes ?? null,
+    currentSource() ?? null,
   );
 }
 
@@ -1263,6 +1268,7 @@ export function mapAuditRow(r: any): AuditEntry {
       : [],
     phiUnmaskReason: r.phi_unmask_reason ?? undefined,
     phiUnmaskNotes: r.phi_unmask_notes ?? undefined,
+    source: r.source ?? undefined,
     timestamp: r.timestamp,
   };
 }
@@ -1377,7 +1383,7 @@ function mapAiChatRow(r: any): AiChatLogEntry {
 // --- Audit Archival ---
 
 const AUDIT_LOG_COLUMNS =
-  "id, user_id, user_email, action, sql, connection_id, rows_returned, execution_ms, phi_accessed, phi_fields_unmasked, phi_unmask_reason, phi_unmask_notes, timestamp";
+  "id, user_id, user_email, action, sql, connection_id, rows_returned, execution_ms, phi_accessed, phi_fields_unmasked, phi_unmask_reason, phi_unmask_notes, source, timestamp";
 
 const AUDIT_LOG_SCHEMA = `
   CREATE TABLE IF NOT EXISTS audit_log (
@@ -1393,6 +1399,7 @@ const AUDIT_LOG_SCHEMA = `
     phi_fields_unmasked TEXT,
     phi_unmask_reason TEXT,
     phi_unmask_notes TEXT,
+    source TEXT,
     timestamp TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_archive_timestamp ON audit_log(timestamp);
@@ -1416,6 +1423,14 @@ export function archiveOldAuditEntries(daysToKeep = 30): { archived: number } {
     const archiveDb = new Database(archivePath);
     archiveDb.pragma("journal_mode = WAL");
     archiveDb.exec(AUDIT_LOG_SCHEMA);
+    // An archive created before `source` existed lacks it, and the named-column
+    // copy below would then fail outright.
+    const archiveCols = archiveDb.pragma("table_info(audit_log)") as {
+      name: string;
+    }[];
+    if (!archiveCols.some((c) => c.name === "source")) {
+      archiveDb.exec("ALTER TABLE audit_log ADD COLUMN source TEXT");
+    }
     archiveDb.close();
 
     // Use ATTACH to move rows atomically

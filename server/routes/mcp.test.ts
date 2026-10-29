@@ -159,3 +159,43 @@ describe("artifact tool descriptions", () => {
     await client.close();
   });
 });
+
+/** An MCP client wired to a server whose API calls go to `api` instead of HTTP. */
+async function connect(api: Partial<DPilotApiClient>) {
+  const server = createMcpServer(api as DPilotApiClient);
+  const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test", version: "0" });
+  await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
+  const call = async (name: string, args: Record<string, unknown> = {}) => {
+    const res = (await client.callTool({ name, arguments: args })) as {
+      content: { text: string }[];
+      isError?: boolean;
+    };
+    return { text: res.content[0].text, isError: !!res.isError };
+  };
+  return { client, call };
+}
+
+describe("tool call logging", () => {
+  it("logs each call's size so output changes can be measured", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const { client, call } = await connect({
+      get: (async () => ({
+        username: "agent",
+        name: "Agent",
+        isAdmin: false,
+        allowedEnvironments: ["QA"],
+      })) as any,
+    });
+    const { text } = await call("whoami");
+    expect(log).toHaveBeenCalledWith(
+      expect.stringMatching(
+        new RegExp(
+          `^\\[mcp\\] whoami ${text.length} chars \\(~\\d+ tokens\\) \\d+ms$`,
+        ),
+      ),
+    );
+    log.mockRestore();
+    await client.close();
+  });
+});

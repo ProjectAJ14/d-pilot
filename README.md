@@ -380,7 +380,9 @@ Agents just point at the URL everyone already uses.
 
 Its tools call D-Pilot's own REST API over loopback, so environment capabilities, PHI
 tokenization, row limits and audit logging are enforced exactly as they are for the UI and
-cannot be bypassed. Every agent query lands in the audit log under its service account.
+cannot be bypassed. Every agent query lands in the audit log under its service account,
+marked _via MCP_ (the audit drawer's **Via** field, and the `source` column of both CSV
+exports), so agent traffic can be told apart from people using the UI.
 
 | Tool                   | Does                                                                                 |
 | ---------------------- | ------------------------------------------------------------------------------------ |

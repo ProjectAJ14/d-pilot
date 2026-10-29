@@ -2749,6 +2749,7 @@ interface AuditEntry {
   phiFieldsUnmasked?: string[];
   phiUnmaskReason?: string;
   phiUnmaskNotes?: string;
+  source?: "ui" | "mcp";
   timestamp: string;
 }
 
@@ -3153,6 +3154,19 @@ function AuditDetailModal({
               {ACTION_LABELS[entry.action] || entry.action}
             </Badge>
           </div>
+          {entry.source && (
+            <div>
+              <Text size="xs" c="dimmed" fw={700} tt="uppercase" mb={2}>
+                Via
+              </Text>
+              <Badge
+                color={entry.source === "mcp" ? "grape" : "gray"}
+                variant="light"
+              >
+                {entry.source === "mcp" ? "MCP agent" : "D-Pilot UI"}
+              </Badge>
+            </div>
+          )}
         </Group>
 
         {entry.connectionId && (
