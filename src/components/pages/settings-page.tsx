@@ -2749,7 +2749,7 @@ interface AuditEntry {
   phiFieldsUnmasked?: string[];
   phiUnmaskReason?: string;
   phiUnmaskNotes?: string;
-  source?: "ui" | "mcp";
+  source?: "ui" | "mcp" | "api";
   timestamp: string;
 }
 
@@ -3163,7 +3163,11 @@ function AuditDetailModal({
                 color={entry.source === "mcp" ? "grape" : "gray"}
                 variant="light"
               >
-                {entry.source === "mcp" ? "MCP agent" : "D-Pilot UI"}
+                {entry.source === "mcp"
+                  ? "MCP agent"
+                  : entry.source === "api"
+                    ? "API client"
+                    : "D-Pilot UI"}
               </Badge>
             </div>
           )}

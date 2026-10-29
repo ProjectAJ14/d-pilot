@@ -1,9 +1,11 @@
 /**
- * Which client an API request came from — the D-Pilot UI or an AI agent on the
- * MCP endpoint — so the audit log can tell the two apart.
+ * Which client an API request came from — the D-Pilot UI, an AI agent on the
+ * MCP endpoint, or anything else calling the API — so the audit log can tell
+ * them apart.
  *
  * The MCP tools reach the API over loopback (`mcp-client.ts`), which sends
- * `X-DPilot-Source: mcp`; everything else is the UI. The value is held in
+ * `X-DPilot-Source: mcp`; the SPA's api-client sends `ui`. A request with
+ * neither (a script holding a JWT) is `api`, not mislabelled as a person. The value is held in
  * AsyncLocalStorage for the life of the request, so `logAudit` can read it
  * without every one of its callers threading it through.
  *
@@ -26,5 +28,6 @@ export function requestSource(
   _res: Response,
   next: NextFunction,
 ) {
-  store.run(req.get(SOURCE_HEADER) === "mcp" ? "mcp" : "ui", next);
+  const header = req.get(SOURCE_HEADER);
+  store.run(header === "mcp" || header === "ui" ? header : "api", next);
 }

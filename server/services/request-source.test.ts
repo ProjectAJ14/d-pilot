@@ -56,11 +56,17 @@ describe("audit source", () => {
     expect(sourceOf("SELECT 'agent'")).toBe("mcp");
   });
 
-  it("records anything else as ui", async () => {
-    await run("SELECT 'person'");
-    await run("SELECT 'odd header'", { "X-DPilot-Source": "robot" });
+  it("records the SPA's requests as ui", async () => {
+    await run("SELECT 'person'", { "X-DPilot-Source": "ui" });
     expect(sourceOf("SELECT 'person'")).toBe("ui");
-    expect(sourceOf("SELECT 'odd header'")).toBe("ui");
+  });
+
+  it("records a request with no or an unknown label as api, not ui", async () => {
+    // A script holding a JWT is not a person in the UI.
+    await run("SELECT 'script'");
+    await run("SELECT 'odd header'", { "X-DPilot-Source": "robot" });
+    expect(sourceOf("SELECT 'script'")).toBe("api");
+    expect(sourceOf("SELECT 'odd header'")).toBe("api");
   });
 
   it("leaves it empty outside a request", () => {

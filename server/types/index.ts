@@ -162,7 +162,7 @@ export interface PhiFieldRule {
 }
 
 /** Which client made an audited request — see services/request-source.ts. */
-export type RequestSource = "ui" | "mcp";
+export type RequestSource = "ui" | "mcp" | "api";
 
 export interface AuditEntry {
   id: string;

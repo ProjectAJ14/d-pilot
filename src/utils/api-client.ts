@@ -126,6 +126,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    // Labels the audit entry; the server records anything without it as "api".
+    "X-DPilot-Source": "ui",
     ...(options.headers as Record<string, string>),
   };
 
