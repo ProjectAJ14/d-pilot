@@ -17,10 +17,12 @@ params:query {
   ~to: 2026-12-31
   ~action: QUERY_EXECUTE
   ~userId: {{userId}}
+  ~phi: 1
 }
 
 docs {
-  Query the audit log with optional filters.
+  Query the audit log with optional filters. `phi=1` keeps only PHI access
+  (unmasked queries, unmasks and denied unmasks).
 
   Requires a valid Bearer JWT ({{token}}).
   **Admin only.**
