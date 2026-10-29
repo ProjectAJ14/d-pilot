@@ -1360,6 +1360,9 @@ function mapAiChatRow(r: any): AiChatLogEntry {
 
 // --- Audit Archival ---
 
+const AUDIT_LOG_COLUMNS =
+  "id, user_id, user_email, action, sql, connection_id, rows_returned, execution_ms, phi_accessed, phi_fields_unmasked, phi_unmask_reason, phi_unmask_notes, timestamp";
+
 const AUDIT_LOG_SCHEMA = `
   CREATE TABLE IF NOT EXISTS audit_log (
     id TEXT PRIMARY KEY,
@@ -1409,15 +1412,21 @@ export function archiveOldAuditEntries(daysToKeep = 30): { archived: number } {
         .get(`-${daysToKeep} days`) as { cutoff: string };
 
       const move = db.transaction(() => {
+        // Named columns: the live table gained phi_unmask_* by ALTER, so its
+        // column order differs from the archive's. A positional SELECT * shifted
+        // values, tripped NOT NULL, and OR IGNORE dropped the row unarchived.
         const insertResult = db
           .prepare(
-            `INSERT OR IGNORE INTO archive.audit_log SELECT * FROM main.audit_log WHERE timestamp < ?`,
+            `INSERT OR IGNORE INTO archive.audit_log (${AUDIT_LOG_COLUMNS})
+             SELECT ${AUDIT_LOG_COLUMNS} FROM main.audit_log WHERE timestamp < ?`,
           )
           .run(cutoff.cutoff);
 
-        db.prepare(`DELETE FROM main.audit_log WHERE timestamp < ?`).run(
-          cutoff.cutoff,
-        );
+        // Only delete what the archive now holds — never lose an entry.
+        db.prepare(
+          `DELETE FROM main.audit_log WHERE timestamp < ?
+           AND id IN (SELECT id FROM archive.audit_log)`,
+        ).run(cutoff.cutoff);
 
         return insertResult.changes;
       });
