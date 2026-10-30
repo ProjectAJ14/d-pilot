@@ -5,6 +5,30 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [2.7.0](https://github.com/ProjectAJ14/d-pilot/compare/v2.6.0...v2.7.0) (2026-10-30)
+
+
+### Bug Fixes
+
+* **schema:** hide job steps that run against another database ([1a73d36](https://github.com/ProjectAJ14/d-pilot/commit/1a73d361aa515f3ccb7bd2acb97534362d54a5dd)), closes [#38](https://github.com/ProjectAJ14/d-pilot/issues/38)
+* **write:** check job steps with each engine's own parser ([2190f0a](https://github.com/ProjectAJ14/d-pilot/commit/2190f0a9a76ab8e70b381355c145f276a112306b))
+* **write:** close job-step parser gaps and AI review exposure ([5aa1644](https://github.com/ProjectAJ14/d-pilot/commit/5aa1644bb28e06108da08c7454534b362105010d))
+* **write:** close review gaps in object and job changes ([8d1cf1f](https://github.com/ProjectAJ14/d-pilot/commit/8d1cf1fe4ece785695a6c6a6cc807d7c56011050))
+* **write:** keep job changes inside the connection's own database ([19c33a6](https://github.com/ProjectAJ14/d-pilot/commit/19c33a6f6ce921559eb28d647865a3e6d68e4392)), closes [#38](https://github.com/ProjectAJ14/d-pilot/issues/38)
+* **write:** pin the SHOWPLAN session and keep SQL Server steps in their database ([f60c67a](https://github.com/ProjectAJ14/d-pilot/commit/f60c67a59eed3bcc78cc1085f44d6ce0ca63ef56))
+* **write:** read job steps with each dialect's own string rules ([d0a572a](https://github.com/ProjectAJ14/d-pilot/commit/d0a572acccce6708858296e12dbd57bd8c98b681))
+* **write:** run SQL Server steps in the database they were checked in ([27f6442](https://github.com/ProjectAJ14/d-pilot/commit/27f6442516ab4f2e6fc288c5e9916d3f87c00b43))
+
+
+### Features
+
+* **schema:** browse MongoDB and Elasticsearch objects ([7618cd7](https://github.com/ProjectAJ14/d-pilot/commit/7618cd7091fc118e303ec0275bd24884df11a7ae)), closes [#38](https://github.com/ProjectAJ14/d-pilot/issues/38)
+* **schema:** browse procedures, functions, views and triggers ([a063dd3](https://github.com/ProjectAJ14/d-pilot/commit/a063dd3b6589ef9882950b4d5b5140e9facdf8fb)), closes [#38](https://github.com/ProjectAJ14/d-pilot/issues/38)
+* **schema:** object dependencies and cross-environment drift report ([34b9fff](https://github.com/ProjectAJ14/d-pilot/commit/34b9fffa93021600ba556758e108db82b248a047)), closes [#38](https://github.com/ProjectAJ14/d-pilot/issues/38)
+* **schema:** read SQL Server Agent and pg_cron jobs ([5de9a28](https://github.com/ProjectAJ14/d-pilot/commit/5de9a28deba4f067462f882269d11efa62fa03aa)), closes [#38](https://github.com/ProjectAJ14/d-pilot/issues/38)
+* **write:** governed job changes with a change-jobs capability ([4ae577c](https://github.com/ProjectAJ14/d-pilot/commit/4ae577cca4a221e05aa6b9a2fafa87750797166e)), closes [#38](https://github.com/ProjectAJ14/d-pilot/issues/38)
+* **write:** governed object changes with diff, drift guard and rollback ([6903728](https://github.com/ProjectAJ14/d-pilot/commit/6903728c4574ed78cdf1ca06e47c9b82b1b13469)), closes [#38](https://github.com/ProjectAJ14/d-pilot/issues/38)
+
 # [2.6.0](https://github.com/ProjectAJ14/d-pilot/compare/v2.5.0...v2.6.0) (2026-10-29)
 
 
