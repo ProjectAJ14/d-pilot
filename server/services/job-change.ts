@@ -31,7 +31,7 @@ const DYNAMIC_SQL = /\bEXEC(UTE)?\s*\(|\bsp_executesql\b/i;
 const DDL = /\b(CREATE|ALTER|DROP|TRUNCATE|RENAME|GRANT|REVOKE|DENY)\b/i;
 
 // The shape of exactly one routine call, over `callTokens` text: a string
-// literal is the single token S, comments are gone. Arguments are literal
+// literal is the single token §, comments are gone. Arguments are literal
 // values only — no nested calls, operators or subqueries — so the routine
 // named is the only code that runs, and the server then checks in the
 // catalog that it is one of the database's own (see isUserRoutine). Anything
@@ -39,7 +39,7 @@ const DDL = /\b(CREATE|ALTER|DROP|TRUNCATE|RENAME|GRANT|REVOKE|DENY)\b/i;
 // two statements.
 const IDENT = String.raw`(?:\[[^\]]+\]|"[^"]+"|[A-Za-z_#][\w$#@]*)`;
 const NAME = String.raw`${IDENT}(?:\s*\.\s*${IDENT}?){0,3}`;
-const VALUE = String.raw`(?:S|[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?|0x[0-9a-f]+|@\w+|NULL|DEFAULT|TRUE|FALSE)`;
+const VALUE = String.raw`(?:§|[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?|0x[0-9a-f]+|@\w+|NULL|DEFAULT|TRUE|FALSE)`;
 const TSQL_ARG = String.raw`(?:@\w+\s*=\s*)?${VALUE}(?:\s+OUT(?:PUT)?)?`;
 const TSQL_EXEC = new RegExp(
   String.raw`^EXEC(?:UTE)?\s+(?:@\w+\s*=\s*)?(${NAME})(?:\s+${TSQL_ARG}(?:\s*,\s*${TSQL_ARG})*)?\s*;?\s*$`,
@@ -56,19 +56,31 @@ const CALL = new RegExp(
 // Never a job step, whatever the catalog says.
 const SYSTEM_ROUTINE = /^(xp_|pg_|lo_|dblink)|^set_config$/i;
 
-// What the tokenizer reads left to right: strings, comments and quoted
-// identifiers, so a quote inside one is never mistaken for the other.
-const LEXEMES =
-  /(?<![\w$])[eE]'(?:[^'\\]|\\.|'')*'|N?'(?:[^']|'')*'|\$(\w*)\$[\s\S]*?\$\1\$|--[^\n]*|\/\*[\s\S]*?\*\/|\[(?:[^\]]|\]\])*\]|"(?:[^"]|"")*"/g;
+// What the tokenizer reads left to right, per dialect: strings, comments and
+// quoted identifiers, so a quote inside one is never mistaken for the other.
+// Postgres has E'…' (backslash escapes) and $tag$ quotes; SQL Server has
+// [names] — read with the other dialect's rules, text would split differently
+// than the engine splits it.
+const LEXEMES: Record<string, RegExp> = {
+  postgres:
+    /(?<![\w$])[eE]'(?:[^'\\]|\\.|'')*'|N?'(?:[^']|'')*'|\$(\w*)\$[\s\S]*?\$\1\$|--[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"]|"")*"/g,
+  mssql:
+    /N?'(?:[^']|'')*'|--[^\n]*|\/\*[\s\S]*?\*\/|\[(?:[^\]]|\]\])*\]|"(?:[^"]|"")*"/g,
+};
+const lexemes = (dbType: DatabaseType) => LEXEMES[dbType] ?? LEXEMES.mssql;
 
 /**
  * Why a quoted identifier in `command` can't be checked, or null: one that
  * holds a quote, a semicolon or a comment marker reads differently to this
  * checker and to the engine — exactly where a second statement would hide.
  */
-function oddIdentifier(command: string): string | null {
-  for (const m of command.matchAll(LEXEMES)) {
+function oddIdentifier(command: string, dbType: DatabaseType): string | null {
+  for (const m of command.matchAll(lexemes(dbType))) {
     const t = m[0];
+    // The statement splitter reads backslashes in E'…' differently than
+    // Postgres does; a plain '…' string says the same.
+    if (/^[eE]'/.test(t))
+      return "Use a plain '…' string, not E'…', in a job step — it can't be checked.";
     if (
       (t.startsWith("[") || t.startsWith('"')) &&
       /['";]|--|\/\*|\[/.test(t.slice(1, -1))
@@ -100,14 +112,25 @@ const PAREN_KEYWORDS = new Set(
  * must pass the catalog check (isUserRoutine), since a built-in may run SQL
  * handed to it as a string (query_to_xml, OPENROWSET, dblink…).
  */
-function dmlFunctionCalls(stmt: string): string[] {
-  const t = callTokens(stmt);
+function dmlFunctionCalls(stmt: string, dbType: DatabaseType): string[] {
+  const t = callTokens(stmt, dbType);
   const names: string[] = [];
   const call = new RegExp(String.raw`(${NAME})\s*\(`, "g");
   for (const m of t.matchAll(call)) {
     const before = t.slice(0, m.index).trimEnd().split(/\s+/).pop() ?? "";
-    // INSERT INTO t (cols), JOIN t (…): a table, not a call.
-    if (/^(into|join|from|update|table)$/i.test(before)) continue;
+    // INSERT INTO t (a, b): a table and its columns, not a call. Anywhere
+    // else — FROM f(…), JOIN f(…), UPDATE OPENQUERY(…) — a name and "(" is
+    // a call, and is checked.
+    // Same for an alias's column list: AS x(t), AS d(n int).
+    const col = String.raw`${IDENT}(?:\s+[A-Za-z_]\w*)?`;
+    const columns = new RegExp(
+      String.raw`^\s*\(\s*${col}(?:\s*,\s*${col})*\s*\)`,
+    );
+    if (
+      /^(into|as)$/i.test(before) &&
+      columns.test(t.slice(m.index! + m[0].length - 1))
+    )
+      continue;
     const name = m[1].replace(/\s+/g, "");
     const p = parts(name);
     const last = p[p.length - 1].toLowerCase();
@@ -121,15 +144,15 @@ function dmlFunctionCalls(stmt: string): string[] {
   return names;
 }
 
-/** `stmt` with each string literal as the token S and comments removed. */
-function callTokens(stmt: string): string {
+/** `stmt` with each string literal as the token § (never part of a name) and comments removed. */
+function callTokens(stmt: string, dbType: DatabaseType): string {
   return stmt
-    .replace(LEXEMES, (t) =>
+    .replace(lexemes(dbType), (t) =>
       t.startsWith("[") || t.startsWith('"')
         ? t // a quoted identifier stays as written
         : t.startsWith("--") || t.startsWith("/*")
           ? " "
-          : " S ",
+          : " § ",
     )
     .trim();
 }
@@ -142,7 +165,7 @@ function parseRoutineCall(
   stmt: string,
   dbType: DatabaseType,
 ): { name: string } | { error: string } {
-  const t = callTokens(stmt);
+  const t = callTokens(stmt, dbType);
   const name = (TSQL_EXEC.exec(t) ?? CALL.exec(t))?.[1];
   if (!name)
     return {
@@ -184,7 +207,8 @@ export function jobCommandRoutines(
     if (ROUTINE_CALL.test(m)) {
       const call = parseRoutineCall(stmt, dbType);
       if ("name" in call) names.push(call.name);
-    } else if (DML.test(m.slice(0, 7))) names.push(...dmlFunctionCalls(stmt));
+    } else if (DML.test(m.slice(0, 7)))
+      names.push(...dmlFunctionCalls(stmt, dbType));
   }
   return names;
 }
@@ -208,7 +232,7 @@ export function checkJobCommand(
 ): string | null {
   const { statements, masked } = scanSql(command);
   if (!statements.some((s) => s.trim())) return "The command is empty.";
-  const odd = oddIdentifier(command);
+  const odd = oddIdentifier(command, dbType);
   if (odd) return odd;
   if (DDL.test(masked))
     return `A job step can't run DDL (CREATE/ALTER/DROP/TRUNCATE/GRANT…). ${PATTERN_HINT}`;

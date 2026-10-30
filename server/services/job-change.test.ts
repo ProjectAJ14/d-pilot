@@ -141,7 +141,6 @@ describe("checkJobCommand", () => {
     for (const cmd of [
       "SELECT app_core.f(pg_cancel_backend(1))",
       'SELECT app_core.f("pg_terminate_backend"(1))',
-      "SELECT app_core.f(E'\\''||pg_terminate_backend(1)::text||E'\\'')",
       "SELECT app_core.f((SELECT 1))",
       "SELECT app_core.f(1 + 1)",
     ])
@@ -182,6 +181,44 @@ describe("checkJobCommand", () => {
         "CALL app_core.f('2026-01-01'::timestamp with time zone, 'x'::character varying(10), '{1}'::int[])",
       ),
     ).toBeNull();
+  });
+
+  it("checks functions in FROM, JOIN and UPDATE positions too", () => {
+    expect(
+      jobCommandRoutines(
+        "UPDATE app_core.orders SET notes = x.t FROM query_to_xml('select 1', true, true, '') AS x(t) WHERE id = 1",
+        "postgres",
+      ),
+    ).toEqual(["query_to_xml"]);
+    expect(
+      jobCommandRoutines(
+        "UPDATE o SET notes = 'x' FROM app_core.orders o JOIN dblink('db', 'select 1') AS d(n int) ON true WHERE o.id = 1",
+        "postgres",
+      ),
+    ).toEqual(["dblink"]);
+    expect(
+      jobCommandRoutines(
+        "UPDATE OPENQUERY(srv, 'select 1') SET a = 1 WHERE id = 1; INSERT INTO OPENQUERY(srv, 'select 1') VALUES (1)",
+        "mssql",
+      ),
+    ).toEqual(["OPENQUERY", "OPENQUERY"]);
+  });
+
+  it("reads each dialect's strings its own way", () => {
+    // Postgres: E'…' is refused outright — the splitter reads it differently.
+    expect(
+      checkJobCommand(
+        "UPDATE app_core.orders SET notes = E'\\'' WHERE id = 1; DROP TABLE x; --'",
+        "postgres",
+      ),
+    ).toContain("plain '…' string");
+    // SQL Server has no E-strings: E is a name, the quote starts a string.
+    expect(
+      jobCommandRoutines(
+        "UPDATE app_core.orders SET notes = E'\\', due = OPENROWSET('a', 'b', 'c') WHERE id = 1",
+        "mssql",
+      ),
+    ).toEqual(["OPENROWSET"]);
   });
 
   it("sends every non-trivial function a write calls to the catalog check", () => {
