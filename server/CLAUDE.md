@@ -262,7 +262,10 @@ it off) and reports every statement it would run. Allowed: CALL/EXEC of a routin
 INSERT, UPDATE/DELETE with a WHERE (at any depth), Postgres VACUUM/ANALYZE/REFRESH
 MATERIALIZED VIEW — any other statement type (SHUTDOWN, DROP, EXECUTE STRING, IF…) is
 refused, as is a SQL Server plan that reads outside the database (`Remote` operators:
-OPENROWSET, OPENQUERY, linked servers). Every routine called, at any depth, beyond a short
+OPENROWSET, OPENQUERY, linked servers) or touches another database's objects (three-part
+names, inlined functions included). The SHOWPLAN check holds one connection in a
+transaction, so a dropped session fails instead of running the step without SHOWPLAN, and
+anything back that isn't a plan is an error. Every routine called, at any depth, beyond a short
 safe list of value built-ins (`now`, `coalesce`…), must pass `isUserRoutine` in the catalog:
 not built in, not an extension's (dblink, pg_cron, `query_to_xml`-style string runners), not
 a system schema. The pure halves (`analyzePgStep`, `analyzeMssqlPlan`) are tested on real

@@ -631,15 +631,20 @@ WHERE n.nspname = $1 AND p.proname = $2 AND p.prokind IN ('f', 'p')
     const pool = introspectMssqlPool(conn);
     try {
       await pool.connect();
-      // sys.objects holds only this database's objects, and not the system
-      // ones (sp_*, xp_* live in sys.system_objects / master).
+      // By name, schema and database — never OBJECT_ID, which resolves a
+      // three-part name in another database. sys.objects holds only this
+      // database's objects, not the system ones (sp_*, xp_*).
       const res = await pool
         .request()
         .input("name", mssql.NVarChar, routine)
         .query(
-          `SELECT 1 AS ok FROM sys.objects
-WHERE object_id = OBJECT_ID(@name) AND is_ms_shipped = 0
-  AND type IN ('P', 'PC', 'FN', 'IF', 'TF', 'FS', 'FT')`,
+          `SELECT 1 AS ok FROM sys.objects o
+WHERE o.name = PARSENAME(@name, 1)
+  AND SCHEMA_NAME(o.schema_id) = COALESCE(PARSENAME(@name, 2), SCHEMA_NAME())
+  AND (PARSENAME(@name, 3) IS NULL OR PARSENAME(@name, 3) = DB_NAME())
+  AND PARSENAME(@name, 4) IS NULL
+  AND o.is_ms_shipped = 0
+  AND o.type IN ('P', 'PC', 'FN', 'IF', 'TF', 'FS', 'FT')`,
         );
       return res.recordset.length > 0;
     } finally {

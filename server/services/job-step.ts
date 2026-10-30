@@ -138,12 +138,16 @@ interface PlanStatement {
   text: string;
   proc?: string;
   remote?: boolean;
+  /** Databases of the objects it touches, as the plan names them. */
+  databases: string[];
+  /** Functions it calls that SQL Server did not inline. */
+  functions: string[];
 }
 
 /**
  * The statements SQL Server would run for a batch, from its SHOWPLAN XML: the
- * batch's own, not those inside a called procedure's body (that is the
- * procedure's code, changed through an object change).
+ * batch's own, not those inside a called procedure's or function's body
+ * (that is the routine's code, changed through an object change).
  */
 export function planStatements(plans: string[]): PlanStatement[] {
   const out: PlanStatement[] = [];
@@ -174,6 +178,8 @@ export function planStatements(plans: string[]): PlanStatement[] {
           current = {
             type: attr("StatementType") ?? name,
             text: attr("StatementText") ?? "",
+            databases: [],
+            functions: [],
           };
           out.push(current);
           currentDepth = stack.length;
@@ -182,10 +188,22 @@ export function planStatements(plans: string[]): PlanStatement[] {
           out.push({
             type: attr("StatementType") ?? name,
             text: attr("StatementText") ?? "",
+            databases: [],
+            functions: [],
           });
         } else if (name === "StoredProc" && current) {
           current.proc ??= attr("ProcName");
           procDepth = stack.length;
+        } else if (name === "UDF" && current) {
+          // A called function's body, after the statement's plan: the
+          // function's code, not the step's.
+          procDepth = stack.length;
+        } else if (name === "UserDefinedFunction" && current) {
+          const fn = attr("FunctionName");
+          if (fn) current.functions.push(fn);
+        } else if (current && attr("Database")) {
+          // An inlined function's tables show here too.
+          current.databases.push(attr("Database")!);
         } else if (
           name === "RelOp" &&
           current &&
@@ -199,8 +217,13 @@ export function planStatements(plans: string[]): PlanStatement[] {
   return out;
 }
 
-/** The rules over SQL Server's plan of a step; routines still need the catalog check. */
-export function analyzeMssqlPlan(plans: string[]): Analysis {
+const unbracket = (s: string) => s.replace(/^\[|\]$/g, "").toLowerCase();
+
+/**
+ * The rules over SQL Server's plan of a step, compiled in `database`;
+ * routines still need the catalog check.
+ */
+export function analyzeMssqlPlan(plans: string[], database: string): Analysis {
   const stmts = planStatements(plans);
   if (!stmts.length) return { error: "The command is empty." };
   const routines: StepRoutine[] = [];
@@ -210,6 +233,16 @@ export function analyzeMssqlPlan(plans: string[]): Analysis {
       return {
         error: `A job step can't run ${s.type} ("${text.slice(0, 60)}") — only EXEC of a procedure, scoped INSERT/UPDATE/DELETE or SELECT. ${PATTERN_HINT}`,
       };
+    // Another database's tables or functions, three-part named: not this
+    // connection's to change or read from a job (tempdb: temporary tables).
+    const elsewhere = s.databases.find(
+      (d) => ![database.toLowerCase(), "tempdb"].includes(unbracket(d)),
+    );
+    if (elsewhere)
+      return {
+        error: `"${text.slice(0, 60)}" reaches database ${elsewhere} — a job step works in this database only.`,
+      };
+    routines.push(...s.functions);
     if (s.remote)
       return {
         error: `"${text.slice(0, 60)}" reads outside this database (OPENROWSET, OPENQUERY, a linked server or a file) — not in a job step.`,
@@ -235,19 +268,44 @@ export function analyzeMssqlPlan(plans: string[]): Analysis {
 }
 
 /** SQL Server's plan of `command`, compiled under SHOWPLAN_XML — nothing runs. */
+const SHOWPLAN_COLUMN = "Microsoft SQL Server 2005 XML Showplan";
+
+/**
+ * SQL Server's plan of `command`, compiled under SHOWPLAN_XML — nothing runs —
+ * and the database it was compiled in. SHOWPLAN is a session setting, so the
+ * whole check holds one connection through a transaction: if that connection
+ * drops, the next request fails instead of running on a fresh session where
+ * the setting is off. Anything back that is not a plan is an error.
+ */
 async function showplan(conn: ConnectionConfig, command: string) {
-  // One connection: SHOWPLAN is a session setting.
   const pool = introspectMssqlPool(conn, { max: 1 });
   try {
     await pool.connect();
-    await pool.request().batch("SET SHOWPLAN_XML ON");
+    const tx = pool.transaction();
+    await tx.begin();
     try {
-      const r = await pool.request().batch(command);
-      return ((r.recordsets ?? []) as any[])
-        .flat()
-        .map((row) => String(Object.values(row)[0]));
+      const q = (sql: string) => new mssql.Request(tx).batch(sql);
+      const database = String(
+        (await q("SELECT DB_NAME() AS db")).recordset[0].db,
+      );
+      await q("SET SHOWPLAN_XML ON");
+      const r = await q(command);
+      const sets = (r.recordsets ?? []) as any[];
+      if (
+        sets.some(
+          (rs) => Object.keys(rs.columns ?? {}).join() !== SHOWPLAN_COLUMN,
+        )
+      )
+        throw new Error(
+          "SQL Server answered with something other than a plan.",
+        );
+      await q("SET SHOWPLAN_XML OFF");
+      return {
+        database,
+        plans: sets.flat().map((row) => String(Object.values(row)[0])),
+      };
     } finally {
-      await pool.request().batch("SET SHOWPLAN_XML OFF");
+      await tx.rollback().catch(() => {});
     }
   } finally {
     await pool.close();
@@ -267,9 +325,9 @@ export async function checkJobStep(
   let analysis: Analysis;
   if (conn.type === "postgres") analysis = await analyzePgStep(command);
   else if (conn.type === "mssql") {
-    let plans: string[];
+    let compiled: { database: string; plans: string[] };
     try {
-      plans = await showplan(conn, command);
+      compiled = await showplan(conn, command);
     } catch (err: any) {
       const number = err?.number ?? err?.originalError?.info?.number;
       if (number === 262)
@@ -279,7 +337,7 @@ export async function checkJobStep(
         return `SQL Server can't compile this step: ${err.message}`;
       throw err;
     }
-    analysis = analyzeMssqlPlan(plans);
+    analysis = analyzeMssqlPlan(compiled.plans, compiled.database);
   } else return `${conn.type} connections have no job steps.`;
   if ("error" in analysis) return analysis.error;
   for (const r of analysis.routines)

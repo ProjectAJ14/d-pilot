@@ -33,7 +33,7 @@ const plans: Record<string, { command: string; plans: string[] }> = JSON.parse(
   ),
 );
 const mssqlWhy = (k: string) => {
-  const a = analyzeMssqlPlan(plans[k].plans);
+  const a = analyzeMssqlPlan(plans[k].plans, "app_core");
   return "error" in a ? a.error : null;
 };
 
@@ -151,7 +151,7 @@ describe("SQL Server steps, as SHOWPLAN compiles them", () => {
       "select_udf",
     ])
       expect(mssqlWhy(k), k).toBeNull();
-    const a = analyzeMssqlPlan(plans.exec_user_proc.plans);
+    const a = analyzeMssqlPlan(plans.exec_user_proc.plans, "app_core");
     expect("routines" in a && a.routines).toEqual(["dbo.recalc"]);
   });
 
@@ -162,6 +162,20 @@ describe("SQL Server steps, as SHOWPLAN compiles them", () => {
     expect(mssqlWhy("xp_cmdshell")).toContain("system or extended procedure");
     expect(mssqlWhy("openquery")).toContain("reads outside this database");
     expect(mssqlWhy("update_unscoped")).toContain("without a WHERE");
+  });
+
+  it("stays in its own database, even through a function SQL Server inlined", () => {
+    expect(mssqlWhy("other_db_table")).toContain("reaches database [other_db]");
+    expect(mssqlWhy("other_db_function")).toContain(
+      "reaches database [other_db]",
+    );
+  });
+
+  it("sends the functions a write calls to the catalog check", () => {
+    const a = analyzeMssqlPlan(plans.udf_in_update.plans, "app_core");
+    expect("routines" in a && a.routines).toEqual([
+      "[app_core].[dbo].[total_for]",
+    ]);
   });
 });
 
