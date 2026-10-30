@@ -40,8 +40,8 @@ submission/rejection when write mode is off.
 ## Auth & access (`middleware/auth.ts`)
 
 - Local JWT (bcrypt hashing, `jsonwebtoken`). No external IdP.
-- **Capability model** — `deriveUserProfile` turns a user row into `isAdmin` + four env
-  lists (read/unmask/write/approve). Admin ⇒ all envs on every list.
+- **Capability model** — `deriveUserProfile` turns a user row into `isAdmin` + five env
+  lists (read/unmask/write/approve/jobs). Admin ⇒ all envs on every list.
 - **`resolveReadableConnection(req, res, connectionId)`** — the _only_ way a route may turn a
   caller-supplied `connectionId` into a `ConnectionConfig`. It 400/404/403s for you and
   enforces read access for that connection's environment. A bare `getConnection()` in a route
@@ -248,6 +248,17 @@ definition is refused, since it can't be diffed or guarded). Submit, approve and
 call `objectChangedSince` and 409 `OBJECT_CHANGED` if the deployed definition's normalized
 hash moved — never overwrite a version nobody reviewed. Revise re-bases on what is
 deployed. The AI review gets the deployed version and the object's dependents.
+
+**Job changes** (`kind: "job_change"`, `services/job-change.ts`) make one structured action
+on one SQL Server Agent / pg_cron job. The author sends `jobChange: { jobId, action }` and
+**the server writes the SQL** (`buildJobChangeSql`: ids validated, values quoted) — that
+text is what is reviewed and what runs, as a transactional migration. Raising one needs the
+`jobEnvironments` capability (so does submitting a drafted one). `validateJobChange` refuses
+a step command that would not pass as a direct write (`checkJobCommand`: EXEC/CALL, or
+scoped DML separated by semicolons — no DDL, no dynamic SQL), any non-SQL step, and a step
+on another database; every refusal is audited as `JOB_CHANGE_REFUSED` (`refuseJobChange`).
+The whole job is snapshotted (`jobSnapshot`) and checked like an object change's
+definition; a job change can't be revised — raise a new one.
 
 Every request carries a paired verify **SELECT** and the **WRITE**.
 `WriteAiReview` holds the structured safety verdict (SAFE/CAUTION/DANGEROUS, blast

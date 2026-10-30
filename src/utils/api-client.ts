@@ -13,6 +13,7 @@ import type {
   DbObjectDependencies,
   DbObjectInfo,
   DriftReport,
+  JobChangeAction,
   JobDetail,
   JobList,
 } from "../types";
@@ -304,6 +305,8 @@ export const api = {
     draft?: boolean;
     /** Makes it an object_change: `writeSql` is this object's new definition. */
     object?: DbObjectInfo;
+    /** Makes it a job_change: the server writes the SQL, `writeSql` is ignored. */
+    jobChange?: { jobId: string; action: JobChangeAction };
   }) =>
     request<WriteRequest>("/write-requests", {
       method: "POST",
@@ -623,6 +626,7 @@ export const api = {
     unmaskEnvironments?: string[];
     writeEnvironments?: string[];
     approveEnvironments?: string[];
+    jobEnvironments?: string[];
   }) =>
     request<any>("/users", {
       method: "POST",
@@ -637,6 +641,7 @@ export const api = {
       unmaskEnvironments?: string[];
       writeEnvironments?: string[];
       approveEnvironments?: string[];
+      jobEnvironments?: string[];
     },
   ) =>
     request<any>(`/users/${id}`, {

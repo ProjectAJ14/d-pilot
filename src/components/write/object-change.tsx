@@ -132,3 +132,74 @@ export function ObjectChangeReview({
     </div>
   );
 }
+
+/**
+ * The top of a job_change review: what it does in words, what it reaches
+ * beyond this job, and — for a step command — the old command beside the new
+ * one. The generated SQL that runs is shown below it as usual.
+ */
+export function JobChangeSummary({ wr }: { wr: WriteRequest }) {
+  const theme = useEditorTheme();
+  const jc = wr.jobChange!;
+  const action = jc.action;
+  const before =
+    action.type === "edit_step" && wr.snapshot
+      ? ((
+          JSON.parse(wr.snapshot) as {
+            steps: { id: number; command: string }[];
+          }
+        ).steps.find((s) => s.id === action.stepId)?.command ?? "")
+      : null;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <Group gap="xs" wrap="nowrap">
+        <Badge variant="light" color="orange">
+          changes {jc.engine === "agent" ? "Agent job" : "pg_cron job"}
+        </Badge>
+        <Text size="sm" fw={500}>
+          {jc.jobName}
+        </Text>
+        <Text size="sm" c="dimmed">
+          — {wr.summary}
+        </Text>
+      </Group>
+      {wr.warnings?.map((w) => (
+        <Alert
+          key={w}
+          color="orange"
+          variant="light"
+          icon={<IconAlertTriangle size={16} />}
+        >
+          {w}
+        </Alert>
+      ))}
+      <Text size="xs" c="dimmed">
+        Approval checks the job is still exactly as it was when this was
+        submitted; if anyone changed it, nothing runs.
+      </Text>
+      {before != null && action.type === "edit_step" && (
+        <div
+          style={{
+            height: 180,
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-md)",
+            overflow: "hidden",
+          }}
+        >
+          <DiffEditor
+            original={before}
+            modified={action.command}
+            language={monacoLanguageForDb(wr.dbType)}
+            theme={theme}
+            options={{
+              ...baseSqlEditorOptions,
+              readOnly: true,
+              originalEditable: false,
+              renderSideBySide: true,
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}

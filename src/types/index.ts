@@ -321,6 +321,8 @@ export interface JobSchedule {
 }
 
 export interface JobDetail extends JobInfo {
+  /** The connection's own database — the one new steps run against. */
+  database?: string;
   steps: JobStep[];
   schedules: JobSchedule[];
   /** Most recent job-level outcomes, newest first. */
@@ -332,6 +334,46 @@ export interface JobList {
   available: boolean;
   reason?: string;
   jobs: JobInfo[];
+}
+
+/** The editable fields of a SQL Server Agent schedule (see job-schedule.ts). */
+export interface MsdbScheduleFields {
+  /** 4 daily, 8 weekly, 16 monthly. */
+  freq_type: number;
+  /** Daily: every N days. Weekly: weekday bitmask (Sun 1 … Sat 64). Monthly: day of month. */
+  freq_interval: number;
+  /** 1 once a day, 4 every N minutes, 8 every N hours. */
+  freq_subday_type: number;
+  freq_subday_interval: number;
+  /** Weekly/monthly: every N weeks/months. */
+  freq_recurrence_factor: number;
+  /** HHMMSS. */
+  active_start_time: number;
+  active_end_time: number;
+}
+
+/** One change to a scheduled job; a job_change request carries exactly one. */
+export type JobChangeAction =
+  | { type: "set_enabled"; enabled: boolean }
+  | { type: "rename"; name: string }
+  | { type: "set_description"; description: string }
+  | { type: "edit_step"; stepId: number; command: string }
+  | { type: "add_step"; name: string; command: string }
+  | { type: "delete_step"; stepId: number }
+  | {
+      type: "set_schedule";
+      scheduleId: string;
+      /** pg_cron. */
+      cron?: string;
+      /** SQL Server Agent. */
+      msdb?: MsdbScheduleFields;
+    };
+
+export interface JobChange {
+  jobId: string;
+  jobName: string;
+  engine: "agent" | "pg_cron";
+  action: JobChangeAction;
 }
 
 export interface ColumnInfo {
@@ -388,6 +430,8 @@ export interface User {
   unmaskEnvironments?: string[];
   writeEnvironments?: string[];
   approveEnvironments?: string[];
+  /** Environments where this user may raise job_change requests. */
+  jobEnvironments?: string[];
   createdAt: string;
   lastLogin?: string;
 }
@@ -479,6 +523,10 @@ export interface WriteRequest {
   snapshot?: string | null;
   /** object_change: `snapshot` as a re-runnable script, for "Restore previous version". */
   restoreSql?: string | null;
+  /** job_change: the job and the one change made to it. */
+  jobChange?: JobChange;
+  /** job_change: what it does, in one line ("Disables the job"). */
+  summary?: string;
   /** Things the author and approver should see, e.g. a credential in a definition. */
   warnings?: string[];
   aiVerdict?: string;

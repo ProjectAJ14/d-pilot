@@ -32,8 +32,8 @@ function parseEnvList(
 
 /**
  * Derives the full permission profile for a DB user row. Authority is a set of
- * capabilities: one global (Administrator ⇒ everything) plus four
- * environment-scoped lists (read, unmask-PHI, write, approve). Capabilities are
+ * capabilities: one global (Administrator ⇒ everything) plus five
+ * environment-scoped lists (read, unmask-PHI, write, approve, change jobs). Capabilities are
  * additive — a user can hold any combination.
  */
 function deriveUserProfile(user: any) {
@@ -47,6 +47,7 @@ function deriveUserProfile(user: any) {
   const unmaskEnvironments = scoped(user.unmask_environments);
   const writeEnvironments = scoped(user.write_environments);
   const approveEnvironments = scoped(user.approve_environments);
+  const jobEnvironments = scoped(user.job_environments);
   return {
     id: user.id,
     username: user.username,
@@ -57,6 +58,7 @@ function deriveUserProfile(user: any) {
     unmaskEnvironments,
     writeEnvironments,
     approveEnvironments,
+    jobEnvironments,
     canUnmaskPhi: isAdmin || unmaskEnvironments.length > 0,
     canWrite: isAdmin || writeEnvironments.length > 0,
     canApprove: isAdmin || approveEnvironments.length > 0,
@@ -78,7 +80,8 @@ const USERS_SCHEMA = `
     allowed_environments TEXT NOT NULL DEFAULT '["DEV","QA","UAT","STG","PROD"]',
     unmask_environments TEXT NOT NULL DEFAULT '[]',
     write_environments TEXT NOT NULL DEFAULT '[]',
-    approve_environments TEXT NOT NULL DEFAULT '[]'
+    approve_environments TEXT NOT NULL DEFAULT '[]',
+    job_environments TEXT NOT NULL DEFAULT '[]'
   );
 `;
 
@@ -122,6 +125,9 @@ export function initAuthTables(): void {
       `unmask_environments TEXT NOT NULL DEFAULT '[]'`,
     );
     ensure("is_admin", `is_admin INTEGER NOT NULL DEFAULT 0`);
+    // Changing a scheduled job usually needs far more database privilege
+    // than changing rows, so it is its own grant — nobody has it by default.
+    ensure("job_environments", `job_environments TEXT NOT NULL DEFAULT '[]'`);
 
     // One-time conversion from the legacy single-`role` model to capabilities,
     // then drop the `role` column entirely.
@@ -214,6 +220,7 @@ export function handleLogin(req: Request, res: Response): void {
     unmaskEnvironments: profile.unmaskEnvironments,
     writeEnvironments: profile.writeEnvironments,
     approveEnvironments: profile.approveEnvironments,
+    jobEnvironments: profile.jobEnvironments,
   };
 
   const token = jwt.sign(payload, JWT_SECRET, {
@@ -329,6 +336,7 @@ export function authMiddleware() {
       );
       const writeEnvironments = scoped(payload.writeEnvironments);
       const approveEnvironments = scoped(payload.approveEnvironments);
+      const jobEnvironments = scoped(payload.jobEnvironments);
 
       req.user = {
         sub: payload.sub,
@@ -341,6 +349,7 @@ export function authMiddleware() {
         unmaskEnvironments,
         writeEnvironments,
         approveEnvironments,
+        jobEnvironments,
         canUnmaskPhi: isAdmin || unmaskEnvironments.length > 0,
         canWrite: isAdmin || writeEnvironments.length > 0,
         canApprove: isAdmin || approveEnvironments.length > 0,

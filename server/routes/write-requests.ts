@@ -33,6 +33,13 @@ import {
   supportsObjects,
 } from "../services/schema-objects.js";
 import { validateObjectChange } from "../services/object-change.js";
+import { getJobDetail, validJobId } from "../services/jobs.js";
+import {
+  buildJobChangeSql,
+  describeJobAction,
+  jobSnapshot,
+  validateJobChange,
+} from "../services/job-change.js";
 import { extractReferencedTables } from "../services/query-examples.js";
 import {
   getAzureConfig,
@@ -71,6 +78,8 @@ import type {
   AuthUser,
   ConnectionConfig,
   DbObjectInfo,
+  JobChange,
+  JobChangeAction,
   QueryResult,
   SqlObjectKind,
   WriteAiReview,
@@ -400,15 +409,203 @@ async function prepareObjectChange(
   }
 }
 
+function canChangeJobsEnv(user: AuthUser, env: string): boolean {
+  return user.isAdmin || (user.jobEnvironments ?? []).includes(env);
+}
+
 /**
- * The drift guard: why an object_change must not run now, or null. If the
- * deployed definition no longer matches the snapshot taken at submit, someone
- * changed the object since — running this would silently overwrite their work.
+ * Only the fields an action of its type has, as their own types — what is
+ * stored is exactly what validateJobChange checked and buildJobChangeSql used.
  */
-async function objectChangedSince(
+function pickJobAction(raw: any): JobChangeAction | null {
+  const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+  const num = (v: unknown) => (Number.isInteger(v) ? (v as number) : NaN);
+  switch (raw?.type) {
+    case "set_enabled":
+      return { type: raw.type, enabled: raw.enabled === true };
+    case "rename":
+      return { type: raw.type, name: str(raw.name) ?? "" };
+    case "set_description":
+      return { type: raw.type, description: str(raw.description) ?? "" };
+    case "edit_step":
+      return {
+        type: raw.type,
+        stepId: num(raw.stepId),
+        command: str(raw.command) ?? "",
+      };
+    case "add_step":
+      return {
+        type: raw.type,
+        name: str(raw.name) ?? "",
+        command: str(raw.command) ?? "",
+      };
+    case "delete_step":
+      return { type: raw.type, stepId: num(raw.stepId) };
+    case "set_schedule": {
+      const m = raw.msdb;
+      return {
+        type: raw.type,
+        scheduleId: String(raw.scheduleId ?? ""),
+        ...(str(raw.cron) !== undefined && { cron: str(raw.cron) }),
+        ...(m && {
+          msdb: {
+            freq_type: num(m.freq_type),
+            freq_interval: num(m.freq_interval),
+            freq_subday_type: num(m.freq_subday_type),
+            freq_subday_interval: num(m.freq_subday_interval),
+            freq_recurrence_factor: num(m.freq_recurrence_factor),
+            active_start_time: num(m.active_start_time),
+            active_end_time: num(m.active_end_time),
+          },
+        }),
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+/** Refuses a job change and audits the attempt, so "someone tried to change the PROD job" is on record. */
+function refuseJobChange(
+  res: Response,
+  user: AuthUser,
+  conn: ConnectionConfig,
+  status: number,
+  error: string,
+  attempt: string,
+): void {
+  logAudit({
+    userId: user.sub,
+    userEmail: user.email,
+    action: "JOB_CHANGE_REFUSED",
+    sql: `${attempt} — refused: ${error}`,
+    connectionId: conn.id,
+    phiAccessed: false,
+  });
+  res.status(status).json({ error });
+}
+
+/**
+ * Raises a job_change: one action on one job, its SQL generated here, bound to
+ * the job as it is now (the snapshot approval re-checks). Same lifecycle as
+ * any write request from there — approvers, production rails, direct-write
+ * policy and drafts all apply unchanged.
+ */
+async function createJobChange(
+  res: Response,
+  user: AuthUser,
+  conn: ConnectionConfig,
+  req: {
+    title: string;
+    description?: string;
+    draft: boolean;
+    jobId: string;
+    action: JobChangeAction | null;
+  },
+): Promise<void> {
+  const attempt = `job ${req.jobId}: ${JSON.stringify(req.action)}`;
+  const refuse = (status: number, error: string) =>
+    refuseJobChange(res, user, conn, status, error, attempt);
+
+  if (!canChangeJobsEnv(user, conn.env))
+    return refuse(403, `You are not allowed to change jobs in ${conn.env}`);
+  if (conn.type !== "mssql" && conn.type !== "postgres")
+    return refuse(400, `${conn.type} connections have no scheduled jobs`);
+  if (!validJobId(conn, req.jobId))
+    return refuse(
+      400,
+      conn.type === "mssql"
+        ? "A SQL Server Agent job id is a GUID"
+        : "A pg_cron job id is an integer",
+    );
+  if (!req.action) return refuse(400, "Unknown job change");
+
+  const target = connectionTarget(conn);
+  const job = await getJobDetail(conn, req.jobId);
+  if (!job) return refuse(404, `No job ${req.jobId} on this connection`);
+  const invalid = validateJobChange(req.action, job, conn.type);
+  if (invalid) return refuse(400, invalid);
+  if (!connectionIfUnchanged(conn.id, target)) {
+    res.status(409).json({ error: changedWhileChecking(conn.id) });
+    return;
+  }
+
+  const writeSql = buildJobChangeSql(req.action, job);
+  const direct = !req.draft && getWriteDirectEnvs().includes(conn.env);
+  const jobChange: JobChange = {
+    jobId: job.id,
+    jobName: job.name,
+    engine: job.engine,
+    action: req.action,
+  };
+  const wr = createWriteRequest({
+    title: req.title,
+    description: req.description,
+    connectionId: conn.id,
+    connectionName: conn.name,
+    env: conn.env,
+    dbType: conn.type,
+    writeSql,
+    status: req.draft ? "DRAFT" : "PENDING",
+    requestedBy: user.sub,
+    requestedByEmail: user.email,
+    isMigration: true,
+    noTransaction: false,
+    kind: "job_change",
+    target: jobChange,
+    snapshot: jobSnapshot(job),
+  });
+  bindTarget(wr.id, conn);
+  addWriteRequestEvent(
+    wr.id,
+    user.sub,
+    user.email,
+    req.draft ? "SAVED" : "SUBMITTED",
+    `${describeJobAction(req.action)} — job ${job.name}`,
+  );
+  logAudit({
+    userId: user.sub,
+    userEmail: user.email,
+    action: req.draft ? "WRITE_SAVE" : "WRITE_SUBMIT",
+    sql: writeSql,
+    connectionId: conn.id,
+    phiAccessed: false,
+  });
+  if (direct) {
+    const outcome = await runDirectExecution(wr.id, conn, writeSql, user, {
+      isMigration: true,
+    });
+    if (outcome !== "ran")
+      return sendDirectNotRun(res, outcome, wr.id, conn, user);
+  }
+  res.status(201).json(getWriteRequest(wr.id));
+}
+
+/** The drift guard for jobs: the job must still be the one that was reviewed. */
+async function jobChangedSince(
   conn: ConnectionConfig,
   wr: WriteRequest,
 ): Promise<string | null> {
+  const job = wr.jobChange
+    ? await getJobDetail(conn, wr.jobChange.jobId)
+    : null;
+  if (job && jobSnapshot(job) === wr.snapshot) return null;
+  return job
+    ? `Job ${wr.jobChange!.jobName} was changed by someone else since this request was submitted — nothing ran. Cancel it and raise the change again against the job as it is now.`
+    : `Job ${wr.jobChange?.jobName ?? ""} no longer exists — nothing ran.`;
+}
+
+/**
+ * The drift guard: why an object_change or job_change must not run now, or
+ * null. If the deployed definition (or job) no longer matches the snapshot
+ * taken at submit, someone changed it since — running this would silently
+ * overwrite their work.
+ */
+async function targetChangedSince(
+  conn: ConnectionConfig,
+  wr: WriteRequest,
+): Promise<string | null> {
+  if (wr.kind === "job_change") return jobChangedSince(conn, wr);
   if (wr.kind !== "object_change" || !wr.object) return null;
   const now = await getObjectDefinition(conn, wr.object);
   if (
@@ -627,7 +824,29 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
     draft?: boolean;
     /** Makes this an object_change: the new definition of this object. */
     object?: unknown;
+    /** Makes this a job_change: `{ jobId, action }`; the SQL is generated. */
+    jobChange?: { jobId?: unknown; action?: unknown };
   };
+
+  // A job change carries no SQL of its own — the server writes it.
+  if (req.body?.jobChange !== undefined) {
+    if (!title?.trim() || !connectionId) {
+      res.status(400).json({ error: "title and connectionId are required" });
+      return;
+    }
+    const conn = getConnection(connectionId);
+    if (!conn) {
+      res.status(404).json({ error: `Connection '${connectionId}' not found` });
+      return;
+    }
+    return createJobChange(res, user, conn, {
+      title: title.trim(),
+      description: description?.trim() || undefined,
+      draft: !!draft,
+      jobId: String(req.body.jobChange?.jobId ?? ""),
+      action: pickJobAction(req.body.jobChange?.action),
+    });
+  }
 
   if (!title?.trim() || !connectionId || !writeSql?.trim()) {
     res
@@ -1188,7 +1407,7 @@ function decideAndRun(override: boolean) {
     }
 
     // An object change runs only over the version it was reviewed against.
-    const drift = await objectChangedSince(conn, wr);
+    const drift = await targetChangedSince(conn, wr);
     if (drift) {
       res.status(409).json({ error: drift, code: "OBJECT_CHANGED" });
       return;
@@ -1412,6 +1631,18 @@ router.post(
       res.status(plan.status).json({ error: plan.error });
       return;
     }
+    // Submitting a job change makes it the submitter's, so it needs their
+    // job capability too — a drafted job change is no side door.
+    if (wr.kind === "job_change" && !canChangeJobsEnv(user, conn.env)) {
+      return refuseJobChange(
+        res,
+        user,
+        conn,
+        403,
+        `You are not allowed to change jobs in ${conn.env}`,
+        `submit ${wr.id}`,
+      );
+    }
 
     // Re-validate at submit time — the draft may have been sitting for days.
     const queryError = await validateRequestQueries(
@@ -1424,7 +1655,7 @@ router.post(
       res.status(400).json({ error: queryError });
       return;
     }
-    const drift = await objectChangedSince(conn, wr);
+    const drift = await targetChangedSince(conn, wr);
     if (drift) {
       res.status(409).json({ error: drift, code: "OBJECT_CHANGED" });
       return;
@@ -1559,6 +1790,15 @@ router.post(
     const wr = getWriteRequest(req.params.id as string, false);
     if (!wr) {
       res.status(404).json({ error: "Write request not found" });
+      return;
+    }
+    // Its SQL is generated from one action against the job as it was; an
+    // edit would be a different change — raise that one from the job.
+    if (wr.kind === "job_change") {
+      res.status(400).json({
+        error:
+          "A job change can't be edited — cancel it and raise the change again from the job.",
+      });
       return;
     }
 

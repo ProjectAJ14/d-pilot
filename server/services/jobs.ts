@@ -64,9 +64,13 @@ export async function getJobDetail(
   conn: ConnectionConfig,
   id: string,
 ): Promise<JobDetail | null> {
-  if (conn.type === "mssql") return getAgentJobDetail(conn, id);
-  if (conn.type === "postgres") return getCronJobDetail(conn, id);
-  return null;
+  const job =
+    conn.type === "mssql"
+      ? await getAgentJobDetail(conn, id)
+      : conn.type === "postgres"
+        ? await getCronJobDetail(conn, id)
+        : null;
+  return job && { ...job, database: conn.database };
 }
 
 // --- SQL Server Agent ---

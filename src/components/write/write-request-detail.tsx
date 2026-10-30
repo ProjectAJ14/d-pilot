@@ -39,7 +39,7 @@ import {
   notReachedTitle,
 } from "../../utils/write-not-reached";
 import { useStore } from "../../store";
-import { ObjectChangeReview } from "./object-change";
+import { JobChangeSummary, ObjectChangeReview } from "./object-change";
 import { countActionRequired } from "./requests-page";
 import type {
   WriteRequest,
@@ -608,6 +608,11 @@ export function WriteRequestDetail() {
             />
           ) : (
             <>
+              {wr.kind === "job_change" && wr.jobChange && (
+                <div style={{ marginBottom: 22 }}>
+                  <JobChangeSummary wr={wr} />
+                </div>
+              )}
               {/* Queries — write first, verify second */}
               <div
                 style={{ display: "flex", flexDirection: "column", gap: 22 }}
@@ -615,14 +620,20 @@ export function WriteRequestDetail() {
                 <SqlBlock
                   step={1}
                   label={
-                    wr.isMigration ? "Migration script" : "Write statement"
+                    wr.kind === "job_change"
+                      ? "Generated statement"
+                      : wr.isMigration
+                        ? "Migration script"
+                        : "Write statement"
                   }
                   hint={
-                    wr.isMigration
-                      ? wr.noTransaction
-                        ? "multiple statements · RUNS WITHOUT ROLLBACK — a mid-script failure leaves partial changes"
-                        : "multiple statements · runs as one transaction (rolls back atomically on failure)"
-                      : "the change this request will apply · single INSERT / UPDATE / DELETE"
+                    wr.kind === "job_change"
+                      ? "written by D-Pilot from the change above · runs in a transaction"
+                      : wr.isMigration
+                        ? wr.noTransaction
+                          ? "multiple statements · RUNS WITHOUT ROLLBACK — a mid-script failure leaves partial changes"
+                          : "multiple statements · runs as one transaction (rolls back atomically on failure)"
+                        : "the change this request will apply · single INSERT / UPDATE / DELETE"
                   }
                   code={wr.writeSql}
                   dbType={wr.dbType}

@@ -11,6 +11,7 @@ import {
 import { decryptSecret, encryptSecret } from "../config/secrets.js";
 import { currentSource } from "./request-source.js";
 import { credentialWarnings, toIdempotent } from "./object-change.js";
+import { describeJobAction, jobChangeWarnings } from "./job-action.js";
 import type {
   ConnectionConfig,
   Artifact,
@@ -1851,6 +1852,20 @@ export function getWriteRequestEvents(requestId: string): WriteRequestEvent[] {
   }));
 }
 
+/** A job_change's action, the job as reviewed, and what it reaches beyond the job. */
+function jobChangeFields(r: any): Partial<WriteRequest> {
+  const jobChange = JSON.parse(r.target_json);
+  const snapshot = r.snapshot ?? null;
+  return {
+    jobChange,
+    summary: describeJobAction(jobChange.action),
+    snapshot,
+    warnings: snapshot
+      ? jobChangeWarnings(jobChange.action, JSON.parse(snapshot))
+      : [],
+  };
+}
+
 function mapWriteRequest(r: any): WriteRequest {
   let aiReview: WriteAiReview | undefined;
   if (r.ai_review_json) {
@@ -1895,6 +1910,7 @@ function mapWriteRequest(r: any): WriteRequest {
         r.snapshot == null ? null : toIdempotent(r.snapshot, r.db_type),
       warnings: credentialWarnings(r.write_sql),
     }),
+    ...(r.kind === "job_change" && jobChangeFields(r)),
     aiVerdict: r.ai_verdict ?? undefined,
     aiReview,
     createdAt: r.created_at,

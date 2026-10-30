@@ -40,6 +40,7 @@ interface AuthUser {
   unmaskEnvironments?: string[];
   writeEnvironments?: string[];
   approveEnvironments?: string[];
+  jobEnvironments?: string[];
   canWrite?: boolean;
   canApprove?: boolean;
 }

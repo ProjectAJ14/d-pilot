@@ -28,12 +28,13 @@ body:json {
     "writeEnvironments": [
       "DEV"
     ],
-    "approveEnvironments": []
+    "approveEnvironments": [],
+    "jobEnvironments": []
   }
 }
 
 docs {
-  Create a user. Admin implies all capabilities; otherwise supply per-env lists.
+  Create a user. Admin implies all capabilities; otherwise supply per-env lists. `jobEnvironments` grants raising job_change requests (changing SQL Server Agent / pg_cron jobs) — separate from `writeEnvironments`, and empty by default.
 
   Environment names outside this deployment's set (see `GET /api/config` →
   `environments`) are silently dropped from every capability list.

@@ -1169,6 +1169,7 @@ const CAP_META: Record<string, { label: string; color: string }> = {
   unmask_phi: { label: "Unmask PHI", color: "orange" },
   write: { label: "Write", color: "grape" },
   approve: { label: "Approve", color: "teal" },
+  jobs: { label: "Change jobs", color: "indigo" },
 };
 
 /** Renders a user's capabilities as compact env-scoped badges. */
@@ -1191,6 +1192,7 @@ function UserCapabilities({ user }: { user: User }) {
     { key: "unmask_phi", envs: user.unmaskEnvironments || [] },
     { key: "write", envs: user.writeEnvironments || [] },
     { key: "approve", envs: user.approveEnvironments || [] },
+    { key: "jobs", envs: user.jobEnvironments || [] },
   ].filter((r) => r.envs.length > 0);
 
   if (rows.length === 0) {
@@ -1248,6 +1250,7 @@ function AddUserModal({
   const [unmaskEnvs, setUnmaskEnvs] = useState<string[]>([]);
   const [writeEnvs, setWriteEnvs] = useState<string[]>([]);
   const [approveEnvs, setApproveEnvs] = useState<string[]>([]);
+  const [jobEnvs, setJobEnvs] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   // Pre-fill a strong password when the modal opens so onboarding is one step
@@ -1293,6 +1296,7 @@ function AddUserModal({
         unmaskEnvironments: unmaskEnvs,
         writeEnvironments: writeEnvs,
         approveEnvironments: approveEnvs,
+        jobEnvironments: jobEnvs,
       });
       onClose();
       onSuccess();
@@ -1311,6 +1315,7 @@ function AddUserModal({
       setUnmaskEnvs([]);
       setWriteEnvs([]);
       setApproveEnvs([]);
+      setJobEnvs([]);
     } catch (err: any) {
       notifyError(err, "Settings");
     } finally {
@@ -1350,6 +1355,8 @@ function AddUserModal({
         setWriteEnvs={setWriteEnvs}
         approveEnvs={approveEnvs}
         setApproveEnvs={setApproveEnvs}
+        jobEnvs={jobEnvs}
+        setJobEnvs={setJobEnvs}
       />
       <Group justify="space-between" align="center" mt="sm" mb={4}>
         <Text size="sm" fw={500}>
@@ -1392,9 +1399,10 @@ interface SavedEnvLists {
   unmask: string[];
   write: string[];
   approve: string[];
+  jobs: string[];
 }
 
-/** Shared capability editor: Administrator toggle + four env-scoped multiselects. */
+/** Shared capability editor: Administrator toggle + five env-scoped multiselects. */
 function CapabilityFields({
   isAdmin,
   setIsAdmin,
@@ -1406,6 +1414,8 @@ function CapabilityFields({
   setWriteEnvs,
   approveEnvs,
   setApproveEnvs,
+  jobEnvs,
+  setJobEnvs,
   saved,
 }: {
   /** The user's lists as stored — orphan envs in them stay pickable. */
@@ -1420,6 +1430,8 @@ function CapabilityFields({
   setWriteEnvs: (v: string[]) => void;
   approveEnvs: string[];
   setApproveEnvs: (v: string[]) => void;
+  jobEnvs: string[];
+  setJobEnvs: (v: string[]) => void;
 }) {
   const envOptions = useEnvironments();
   // From the lists as saved, not the form, so an orphan unticked by mistake
@@ -1479,6 +1491,14 @@ function CapabilityFields({
             onChange={setApproveEnvs}
             mb="sm"
           />
+          <MultiSelect
+            label="Change-jobs environments"
+            description="Raise requests that change scheduled jobs (SQL Server Agent, pg_cron) — approved like any write"
+            data={optionsFor("jobs")}
+            value={jobEnvs}
+            onChange={setJobEnvs}
+            mb="sm"
+          />
         </>
       )}
     </>
@@ -1508,6 +1528,7 @@ function EditUserModal({
   const [approveEnvs, setApproveEnvs] = useState<string[]>(
     user?.approveEnvironments || [],
   );
+  const [jobEnvs, setJobEnvs] = useState<string[]>(user?.jobEnvironments || []);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -1518,6 +1539,7 @@ function EditUserModal({
       setUnmaskEnvs(user.unmaskEnvironments || []);
       setWriteEnvs(user.writeEnvironments || []);
       setApproveEnvs(user.approveEnvironments || []);
+      setJobEnvs(user.jobEnvironments || []);
     }
   }, [user]);
 
@@ -1532,6 +1554,7 @@ function EditUserModal({
         unmaskEnvironments: unmaskEnvs,
         writeEnvironments: writeEnvs,
         approveEnvironments: approveEnvs,
+        jobEnvironments: jobEnvs,
       });
       notifications.show({ message: "User updated", color: "green" });
       onClose();
@@ -1566,6 +1589,7 @@ function EditUserModal({
                 unmask: user.unmaskEnvironments || [],
                 write: user.writeEnvironments || [],
                 approve: user.approveEnvironments || [],
+                jobs: user.jobEnvironments || [],
               }
             : undefined
         }
@@ -1579,6 +1603,8 @@ function EditUserModal({
         setWriteEnvs={setWriteEnvs}
         approveEnvs={approveEnvs}
         setApproveEnvs={setApproveEnvs}
+        jobEnvs={jobEnvs}
+        setJobEnvs={setJobEnvs}
       />
       <Group justify="flex-end" mt="md">
         <Button variant="subtle" color="gray" onClick={onClose}>

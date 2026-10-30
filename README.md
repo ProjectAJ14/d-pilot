@@ -17,7 +17,7 @@ ever leaving the building in the clear.
 - **Multi-tab workspace** — independent tabs, inline rename, per-tab schema selection, and run-selection-or-whole-query (Cmd/Ctrl+Enter).
 - **Schema browser** — connections grouped by environment; lazy table/column tree with PK/type/PHI flags; double-click a table to open a `SELECT * … LIMIT 100` tab; copy table metadata as **JSON / DDL / text**.
 - **Database objects** — procedures, functions, views and triggers (Postgres/SQL Server), MongoDB views, indexes and validation rules, and Elasticsearch index templates, ingest pipelines, aliases and ILM policies, with their full definitions, "Uses / Used by", "Compare with…" any other connection, and a drift report listing every object that differs between two environments.
-- **Scheduled jobs** — SQL Server Agent and pg_cron jobs that run against the database: step commands, plain-language schedules, last outcome, next run and recent history.
+- **Scheduled jobs** — SQL Server Agent and pg_cron jobs that run against the database: step commands, plain-language schedules, last outcome, next run and recent history. Propose a change (enable/disable, step command, schedule, …) as a governed job-change request.
 - **Results grid** (AG Grid) — sort/filter/resize, type-aware cell coloring, table ↔ **JSON view** toggle, row count / exec time / truncation badges.
 - **Cell inspector drawer** — click a long cell to open a docked read-only inspector (auto-detects JSON vs text); double-click to copy; hover for a peek.
 - **Local-timezone datetimes** — ISO datetime cells show a your-time conversion alongside the original source value on hover.
@@ -332,11 +332,36 @@ instance instead.
 | `mongodb`       | uri (full connection string)                                                                 |
 | `elasticsearch` | host, port, username, password, and `schema` set to `http` or `https` (used as the protocol) |
 
+### Database grants for objects and jobs
+
+D-Pilot reads objects and jobs with the connection's own login, so what it can show is a
+deployment decision. The minimum grants:
+
+| To                                          | SQL Server                                                                                | PostgreSQL                                                                 |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| List procedures, functions, views, triggers | `CONNECT` (catalog views list what the login can see)                                     | none — the catalog is public                                               |
+| Read their definitions                      | `VIEW DEFINITION` on the schema or database (else "definition not available")             | none (`pg_get_functiondef`, `pg_get_viewdef`, `pg_get_triggerdef`)         |
+| Change one through an object change         | `ALTER` on the object's schema (plus `CREATE PROCEDURE`/`FUNCTION`/`VIEW` to create)      | owner of the object (and `CREATE` on the schema to create)                 |
+| Read jobs                                   | `SQLAgentReaderRole` in `msdb`                                                            | `USAGE` on schema `cron` + `SELECT` on `cron.job`, `cron.job_run_details`  |
+| Change jobs                                 | `SQLAgentOperatorRole` in `msdb` (or job ownership), plus a D-Pilot **Change jobs** grant | owner of the job (or superuser) for `cron.alter_job`, plus **Change jobs** |
+
+MongoDB needs `listCollections` and `listIndexes` (the built-in `read` role); Elasticsearch
+needs the `manage_index_templates`, `manage_ingest_pipelines`, `read_ilm` and
+`view_index_metadata` privileges to list templates, pipelines, ILM policies and aliases.
+Without the job grant, the explorer says which grant is missing rather than failing.
+
+Keep job steps thin: put the logic in a procedure and have the step only `EXEC`/`CALL` it.
+Then most fixes are object changes, with a diff and a rollback, and the job itself rarely
+changes. A job change D-Pilot writes is one action (enable/disable, rename, description,
+edit/add/delete a step, change a schedule), checked like a direct write — a step command
+with an unscoped UPDATE/DELETE, DDL or dynamic SQL is refused, CmdExec/PowerShell/SSIS steps
+can't be changed, and every refusal is audited as `JOB_CHANGE_REFUSED`.
+
 ### Access model
 
 Access is **capability-based and scoped per environment** (typically `DEV`, `QA`, `UAT`,
 `STG`, `PROD` — whatever envs your connections use; see [Custom environments](#custom-environments)).
-Each user has an `isAdmin` flag plus four capability lists, managed from **Settings → User Management**:
+Each user has an `isAdmin` flag plus five capability lists, managed from **Settings → User Management**:
 
 | Capability                            | Grants                                                |
 | ------------------------------------- | ----------------------------------------------------- |
@@ -344,6 +369,7 @@ Each user has an `isAdmin` flag plus four capability lists, managed from **Setti
 | **Unmask PHI** (`unmaskEnvironments`) | De-tokenize PHI (still audited) in those environments |
 | **Write** (`writeEnvironments`)       | Author write requests for those environments          |
 | **Approve** (`approveEnvironments`)   | Approve others' write requests in those environments  |
+| **Change jobs** (`jobEnvironments`)   | Raise requests that change scheduled jobs there       |
 
 Admin implies every capability on every environment. Production safety rails (mandatory
 PHI tokenization and two-person write approval) always apply regardless of capabilities — except that an admin can override approval on a single request (see Write workflow) —

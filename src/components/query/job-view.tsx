@@ -3,16 +3,24 @@ import {
   ActionIcon,
   Alert,
   Badge,
+  Button,
   Group,
+  Menu,
   Loader,
   Stack,
   Table,
   Text,
   Tooltip,
 } from "@mantine/core";
-import { IconAlertTriangle, IconRefresh } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconPencil,
+  IconRefresh,
+} from "@tabler/icons-react";
 import type { JobDetail, JobRun, QueryTab } from "../../types";
 import { api } from "../../utils/api-client";
+import { useStore } from "../../store";
+import { JobChangeModal, type JobChangeIntent } from "./job-change-modal";
 
 const STATUS_COLOR: Record<string, string> = {
   succeeded: "green",
@@ -64,15 +72,29 @@ const Mono = ({ children }: { children: string }) => (
   </pre>
 );
 
+/** SQL steps on this database: the ones a job_change may rewrite. */
+const stepEditable = (job: JobDetail, s: JobDetail["steps"][number]) =>
+  ["TSQL", "SQL"].includes(s.subsystem.toUpperCase()) &&
+  (!s.database || s.database === job.database);
+
 /**
  * A scheduled job (SQL Server Agent or pg_cron), read live: what it runs, when,
- * and how its last runs went. Read-only — a change to a job goes through a
- * job_change write request.
+ * and how its last runs went. Changes are proposed from here as job_change
+ * write requests — nothing changes until one is approved.
  */
 export function JobView({ tab }: { tab: QueryTab }) {
   const [job, setJob] = useState<JobDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [intent, setIntent] = useState<JobChangeIntent | null>(null);
+  const env = useStore(
+    (s) => s.connections.find((c) => c.id === tab.connectionId)?.env,
+  );
+  // Changing a job is its own capability, not write access.
+  const canChange = useStore(
+    (s) =>
+      !!s.user?.isAdmin || !!(env && s.user?.jobEnvironments?.includes(env)),
+  );
 
   useEffect(() => {
     let live = true;
@@ -114,9 +136,43 @@ export function JobView({ tab }: { tab: QueryTab }) {
             {job.category}
           </Text>
         )}
+        {canChange && (
+          <Menu position="bottom-end" withinPortal>
+            <Menu.Target>
+              <Button
+                ml="auto"
+                size="xs"
+                variant="light"
+                leftSection={<IconPencil size={14} />}
+              >
+                Propose a change
+              </Button>
+            </Menu.Target>
+            <Menu.Dropdown>
+              <Menu.Item onClick={() => setIntent({ type: "set_enabled" })}>
+                {job.enabled ? "Disable job" : "Enable job"}
+              </Menu.Item>
+              {job.engine === "agent" && (
+                <>
+                  <Menu.Item onClick={() => setIntent({ type: "rename" })}>
+                    Rename…
+                  </Menu.Item>
+                  <Menu.Item
+                    onClick={() => setIntent({ type: "set_description" })}
+                  >
+                    Change description…
+                  </Menu.Item>
+                  <Menu.Item onClick={() => setIntent({ type: "add_step" })}>
+                    Add a step…
+                  </Menu.Item>
+                </>
+              )}
+            </Menu.Dropdown>
+          </Menu>
+        )}
         <Tooltip label="Re-read from the database" openDelay={400}>
           <ActionIcon
-            ml="auto"
+            ml={canChange ? undefined : "auto"}
             variant="subtle"
             color="gray"
             aria-label="Refresh job"
@@ -175,6 +231,32 @@ export function JobView({ tab }: { tab: QueryTab }) {
                 </Text>
               )}
               <RunBadge run={s.lastRun} />
+              {canChange && stepEditable(job, s) && (
+                <Button
+                  size="compact-xs"
+                  variant="subtle"
+                  ml="auto"
+                  onClick={() => setIntent({ type: "edit_step", stepId: s.id })}
+                >
+                  Edit command
+                </Button>
+              )}
+              {canChange &&
+                job.engine === "agent" &&
+                job.steps.length > 1 &&
+                (!s.database || s.database === job.database) && (
+                  <Button
+                    size="compact-xs"
+                    variant="subtle"
+                    color="red"
+                    ml={stepEditable(job, s) ? undefined : "auto"}
+                    onClick={() =>
+                      setIntent({ type: "delete_step", stepId: s.id })
+                    }
+                  >
+                    Delete
+                  </Button>
+                )}
             </Group>
             <Mono>{s.command}</Mono>
             {s.lastRun?.status === "failed" && s.lastRun.message && (
@@ -196,8 +278,20 @@ export function JobView({ tab }: { tab: QueryTab }) {
           </Text>
         )}
         {job.schedules.map((s) => (
-          <Text key={s.id} size="sm">
+          <Text key={s.id} size="sm" component="div">
             {s.description}
+            {canChange && s.editable && (
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                ml={6}
+                onClick={() =>
+                  setIntent({ type: "set_schedule", scheduleId: s.id })
+                }
+              >
+                Change
+              </Button>
+            )}
             {!s.enabled && (
               <Text span c="dimmed">
                 {" "}
@@ -214,6 +308,15 @@ export function JobView({ tab }: { tab: QueryTab }) {
           </Text>
         ))}
       </Stack>
+
+      {intent && tab.connectionId && (
+        <JobChangeModal
+          connId={tab.connectionId}
+          job={job}
+          intent={intent}
+          onClose={() => setIntent(null)}
+        />
+      )}
 
       {job.history.length > 0 && (
         <>
