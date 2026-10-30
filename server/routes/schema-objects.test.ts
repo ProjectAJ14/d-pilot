@@ -21,6 +21,7 @@ const conns: Record<string, any> = {
   "qa-core": { id: "qa-core", type: "postgres", env: "QA" },
   "prod-core": { id: "prod-core", type: "postgres", env: "PROD" },
   "qa-mongo": { id: "qa-mongo", type: "mongodb", env: "QA" },
+  "qa-ms": { id: "qa-ms", type: "mssql", env: "QA" },
 };
 vi.mock("../config/connections.js", () => ({
   getConnection: (id: string) => conns[id],
@@ -38,10 +39,16 @@ vi.mock("../config/settings.js", () => ({
 }));
 const getObjects = vi.fn();
 const getObjectDefinition = vi.fn();
+const getDrift = vi.fn(async () => ({
+  schema: "app_core",
+  identical: 0,
+  items: [],
+}));
 vi.mock("../services/schema-objects.js", async (orig) => ({
   ...(await orig<typeof import("../services/schema-objects.js")>()),
   getObjects,
   getObjectDefinition,
+  getDrift,
 }));
 vi.mock("../services/schema-introspector.js", () => ({}));
 
@@ -149,5 +156,20 @@ describe("object routes", () => {
     );
     expect((await get("/qa-mongo/objects/view/v/definition")).status).toBe(400);
     expect(getObjectDefinition).not.toHaveBeenCalled();
+  });
+
+  it("checks read rights on both sides of a drift report", async () => {
+    expect((await get("/qa-core/drift?against=prod-core")).status).toBe(403);
+    expect((await get("/qa-core/drift")).status).toBe(400);
+    expect((await get("/qa-core/drift?against=qa-ms")).status).toBe(400);
+    expect(getDrift).not.toHaveBeenCalled();
+    expect(
+      (await get("/qa-core/drift?against=qa-core&schema=app_core")).status,
+    ).toBe(200);
+    expect(getDrift).toHaveBeenCalledWith(
+      conns["qa-core"],
+      conns["qa-core"],
+      "app_core",
+    );
   });
 });

@@ -462,6 +462,67 @@ describe("schema and listing tools", () => {
     await client.close();
   });
 
+  it("compare_objects lists what differs and where", async () => {
+    const api = answering({
+      "/schema/qa-pg/drift?against=prod-pg": {
+        schema: "app_core",
+        identical: 4,
+        items: [
+          {
+            schema: "app_core",
+            name: "close_stale_orders",
+            kind: "procedure",
+            args: "",
+            status: "different",
+          },
+          {
+            schema: "app_core",
+            name: "dev_only_view",
+            kind: "view",
+            status: "only_left",
+          },
+        ],
+      },
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("compare_objects", {
+      connectionId: "qa-pg",
+      againstConnectionId: "prod-pg",
+    });
+    expect(text).toBe(
+      "2 differ, 4 identical in app_core.\n- procedure app_core.close_stale_orders(): differs\n- view app_core.dev_only_view: only on qa-pg",
+    );
+    await client.close();
+  });
+
+  it("get_object_dependencies marks unresolved references and best effort", async () => {
+    const api = answering({
+      "/schema/qa-pg/objects/view/open_orders/dependencies": {
+        uses: [
+          { schema: "app_core", name: "orders", kind: "table" },
+          {
+            database: "archive",
+            schema: "dbo",
+            name: "orders_2019",
+            kind: null,
+          },
+        ],
+        usedBy: [],
+        bestEffort: true,
+      },
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("get_object_dependencies", {
+      connectionId: "qa-pg",
+      kind: "view",
+      name: "open_orders",
+    });
+    expect(text).toBe(
+      "uses: app_core.orders (table), archive.dbo.orders_2019 (?)\nused by: nothing found\n(best effort: found by name in function bodies)",
+    );
+    await client.close();
+  });
+
   it("list_tables withColumns reads the cached full schema once", async () => {
     const api = answering({
       "/schema/qa-pg/full?schema=app_core": {

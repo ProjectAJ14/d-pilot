@@ -12,8 +12,11 @@ import {
 } from "../services/connection-errors.js";
 import {
   AmbiguousObjectError,
+  getDrift,
   getObjectDefinition,
+  getObjectDependencies,
   getObjects,
+  type ObjectRef,
   OBJECT_KINDS,
   supportsObjects,
 } from "../services/schema-objects.js";
@@ -136,46 +139,75 @@ router.get("/:connectionId/objects", async (req: Request, res: Response) => {
   }
 });
 
-// One object's definition, read live. `args` picks a Postgres overload,
-// `parent` a Postgres trigger's table. Audited: a definition is code someone
-// read, and may hold literals worth knowing who saw.
-router.get(
-  "/:connectionId/objects/:kind/:name/definition",
-  async (req: Request, res: Response) => {
-    const conn = resolveReadableConnection(
-      req,
-      res,
-      req.params.connectionId as string,
-    );
-    if (!conn) return;
+/**
+ * The object a `/objects/:kind/:name/...` request names, with the connection it
+ * is read from — or null once the response has already said why not.
+ * `args` picks a Postgres overload (an empty string is the zero-argument
+ * one), `parent` a Postgres trigger's table.
+ */
+function objectTarget(
+  req: Request,
+  res: Response,
+): { conn: ConnectionConfig; ref: ObjectRef } | null {
+  const conn = resolveReadableConnection(
+    req,
+    res,
+    req.params.connectionId as string,
+  );
+  if (!conn) return null;
 
-    const kind = req.params.kind as DbObjectKind;
-    if (!OBJECT_KINDS.includes(kind)) {
-      res.status(400).json({
-        error: `Unknown object kind '${kind}' — one of ${OBJECT_KINDS.join(", ")}`,
-      });
-      return;
-    }
-    if (!supportsObjects(conn)) {
-      res
-        .status(400)
-        .json({ error: `${conn.type} connections have no ${kind}s` });
-      return;
-    }
-
-    const q = (k: string) => (req.query[k] as string | undefined) ?? undefined;
-    const ref = {
+  const kind = req.params.kind as DbObjectKind;
+  if (!OBJECT_KINDS.includes(kind)) {
+    res.status(400).json({
+      error: `Unknown object kind '${kind}' — one of ${OBJECT_KINDS.join(", ")}`,
+    });
+    return null;
+  }
+  if (!supportsObjects(conn)) {
+    res
+      .status(400)
+      .json({ error: `${conn.type} connections have no ${kind}s` });
+    return null;
+  }
+  const q = (k: string) => req.query[k] as string | undefined;
+  return {
+    conn,
+    ref: {
       kind,
       name: req.params.name as string,
       schema: q("schema") || undefined,
       args: q("args"),
       parent: q("parent") || undefined,
-    };
+    },
+  };
+}
+
+function sendObjectError(
+  res: Response,
+  conn: ConnectionConfig,
+  err: any,
+  fallback: string,
+): void {
+  if (err instanceof AmbiguousObjectError) {
+    res.status(400).json({ error: err.message });
+    return;
+  }
+  sendSchemaError(res, conn, err, fallback);
+}
+
+// One object's definition, read live. Audited: a definition is code someone
+// read, and may hold literals worth knowing who saw.
+router.get(
+  "/:connectionId/objects/:kind/:name/definition",
+  async (req: Request, res: Response) => {
+    const target = objectTarget(req, res);
+    if (!target) return;
+    const { conn, ref } = target;
     try {
       const obj = await getObjectDefinition(conn, ref);
       if (!obj) {
         res.status(404).json({
-          error: `No ${kind} named ${ref.name} on this connection`,
+          error: `No ${ref.kind} named ${ref.name} on this connection`,
           code: "OBJECT_NOT_FOUND",
         });
         return;
@@ -185,18 +217,59 @@ router.get(
         userEmail: req.user!.email,
         action: "OBJECT_VIEW",
         phiAccessed: false,
-        sql: `${kind} ${obj.schema}.${obj.name}${obj.args != null ? `(${obj.args})` : ""}`,
+        sql: `${ref.kind} ${obj.schema}.${obj.name}${obj.args != null ? `(${obj.args})` : ""}`,
         connectionId: conn.id,
       });
       res.json(obj);
     } catch (err: any) {
-      if (err instanceof AmbiguousObjectError) {
-        res.status(400).json({ error: err.message });
-        return;
-      }
-      sendSchemaError(res, conn, err, "Failed to fetch definition");
+      sendObjectError(res, conn, err, "Failed to fetch definition");
     }
   },
 );
+
+// What an object reads and what reads it — shown before anyone changes it.
+router.get(
+  "/:connectionId/objects/:kind/:name/dependencies",
+  async (req: Request, res: Response) => {
+    const target = objectTarget(req, res);
+    if (!target) return;
+    try {
+      res.json(await getObjectDependencies(target.conn, target.ref));
+    } catch (err: any) {
+      sendObjectError(res, target.conn, err, "Failed to fetch dependencies");
+    }
+  },
+);
+
+// Every object that differs between this connection and `against`, by hash of
+// the normalized definition. Read rights are checked on both connections;
+// only names come back, never a definition.
+router.get("/:connectionId/drift", async (req: Request, res: Response) => {
+  const left = resolveReadableConnection(
+    req,
+    res,
+    req.params.connectionId as string,
+  );
+  if (!left) return;
+  const right = resolveReadableConnection(
+    req,
+    res,
+    req.query.against as string | undefined,
+  );
+  if (!right) return;
+  if (left.type !== right.type || !supportsObjects(left)) {
+    res.status(400).json({
+      error:
+        "A drift report compares two Postgres or two SQL Server connections",
+    });
+    return;
+  }
+  try {
+    const schema = (req.query.schema as string) || undefined;
+    res.json(await getDrift(left, right, schema));
+  } catch (err: any) {
+    sendSchemaError(res, left, err, "Failed to compare connections");
+  }
+});
 
 export default router;

@@ -11,7 +11,13 @@ import {
   Tooltip,
 } from "@mantine/core";
 import { IconCopy, IconLock, IconRefresh } from "@tabler/icons-react";
-import type { DbObjectDefinition, DbObjectInfo, QueryTab } from "../../types";
+import type {
+  DbObjectDefinition,
+  DbObjectDependencies,
+  DbObjectInfo,
+  DbObjectReference,
+  QueryTab,
+} from "../../types";
 import { api, ApiError } from "../../utils/api-client";
 import { useStore } from "../../store";
 import {
@@ -65,7 +71,9 @@ export function ObjectView({ tab }: { tab: QueryTab }) {
   const object = tab.object!;
   const conn = connections.find((c) => c.id === tab.connectionId);
   const [mine, setMine] = useState<Side>({ state: "loading" });
-  const [otherId, setOtherId] = useState<string | null>(null);
+  const [otherId, setOtherId] = useState<string | null>(
+    tab.compareWith ?? null,
+  );
   const [otherSide, setOther] = useState<Side | null>(null);
   const [reload, setReload] = useState(0);
 
@@ -176,6 +184,14 @@ export function ObjectView({ tab }: { tab: QueryTab }) {
         </Tooltip>
       </Group>
 
+      {conn && (
+        <DependencyStrip
+          key={`${tab.id}-${reload}`}
+          connId={conn.id}
+          object={object}
+        />
+      )}
+
       {(notes.length > 0 || same) && (
         <Text
           size="xs"
@@ -223,6 +239,116 @@ export function ObjectView({ tab }: { tab: QueryTab }) {
             options={{ ...baseSqlEditorOptions, readOnly: true }}
           />
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+const OPENABLE = ["procedure", "function", "view", "trigger"];
+
+/**
+ * "Uses / Used by" for the open object, so its blast radius is on screen
+ * before anyone proposes a change to it. A reference the engine could not
+ * resolve (dropped, late-bound, another database) is listed, not hidden.
+ */
+function DependencyStrip({
+  connId,
+  object,
+}: {
+  connId: string;
+  object: DbObjectInfo;
+}) {
+  const openObjectTab = useStore((s) => s.openObjectTab);
+  const [deps, setDeps] = useState<DbObjectDependencies | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .getObjectDependencies(connId, object)
+      .then(setDeps)
+      .catch((err) => setError(err.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connId]);
+
+  const ref = (r: DbObjectReference) => {
+    const name = `${r.database ? `${r.database}.` : ""}${r.schema ? `${r.schema}.` : ""}${r.name}`;
+    const openable = !r.database && r.schema && OPENABLE.includes(r.kind ?? "");
+    return (
+      <Text
+        key={`${name}:${r.kind}`}
+        span
+        size="xs"
+        ff="monospace"
+        c={r.kind == null ? "dimmed" : openable ? "var(--accent)" : undefined}
+        title={
+          r.kind ?? "unresolved — dropped, late-bound or in another database"
+        }
+        style={{ cursor: openable ? "pointer" : undefined, marginRight: 8 }}
+        onClick={
+          openable
+            ? () =>
+                openObjectTab(connId, {
+                  schema: r.schema!,
+                  name: r.name,
+                  kind: r.kind as DbObjectInfo["kind"],
+                })
+            : undefined
+        }
+      >
+        {name}
+        {r.kind == null ? " (?)" : r.kind === "table" ? "" : ` (${r.kind})`}
+      </Text>
+    );
+  };
+
+  if (error)
+    return (
+      <Text size="xs" c="dimmed" style={{ padding: "6px 14px" }}>
+        Dependencies unavailable: {error}
+      </Text>
+    );
+  if (!deps) return null;
+  return (
+    <div
+      style={{
+        padding: "6px 14px",
+        borderBottom: "1px solid var(--border)",
+        flexShrink: 0,
+        display: "grid",
+        gridTemplateColumns: "auto 1fr",
+        columnGap: 8,
+        rowGap: 2,
+      }}
+    >
+      <Text size="xs" c="dimmed">
+        Uses
+      </Text>
+      <div>
+        {deps.uses.length ? (
+          deps.uses.map(ref)
+        ) : (
+          <Text span size="xs" c="dimmed">
+            nothing found
+          </Text>
+        )}
+      </div>
+      <Text size="xs" c="dimmed">
+        Used by
+      </Text>
+      <div>
+        {deps.usedBy.length ? (
+          deps.usedBy.map(ref)
+        ) : (
+          <Text span size="xs" c="dimmed">
+            nothing found
+          </Text>
+        )}
+        {deps.bestEffort && (
+          <Text span size="xs" c="dimmed" fs="italic">
+            {" "}
+            — best effort: found by name in function bodies
+          </Text>
+        )}
       </div>
     </div>
   );

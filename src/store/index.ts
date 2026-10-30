@@ -133,7 +133,11 @@ interface AppState {
   /** Open an artifact as a tab, focusing it if it is already open. */
   openArtifactTab: (artifact: Pick<Artifact, "id" | "title">) => void;
   /** Open a procedure/function/view/trigger's definition as a tab, focusing it if open. */
-  openObjectTab: (connectionId: string, object: DbObjectInfo) => void;
+  openObjectTab: (
+    connectionId: string,
+    object: DbObjectInfo,
+    compareWith?: string,
+  ) => void;
 
   // Sidebar
   sidebarOpen: boolean;
@@ -485,7 +489,7 @@ export const useStore = create<AppState>((set, get) => ({
     persistAfterSet();
   },
 
-  openObjectTab: (connectionId, object) => {
+  openObjectTab: (connectionId, object, compareWith) => {
     const same = (o?: DbObjectInfo) =>
       !!o &&
       (["schema", "name", "kind", "args", "parent"] as const).every(
@@ -504,6 +508,7 @@ export const useStore = create<AppState>((set, get) => ({
         ...createTab(connectionId),
         kind: "object",
         object,
+        compareWith,
         schema: object.schema,
         title: object.name,
       };

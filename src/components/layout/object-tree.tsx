@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader, Text } from "@mantine/core";
+import { Button, Loader, Text } from "@mantine/core";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -9,6 +9,7 @@ import type { DbObjectInfo, DbObjectKind } from "@src/types";
 import { api } from "@src/utils/api-client";
 import { nameMatches } from "@src/utils/explorer-search";
 import { useStore } from "@src/store";
+import { DriftReportModal } from "@src/components/query/drift-report";
 
 const KIND_LABELS: [DbObjectKind, string][] = [
   ["procedure", "Procedures"],
@@ -38,6 +39,7 @@ export function ObjectTree({
   const [objects, setObjects] = useState<DbObjectInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [driftOpen, setDriftOpen] = useState(false);
 
   const toggle = () => {
     setOpen(!open);
@@ -83,6 +85,25 @@ export function ObjectTree({
         <Text size="xs" c="red" style={{ fontSize: 10, padding: "4px 24px" }}>
           {error}
         </Text>
+      )}
+      {open && objects && (
+        <Button
+          size="compact-xs"
+          variant="subtle"
+          color="gray"
+          ml={24}
+          onClick={() => setDriftOpen(true)}
+        >
+          Drift report…
+        </Button>
+      )}
+      {driftOpen && (
+        <DriftReportModal
+          connId={connId}
+          schema={schema}
+          opened
+          onClose={() => setDriftOpen(false)}
+        />
       )}
       {open && objects?.length === 0 && (
         <Text

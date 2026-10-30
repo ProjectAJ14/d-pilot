@@ -10,7 +10,9 @@ import type {
   AppSettingView,
   ConnectionAdminView,
   DbObjectDefinition,
+  DbObjectDependencies,
   DbObjectInfo,
+  DriftReport,
 } from "../types";
 import { BASE_PATH } from "./base-path";
 import {
@@ -43,6 +45,14 @@ const BASE_URL = `${BASE_PATH}/api`;
 
 // Error thrown for non-OK API responses. Carries the HTTP status and the
 // server's machine-readable code (e.g. CONNECTION_FAILED) when present.
+/** `args` / `parent` go along even when empty: `args=` is a zero-argument overload. */
+function objectPath(connectionId: string, o: DbObjectInfo, what: string) {
+  const q = new URLSearchParams({ schema: o.schema });
+  if (o.args != null) q.set("args", o.args);
+  if (o.parent != null) q.set("parent", o.parent);
+  return `/schema/${connectionId}/objects/${o.kind}/${encodeURIComponent(o.name)}/${what}?${q}`;
+}
+
 export class ApiError extends Error {
   status: number;
   code?: ApiErrorCode;
@@ -481,15 +491,14 @@ export const api = {
     request<DbObjectInfo[]>(
       `/schema/${connectionId}/objects${schema ? `?schema=${encodeURIComponent(schema)}` : ""}`,
     ),
-  /** `args` / `parent` go along even when empty: `args=` is a zero-argument overload. */
-  getObjectDefinition: (connectionId: string, o: DbObjectInfo) => {
-    const q = new URLSearchParams({ schema: o.schema });
-    if (o.args != null) q.set("args", o.args);
-    if (o.parent != null) q.set("parent", o.parent);
-    return request<DbObjectDefinition>(
-      `/schema/${connectionId}/objects/${o.kind}/${encodeURIComponent(o.name)}/definition?${q}`,
-    );
-  },
+  getObjectDefinition: (connectionId: string, o: DbObjectInfo) =>
+    request<DbObjectDefinition>(objectPath(connectionId, o, "definition")),
+  getObjectDependencies: (connectionId: string, o: DbObjectInfo) =>
+    request<DbObjectDependencies>(objectPath(connectionId, o, "dependencies")),
+  getDrift: (connectionId: string, against: string, schema?: string) =>
+    request<DriftReport>(
+      `/schema/${connectionId}/drift?${new URLSearchParams({ against, ...(schema && { schema }) })}`,
+    ),
   getFullSchema: (connectionId: string, schema?: string) =>
     request<{
       tables: { name: string; type: string }[];

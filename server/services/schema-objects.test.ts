@@ -50,8 +50,14 @@ vi.mock("mssql", async () => {
   };
 });
 
-const { getObjects, getObjectDefinition, AmbiguousObjectError } =
-  await import("./schema-objects.js");
+const {
+  getObjects,
+  getObjectDefinition,
+  getObjectDependencies,
+  AmbiguousObjectError,
+  compareDefinitions,
+  normalizeDefinition,
+} = await import("./schema-objects.js");
 
 const pg = { id: "qa-core", type: "postgres", env: "QA" } as ConnectionConfig;
 const ms = { id: "qa-ms", type: "mssql", env: "QA" } as ConnectionConfig;
@@ -230,5 +236,132 @@ describe("getObjectDefinition", () => {
         schema: "dbo",
       }),
     ).toBeNull();
+  });
+});
+
+describe("drift", () => {
+  it("treats line endings and trailing whitespace as the same definition", () => {
+    expect(normalizeDefinition("SELECT 1  \r\nFROM orders\t\r\n\r\n")).toBe(
+      "SELECT 1\nFROM orders",
+    );
+  });
+
+  it("reports differences and one-sided objects, never a hidden definition as identical", () => {
+    const o = (name: string, definition: string | null, args?: string) => ({
+      schema: "app_core",
+      name,
+      kind: "function" as const,
+      ...(args != null && { args }),
+      definition,
+    });
+    const report = compareDefinitions(
+      "app_core",
+      [
+        o("same", "SELECT 1\r\n"),
+        o("changed", "SELECT 1"),
+        o("hidden", null),
+        o("refresh_order_totals", "a", ""),
+        o("dev_only", "x"),
+      ],
+      [
+        o("same", "SELECT 1"),
+        o("changed", "SELECT 2"),
+        o("hidden", null),
+        o("refresh_order_totals", "a", "integer"),
+        o("qa_only", "y"),
+      ],
+    );
+    expect(report.identical).toBe(1);
+    expect(report.items.map((i) => [i.name, i.args, i.status])).toEqual([
+      ["changed", undefined, "different"],
+      ["dev_only", undefined, "only_left"],
+      ["hidden", undefined, "different"],
+      ["qa_only", undefined, "only_right"],
+      // Overloads are different objects: each exists on one side only.
+      ["refresh_order_totals", "", "only_left"],
+      ["refresh_order_totals", "integer", "only_right"],
+    ]);
+    expect(report.items[0]).not.toHaveProperty("definition");
+  });
+});
+
+describe("getObjectDependencies", () => {
+  it("keeps unresolved and cross-database SQL Server references instead of dropping them", async () => {
+    h.rows.push([
+      { dir: "uses", db: null, sch: "app_core", name: "orders", type: "U " },
+      {
+        dir: "uses",
+        db: null,
+        sch: "app_core",
+        name: "dropped_view",
+        type: null,
+      },
+      {
+        dir: "uses",
+        db: "archive",
+        sch: "dbo",
+        name: "orders_2019",
+        type: null,
+      },
+      {
+        dir: "usedBy",
+        db: null,
+        sch: "app_core",
+        name: "nightly_close",
+        type: "P ",
+      },
+    ]);
+    const deps = await getObjectDependencies(ms, {
+      kind: "view",
+      name: "open_orders",
+      schema: "app_core",
+    });
+    expect(deps).toEqual({
+      uses: [
+        { schema: "app_core", name: "orders", kind: "table" },
+        { schema: "app_core", name: "dropped_view", kind: null },
+        { schema: "dbo", name: "orders_2019", kind: null, database: "archive" },
+      ],
+      usedBy: [
+        { schema: "app_core", name: "nightly_close", kind: "procedure" },
+      ],
+      bestEffort: false,
+    });
+    // Bound, and the referenced side is LEFT JOINed so unresolved rows survive.
+    expect(h.calls[0].params).toEqual({
+      schema: "app_core",
+      name: "open_orders",
+    });
+    expect(h.calls[0].sql).toContain("LEFT JOIN sys.objects");
+  });
+
+  it("marks Postgres routine dependencies best-effort and binds the overload", async () => {
+    h.rows.push(
+      [{ dir: "uses", sch: "app_core", name: "orders", kind: "table" }],
+      [
+        {
+          dir: "usedBy",
+          sch: "app_core",
+          name: "nightly_close",
+          kind: "procedure",
+        },
+      ],
+    );
+    const deps = await getObjectDependencies(pg, {
+      kind: "function",
+      name: "refresh_order_totals",
+      schema: "app_core",
+      args: "integer",
+    });
+    expect(deps.bestEffort).toBe(true);
+    expect(deps.usedBy).toEqual([
+      { schema: "app_core", name: "nightly_close", kind: "procedure" },
+    ]);
+    expect(h.calls[0].params).toEqual([
+      "app_core",
+      "refresh_order_totals",
+      "integer",
+    ]);
+    expect(h.calls[1].params).toEqual(["app_core", "refresh_order_totals"]);
   });
 });

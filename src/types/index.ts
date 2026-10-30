@@ -208,6 +208,35 @@ export interface DbObjectDefinition extends DbObjectInfo {
   definition: string | null;
 }
 
+/** One side of a dependency edge. `kind` is null when the engine can't resolve it. */
+export interface DbObjectReference {
+  schema?: string;
+  name: string;
+  /** procedure | function | view | trigger | table, or null for an unresolved reference. */
+  kind: DbObjectKind | "table" | null;
+  /** Set on a cross-database reference (SQL Server). */
+  database?: string;
+}
+
+export interface DbObjectDependencies {
+  uses: DbObjectReference[];
+  usedBy: DbObjectReference[];
+  /** True when part of the answer came from scanning bodies for names (Postgres functions). */
+  bestEffort: boolean;
+}
+
+/** One object whose definition differs between two connections, or exists on one only. */
+export interface DriftItem extends DbObjectInfo {
+  status: "different" | "only_left" | "only_right";
+}
+
+export interface DriftReport {
+  schema: string;
+  /** Objects present on both sides with the same normalized definition. */
+  identical: number;
+  items: DriftItem[];
+}
+
 export interface ColumnInfo {
   name: string;
   dataType: string;
@@ -234,6 +263,8 @@ export interface QueryTab {
   artifactId?: string;
   /** Set on object tabs (with `connectionId`) — the definition is read live, never persisted. */
   object?: DbObjectInfo;
+  /** Object tabs: a connection to diff against when the tab first opens. */
+  compareWith?: string;
   sql: string;
   connectionId: string | null;
   /** Active schema for this tab (Postgres/MSSQL). Undefined = connection default. */

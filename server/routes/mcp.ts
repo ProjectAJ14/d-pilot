@@ -53,7 +53,10 @@ import {
 import type {
   ColumnInfo,
   DbObjectDefinition,
+  DbObjectDependencies,
   DbObjectInfo,
+  DbObjectReference,
+  DriftReport,
   TableInfo,
 } from "../types/index.js";
 
@@ -481,6 +484,82 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
             o.definition ??
             "Definition not available: the object is encrypted, or this connection's login lacks VIEW DEFINITION."
           }`,
+        );
+      }),
+  );
+
+  tool(
+    "get_object_dependencies",
+    {
+      title: "What an object uses and what uses it",
+      description:
+        "Before changing a procedure, function, view or trigger: what it reads (`uses`) and what reads it (`used by`), one line each. `(?)` marks a reference the database could not resolve (dropped, late-bound or in another database). Postgres function bodies are matched by name, so their answer is best-effort and says so.",
+      inputSchema: {
+        connectionId: z.string(),
+        kind: OBJECT_KIND,
+        name: z.string(),
+        schema: z.string().optional(),
+        args: z.string().optional(),
+        parent: z.string().optional(),
+      },
+      annotations: readOnly,
+    },
+    ({ connectionId, kind, name, schema, args, parent }) =>
+      guard(async () => {
+        const d = await client.get<DbObjectDependencies>(
+          `/schema/${encodeURIComponent(connectionId)}/objects/${kind}/${encodeURIComponent(name)}/dependencies${qs({ schema, args, parent })}`,
+        );
+        const line = (list: DbObjectReference[]) =>
+          list
+            .map(
+              (r) =>
+                `${[r.database, r.schema, r.name].filter(Boolean).join(".")}${r.kind == null ? " (?)" : ` (${r.kind})`}`,
+            )
+            .join(", ") || "nothing found";
+        return text(
+          [
+            `uses: ${line(d.uses)}`,
+            `used by: ${line(d.usedBy)}`,
+            d.bestEffort
+              ? "(best effort: found by name in function bodies)"
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        );
+      }),
+  );
+
+  tool(
+    "compare_objects",
+    {
+      title: "Drift report between two connections",
+      description:
+        "Which procedures, functions, views and triggers in a schema differ between two connections of the same engine (e.g. QA vs PROD), or exist on only one. Compares normalized definitions by hash; lists names only. Read a pair with get_object_definition on each connection to see how they differ.",
+      inputSchema: {
+        connectionId: z.string(),
+        againstConnectionId: z.string(),
+        schema: z.string().optional(),
+      },
+      annotations: readOnly,
+    },
+    ({ connectionId, againstConnectionId, schema }) =>
+      guard(async () => {
+        const r = await client.get<DriftReport>(
+          `/schema/${encodeURIComponent(connectionId)}/drift${qs({ against: againstConnectionId, schema })}`,
+        );
+        const where = {
+          different: "differs",
+          only_left: `only on ${connectionId}`,
+          only_right: `only on ${againstConnectionId}`,
+        };
+        return text(
+          [
+            `${r.items.length} differ, ${r.identical} identical in ${r.schema}.`,
+            ...r.items.map(
+              (i) => `- ${i.kind} ${objectLabel(i)}: ${where[i.status]}`,
+            ),
+          ].join("\n"),
         );
       }),
   );
