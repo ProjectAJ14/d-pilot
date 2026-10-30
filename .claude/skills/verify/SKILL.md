@@ -19,6 +19,15 @@ description: How to launch and drive D-Pilot locally to verify changes end-to-en
 - Get a JWT: `POST /api/auth/login` with `{"username","password"}` → `{token}`; pass as
   `Authorization: Bearer <token>` to everything else.
 
+## Local DEV/QA/PROD databases (quickest)
+
+`npm run dev:db` (Docker only) starts three Postgres servers from
+`docker-compose.dev.yml` — DEV :5433, QA :5434, PROD :5435, user/password `dpilot` —
+reseeds each from `scripts/seed-local.sql` (different row counts per env, schema drift
+between DEV and PROD, pg_cron jobs) and registers them as connections in the store
+under `.env`'s `DATA_DIR`. Re-run it to reset the data; restart a running server to
+pick up the connections. `npm run dev:db:down` stops them.
+
 ## Isolated stack against a local Postgres
 
 The default way to verify end-to-end without touching the main `.env` or the shared

@@ -1,28 +1,56 @@
-# Local Postgres for experimenting with the write / migration workflow.
-# Isolated from any production target DB: point the dev stack's connection at it
-# in Settings → Connections (localhost:5433, dpilot_dev, user/password dpilot).
-# Start with:  npm run dev:db   (stop: npm run dev:db:down)
+# Local databases for development: one Postgres server per environment, so
+# DEV, QA and PROD differ the way real ones do (data volumes, schema drift,
+# scheduled jobs). Isolated from any real target DB.
 #
-# Host port 5433 (not 5432) so it never clashes with a Postgres you already run.
+# Start, reseed and register them in D-Pilot with:  npm run dev:db
+# Stop with:                                        npm run dev:db:down
+#
+# Host ports 5433-5435 (not 5432) so they never clash with a Postgres you
+# already run. Each server has pg_cron, scoped to its own database, so the
+# Jobs view has something to show.
+x-postgres: &postgres
+  build:
+    dockerfile_inline: |
+      FROM postgres:16
+      RUN apt-get update && apt-get install -y --no-install-recommends postgresql-16-cron \
+        && rm -rf /var/lib/apt/lists/*
+  image: dpilot-dev-postgres:16-cron
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U dpilot -d $${POSTGRES_DB}"]
+    interval: 3s
+    timeout: 3s
+    retries: 20
+
+x-pg-env: &pg-env
+  POSTGRES_USER: dpilot
+  POSTGRES_PASSWORD: dpilot
+
 services:
-  postgres:
-    image: postgres:16-alpine
+  pg-dev:
+    <<: *postgres
     container_name: dpilot-dev-pg
-    environment:
-      POSTGRES_USER: dpilot
-      POSTGRES_PASSWORD: dpilot
-      POSTGRES_DB: dpilot_dev
-    ports:
-      - "5433:5432"
-    volumes:
-      - dpilot_dev_pg:/var/lib/postgresql/data
-      # Seeds a baseline schema on first boot (only when the volume is empty).
-      - ./scripts/dev-seed.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dpilot -d dpilot_dev"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
+    environment: { <<: *pg-env, POSTGRES_DB: dpilot_dev }
+    command: postgres -c shared_preload_libraries=pg_cron -c cron.database_name=dpilot_dev
+    ports: ["5433:5432"]
+    volumes: [dpilot_dev_pg:/var/lib/postgresql/data]
+
+  pg-qa:
+    <<: *postgres
+    container_name: dpilot-qa-pg
+    environment: { <<: *pg-env, POSTGRES_DB: dpilot_qa }
+    command: postgres -c shared_preload_libraries=pg_cron -c cron.database_name=dpilot_qa
+    ports: ["5434:5432"]
+    volumes: [dpilot_qa_pg:/var/lib/postgresql/data]
+
+  pg-prod:
+    <<: *postgres
+    container_name: dpilot-prod-pg
+    environment: { <<: *pg-env, POSTGRES_DB: dpilot_prod }
+    command: postgres -c shared_preload_libraries=pg_cron -c cron.database_name=dpilot_prod
+    ports: ["5435:5432"]
+    volumes: [dpilot_prod_pg:/var/lib/postgresql/data]
 
 volumes:
   dpilot_dev_pg:
+  dpilot_qa_pg:
+  dpilot_prod_pg:

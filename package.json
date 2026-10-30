@@ -10,7 +10,7 @@
     "restart": "npm run dev",
     "dev:server": "tsx watch server/index.ts",
     "dev:client": "vite",
-    "dev:db": "docker compose -f docker-compose.dev.yml up -d --wait",
+    "dev:db": "bash scripts/local-dbs.sh",
     "dev:db:down": "docker compose -f docker-compose.dev.yml down",
     "predev:local": "DOTENV_CONFIG_PATH=.env.dev node scripts/free-ports.mjs",
     "dev:local": "concurrently \"npm run dev:server:local\" \"npm run dev:client:local\"",
