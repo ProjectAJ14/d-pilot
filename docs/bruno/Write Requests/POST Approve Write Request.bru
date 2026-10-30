@@ -29,4 +29,6 @@ docs {
 
   Requires a valid Bearer JWT ({{token}}).
   Requires **write mode** to be enabled.
+
+  Object changes: 409 `{ code: "OBJECT_CHANGED" }` when the object's deployed definition no longer matches the snapshot taken at submit — nothing runs and the request is unchanged; revise it to re-base.
 }

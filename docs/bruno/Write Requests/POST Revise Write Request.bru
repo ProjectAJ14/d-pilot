@@ -36,4 +36,6 @@ docs {
 
   Requires a valid Bearer JWT ({{token}}).
   Requires **write mode** to be enabled.
+
+  Object changes: the new `writeSql` is checked against the request's object, and the snapshot is re-taken from what is deployed now.
 }

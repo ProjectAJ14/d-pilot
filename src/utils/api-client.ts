@@ -302,6 +302,8 @@ export const api = {
     noTransaction?: boolean;
     /** Save only — the request is neither queued for approval nor executed. */
     draft?: boolean;
+    /** Makes it an object_change: `writeSql` is this object's new definition. */
+    object?: DbObjectInfo;
   }) =>
     request<WriteRequest>("/write-requests", {
       method: "POST",

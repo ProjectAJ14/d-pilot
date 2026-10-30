@@ -486,6 +486,10 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
           `${o.kind} ${objectLabel(o)}\n\n${
             o.definition ??
             "Definition not available: the object is encrypted, or this connection's login lacks VIEW DEFINITION."
+          }${
+            o.migration && o.migration !== o.definition
+              ? `\n\n-- As a re-runnable script (start a create_write_request \`object\` change from this):\n${o.migration}`
+              : ""
           }`,
         );
       }),
@@ -832,6 +836,18 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
           .string()
           .optional()
           .describe("Why the change is needed. Link a ticket if there is one."),
+        object: z
+          .object({
+            schema: z.string(),
+            name: z.string(),
+            kind: OBJECT_KIND,
+            args: z.string().optional(),
+            parent: z.string().optional(),
+          })
+          .optional()
+          .describe(
+            "To change a procedure, function, view or trigger: the object, exactly as list_objects names it. `writeSql` is then its complete new definition — start from get_object_definition's `migration` form (CREATE OR ALTER / CREATE OR REPLACE) and edit it; no other statements, no GO. The reviewer sees a diff against the deployed version, and it won't run if that version changes before approval.",
+          ),
       },
       annotations: writes,
     },

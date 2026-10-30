@@ -1,16 +1,26 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import Editor, { DiffEditor } from "@monaco-editor/react";
 import {
   ActionIcon,
   Alert,
   Badge,
+  Button,
   Group,
   Loader,
   Select,
   Text,
+  TextInput,
   Tooltip,
 } from "@mantine/core";
-import { IconCopy, IconLock, IconRefresh } from "@tabler/icons-react";
+import {
+  IconCopy,
+  IconFileExport,
+  IconLock,
+  IconPencil,
+  IconRefresh,
+} from "@tabler/icons-react";
+import type { editor as MonacoEditor } from "monaco-editor";
 import type {
   DbObjectDefinition,
   DbObjectDependencies,
@@ -27,6 +37,7 @@ import {
 import { copyToClipboard } from "../../utils/clipboard";
 import { runEnvStyle } from "../../utils/environments";
 import { monacoLanguageForDb } from "./query-editor";
+import { notifyError } from "../../utils/notify-error";
 
 /** One side of the view: loading, the object, or why there is none. */
 type Side =
@@ -76,6 +87,12 @@ export function ObjectView({ tab }: { tab: QueryTab }) {
   );
   const [otherSide, setOther] = useState<Side | null>(null);
   const [reload, setReload] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const canAuthor = useStore(
+    (s) =>
+      !!s.user?.isAdmin ||
+      !!(conn && s.user?.writeEnvironments?.includes(conn.env)),
+  );
 
   useEffect(() => {
     if (tab.connectionId) load(tab.connectionId, object, setMine);
@@ -169,6 +186,37 @@ export function ObjectView({ tab }: { tab: QueryTab }) {
             <IconRefresh size={15} />
           </ActionIcon>
         </Tooltip>
+        <Tooltip
+          label="Copy as a re-runnable script (CREATE OR ALTER / CREATE OR REPLACE) for a migrations repo"
+          openDelay={400}
+        >
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            aria-label="Copy as migration"
+            disabled={mine.state !== "ok" || !mine.obj.migration}
+            onClick={() =>
+              mine.state === "ok" &&
+              copyToClipboard(mine.obj.migration!, "migration", label(object))
+            }
+          >
+            <IconFileExport size={15} />
+          </ActionIcon>
+        </Tooltip>
+        {canAuthor && (
+          <Button
+            size="xs"
+            variant="light"
+            leftSection={<IconPencil size={14} />}
+            disabled={mine.state !== "ok" || !mine.obj.migration || editing}
+            onClick={() => {
+              setOtherId(null);
+              setEditing(true);
+            }}
+          >
+            Edit
+          </Button>
+        )}
         <Tooltip label="Copy definition" openDelay={400}>
           <ActionIcon
             variant="subtle"
@@ -205,7 +253,15 @@ export function ObjectView({ tab }: { tab: QueryTab }) {
       )}
 
       <div style={{ flex: 1, minHeight: 0 }}>
-        {mine.state === "loading" || other?.state === "loading" ? (
+        {editing && mine.state === "ok" && conn ? (
+          <ObjectEditor
+            connId={conn.id}
+            object={object}
+            start={mine.obj.migration!}
+            dbType={conn.type}
+            onCancel={() => setEditing(false)}
+          />
+        ) : mine.state === "loading" || other?.state === "loading" ? (
           <Group justify="center" p="xl">
             <Loader size="sm" color="var(--accent)" />
           </Group>
@@ -349,6 +405,117 @@ function DependencyStrip({
             — best effort: found by name in function bodies
           </Text>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Proposes a new definition as an object_change write request: the deployed
+ * version on the left, the editable re-runnable one on the right. Nothing runs
+ * here — the request goes through review and approval like any other write,
+ * and approval refuses it if the deployed version changes meanwhile.
+ */
+function ObjectEditor({
+  connId,
+  object,
+  start,
+  dbType,
+  onCancel,
+}: {
+  connId: string;
+  object: DbObjectInfo;
+  start: string;
+  dbType: Parameters<typeof monacoLanguageForDb>[0];
+  onCancel: () => void;
+}) {
+  const theme = useEditorTheme();
+  const navigate = useNavigate();
+  const editorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(null);
+  const [title, setTitle] = useState(`Update ${object.kind} ${object.name}`);
+  const [busy, setBusy] = useState<"draft" | "submit" | null>(null);
+
+  const save = async (draft: boolean) => {
+    const writeSql = editorRef.current?.getModifiedEditor().getValue() ?? start;
+    setBusy(draft ? "draft" : "submit");
+    try {
+      const wr = await api.createWriteRequest({
+        title: title.trim() || `Update ${object.kind} ${object.name}`,
+        connectionId: connId,
+        writeSql,
+        object,
+        draft,
+      });
+      navigate(`/write-requests/${wr.id}`);
+    } catch (err) {
+      notifyError(err, "Object change");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      <Group
+        gap="xs"
+        wrap="nowrap"
+        style={{
+          padding: "8px 14px",
+          background: "var(--surface2)",
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
+        <Text size="xs" fw={600} style={{ whiteSpace: "nowrap" }}>
+          Editing {object.kind} {object.schema}.{object.name}
+        </Text>
+        <TextInput
+          size="xs"
+          aria-label="Request title"
+          value={title}
+          onChange={(e) => setTitle(e.currentTarget.value)}
+          style={{ flex: 1 }}
+        />
+        <Button size="xs" variant="default" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          size="xs"
+          variant="default"
+          loading={busy === "draft"}
+          disabled={!!busy}
+          onClick={() => save(true)}
+        >
+          Save draft
+        </Button>
+        <Button
+          size="xs"
+          loading={busy === "submit"}
+          disabled={!!busy}
+          onClick={() => save(false)}
+        >
+          Submit for review
+        </Button>
+      </Group>
+      <Text size="xs" c="dimmed" style={{ padding: "4px 14px" }}>
+        Left: deployed now. Right: your version — it becomes a write request,
+        reviewed and approved before it runs.
+      </Text>
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <DiffEditor
+          original={start}
+          modified={start}
+          language={monacoLanguageForDb(dbType)}
+          theme={theme}
+          onMount={(e) => {
+            editorRef.current = e;
+          }}
+          options={{
+            ...baseSqlEditorOptions,
+            readOnly: false,
+            originalEditable: false,
+            renderSideBySide: true,
+          }}
+        />
       </div>
     </div>
   );

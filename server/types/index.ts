@@ -233,7 +233,16 @@ export interface DbObjectInfo {
 export interface DbObjectDefinition extends DbObjectInfo {
   /** Null when the engine hides it: encrypted, or no VIEW DEFINITION permission. */
   definition: string | null;
+  /**
+   * The definition as a re-runnable script (`CREATE OR ALTER` / `CREATE OR
+   * REPLACE`): what "Edit" starts from and "Copy as migration" copies. Null
+   * when there is none (hidden, or a Postgres materialized view).
+   */
+  migration?: string | null;
 }
+
+/** A write request that changes something other than rows. */
+export type WriteRequestKind = "object_change" | "job_change";
 
 /** One side of a dependency edge. `kind` is null when the engine can't resolve it. */
 export interface DbObjectReference {
@@ -445,6 +454,20 @@ export interface WriteRequest {
   isMigration?: boolean;
   /** Migration opted out of the transaction wrapper (no rollback on failure). */
   noTransaction?: boolean;
+  /** Set on a request that changes a database object or a job, not data. */
+  kind?: WriteRequestKind;
+  /** object_change: the procedure/function/view/trigger it replaces. */
+  object?: DbObjectInfo;
+  /**
+   * object_change: the definition deployed when it was (re)submitted — what
+   * the review diffs against, what approval checks is still there, and what
+   * "Restore previous version" puts back. Null: the object did not exist.
+   */
+  snapshot?: string | null;
+  /** object_change: `snapshot` as a re-runnable script, for "Restore previous version". */
+  restoreSql?: string | null;
+  /** Things the author and approver should see, e.g. a credential in a definition. */
+  warnings?: string[];
   aiVerdict?: string;
   aiReview?: WriteAiReview;
   createdAt: string;

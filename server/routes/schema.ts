@@ -21,6 +21,7 @@ import {
   supportsObjects,
 } from "../services/schema-objects.js";
 import { getJobDetail, getJobs, validJobId } from "../services/jobs.js";
+import { toIdempotent } from "../services/object-change.js";
 import { logAudit } from "../services/sqlite-store.js";
 import type { ConnectionConfig, DbObjectKind } from "../types/index.js";
 
@@ -221,7 +222,13 @@ router.get(
         sql: `${ref.kind} ${obj.schema}.${obj.name}${obj.args != null ? `(${obj.args})` : ""}`,
         connectionId: conn.id,
       });
-      res.json(obj);
+      res.json({
+        ...obj,
+        migration:
+          obj.definition == null
+            ? null
+            : toIdempotent(obj.definition, conn.type),
+      });
     } catch (err: any) {
       sendObjectError(res, conn, err, "Failed to fetch definition");
     }

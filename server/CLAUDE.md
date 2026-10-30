@@ -239,6 +239,16 @@ inserted, claimed or revised, so a retry never duplicates — and then binds and
 await in between. Existing pending requests and drafts are bound to their connection as of the upgrade (the migration backfills them); one whose
 connection was already gone, or now sits in another env, has no target and never runs.
 
+**Object changes** (`kind: "object_change"`, `services/object-change.ts`) replace one
+procedure/function/view/trigger. `writeSql` must be one idempotent `CREATE OR ALTER` /
+`CREATE OR REPLACE` of that same object, run as one batch (no `GO`); it runs as a
+transactional migration through `executeMigration` — no side door. Create and revise store
+`snapshot`, the definition deployed at that moment (`prepareObjectChange`; a hidden
+definition is refused, since it can't be diffed or guarded). Submit, approve and override
+call `objectChangedSince` and 409 `OBJECT_CHANGED` if the deployed definition's normalized
+hash moved — never overwrite a version nobody reviewed. Revise re-bases on what is
+deployed. The AI review gets the deployed version and the object's dependents.
+
 Every request carries a paired verify **SELECT** and the **WRITE**.
 `WriteAiReview` holds the structured safety verdict (SAFE/CAUTION/DANGEROUS, blast
 radius, select-matches-write, suggested corrections). **PROD always needs a second

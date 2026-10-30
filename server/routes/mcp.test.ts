@@ -589,6 +589,33 @@ describe("schema and listing tools", () => {
     await client.close();
   });
 
+  it("create_write_request drafts an object change, never more than a draft", async () => {
+    const post = vi.fn(async () => ({
+      id: "w1",
+      status: "DRAFT",
+      env: "QA",
+      connectionName: "QA core",
+    }));
+    const { client, call } = await connect({ post: post as any });
+    const object = {
+      schema: "app_core",
+      name: "refresh_order_totals",
+      kind: "procedure",
+    };
+    await call("create_write_request", {
+      title: "Fix due dates",
+      connectionId: "qa-ms",
+      writeSql:
+        "CREATE OR ALTER PROCEDURE app_core.refresh_order_totals AS SELECT 1",
+      object,
+    });
+    expect(post).toHaveBeenCalledWith(
+      "/write-requests",
+      expect.objectContaining({ object, draft: true }),
+    );
+    await client.close();
+  });
+
   it("list_tables withColumns reads the cached full schema once", async () => {
     const api = answering({
       "/schema/qa-pg/full?schema=app_core": {

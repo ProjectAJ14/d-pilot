@@ -17,7 +17,7 @@ params:query {
 }
 
 docs {
-  One object's full definition, read live: { schema, name, kind, args?, parent?, definition }. `definition` is null when the engine hides it (encrypted, or no VIEW DEFINITION permission).
+  One object's full definition, read live: { schema, name, kind, args?, parent?, definition, migration }. `definition` is null when the engine hides it (encrypted, or no VIEW DEFINITION permission). `migration` is the same definition as a re-runnable script (`CREATE OR ALTER` / `CREATE OR REPLACE`) — the starting point for an object-change write request — or null (hidden, or a PostgreSQL materialized view).
 
   `objectKind` is procedure | function | view | trigger. `args` picks a Postgres overload by its identity argument types (empty string = no arguments); `parent` picks a Postgres trigger by its table. Without them an ambiguous name is a 400 that lists the choices.
 

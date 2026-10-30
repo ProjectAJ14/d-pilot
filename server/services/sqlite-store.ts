@@ -10,6 +10,7 @@ import {
 } from "../config/connections.js";
 import { decryptSecret, encryptSecret } from "../config/secrets.js";
 import { currentSource } from "./request-source.js";
+import { credentialWarnings, toIdempotent } from "./object-change.js";
 import type {
   ConnectionConfig,
   Artifact,
@@ -22,6 +23,7 @@ import type {
   WriteRequest,
   WriteRequestEvent,
   WriteRequestEventType,
+  WriteRequestKind,
   WriteRequestStatus,
   WriteAiReview,
 } from "../types/index.js";
@@ -224,6 +226,13 @@ export function initDatabase(): void {
     db.exec(
       "ALTER TABLE write_requests ADD COLUMN is_migration INTEGER NOT NULL DEFAULT 0",
     );
+  }
+  // object_change / job_change requests: what they change, and (objects) the
+  // definition deployed when submitted.
+  if (!wrColNames.has("kind")) {
+    db.exec("ALTER TABLE write_requests ADD COLUMN kind TEXT");
+    db.exec("ALTER TABLE write_requests ADD COLUMN target_json TEXT");
+    db.exec("ALTER TABLE write_requests ADD COLUMN snapshot TEXT");
   }
   if (!wrColNames.has("no_transaction")) {
     db.exec(
@@ -1531,6 +1540,10 @@ export interface NewWriteRequest {
   requestedByEmail: string;
   isMigration?: boolean;
   noTransaction?: boolean;
+  kind?: WriteRequestKind;
+  /** The object (or job change) the request targets, stored as JSON. */
+  target?: unknown;
+  snapshot?: string | null;
 }
 
 export function createWriteRequest(req: NewWriteRequest): WriteRequest {
@@ -1540,9 +1553,9 @@ export function createWriteRequest(req: NewWriteRequest): WriteRequest {
     `INSERT INTO write_requests
       (id, title, description, connection_id, connection_name, env, db_type,
        select_sql, write_sql, status, requested_by, requested_by_email,
-       is_migration, no_transaction,
+       is_migration, no_transaction, kind, target_json, snapshot,
        requested_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     req.title,
@@ -1558,6 +1571,9 @@ export function createWriteRequest(req: NewWriteRequest): WriteRequest {
     req.requestedByEmail,
     req.isMigration ? 1 : 0,
     req.noTransaction ? 1 : 0,
+    req.kind ?? null,
+    req.target === undefined ? null : JSON.stringify(req.target),
+    req.snapshot ?? null,
     now,
     now,
     now,
@@ -1749,6 +1765,8 @@ export function reviseWriteRequest(
     isMigration?: boolean;
     noTransaction?: boolean;
     status: WriteRequestStatus;
+    /** object_change: the definition deployed now — a revise re-bases on it. */
+    snapshot?: string | null;
   },
   from: WriteRequestStatus,
 ): WriteRequest | null {
@@ -1759,6 +1777,7 @@ export function reviseWriteRequest(
        env = ?, connection_name = ?,
        title = ?, description = ?, select_sql = ?, write_sql = ?,
        is_migration = ?, no_transaction = ?,
+       snapshot = CASE WHEN kind = 'object_change' THEN ? ELSE snapshot END,
        status = ?,
        reviewed_by = NULL, reviewed_by_email = NULL, reviewed_at = NULL, review_notes = NULL,
        executed_at = NULL, executed_by = NULL, executed_by_email = NULL,
@@ -1776,6 +1795,7 @@ export function reviseWriteRequest(
       fields.writeSql,
       fields.isMigration ? 1 : 0,
       fields.noTransaction ? 1 : 0,
+      fields.snapshot ?? null,
       fields.status,
       now,
       id,
@@ -1867,6 +1887,14 @@ function mapWriteRequest(r: any): WriteRequest {
     transactional: r.transactional == null ? undefined : r.transactional === 1,
     isMigration: r.is_migration === 1,
     noTransaction: r.no_transaction === 1,
+    ...(r.kind && { kind: r.kind }),
+    ...(r.kind === "object_change" && {
+      object: JSON.parse(r.target_json),
+      snapshot: r.snapshot ?? null,
+      restoreSql:
+        r.snapshot == null ? null : toIdempotent(r.snapshot, r.db_type),
+      warnings: credentialWarnings(r.write_sql),
+    }),
     aiVerdict: r.ai_verdict ?? undefined,
     aiReview,
     createdAt: r.created_at,
