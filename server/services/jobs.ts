@@ -91,6 +91,13 @@ WHERE EXISTS (SELECT 1 FROM msdb.dbo.sysjobsteps s
   AND (@job IS NULL OR j.job_id = @job)
 ORDER BY j.name`;
 
+// A step aimed at another database on the same server belongs to that
+// database's readers: its command and run message never leave the server.
+// Steps with no database (CmdExec, PowerShell) are this job's own and stay.
+const THIS_DB = "(s.database_name IS NULL OR s.database_name = DB_NAME())";
+export const OTHER_DB_STEP =
+  "-- Runs against another database on this server; its command is not shown here.";
+
 const AGENT_SCHEDULE_COLS = `sc.freq_type, sc.freq_interval, sc.freq_subday_type,
   sc.freq_subday_interval, sc.freq_relative_interval, sc.freq_recurrence_factor,
   sc.active_start_date, sc.active_start_time, sc.active_end_time`;
@@ -178,8 +185,11 @@ async function getAgentJobDetail(
       .input("job", mssql.UniqueIdentifier, id)
       .query(
         `${AGENT_JOBS_SQL};
-         SELECT s.step_id, s.step_name, s.subsystem, s.command, s.database_name,
-                h.run_status, h.run_date, h.run_time, h.run_duration, h.message
+         SELECT s.step_id, s.step_name, s.subsystem, s.database_name,
+                CASE WHEN ${THIS_DB} THEN 0 ELSE 1 END AS other_db,
+                CASE WHEN ${THIS_DB} THEN s.command END AS command,
+                h.run_status, h.run_date, h.run_time, h.run_duration,
+                CASE WHEN ${THIS_DB} THEN h.message END AS message
          FROM msdb.dbo.sysjobsteps s
          OUTER APPLY (SELECT TOP 1 h1.* FROM msdb.dbo.sysjobhistory h1
                       WHERE h1.job_id = s.job_id AND h1.step_id = s.step_id
@@ -223,7 +233,7 @@ async function getAgentJobDetail(
         id: s.step_id,
         name: s.step_name,
         subsystem: s.subsystem,
-        command: s.command,
+        command: s.other_db ? OTHER_DB_STEP : s.command,
         ...(s.database_name && { database: s.database_name }),
         lastRun: agentRun(s),
       })),
