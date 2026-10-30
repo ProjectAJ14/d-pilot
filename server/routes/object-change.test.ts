@@ -241,6 +241,9 @@ describe("object_change", () => {
       object,
       draft: true,
     });
+    store.updateWriteRequest(draft.body.id, {
+      aiReview: { verdict: "SAFE", summary: "quotes the deployed code" } as any,
+    });
     const view = await fetch(`${base}/${draft.body.id}`, {
       headers: { "x-user": "blind" },
     });
@@ -248,6 +251,11 @@ describe("object_change", () => {
     expect(view.status).toBe(200);
     expect(seen.snapshot).toBeUndefined();
     expect(seen.restoreSql).toBeUndefined();
+    expect(seen.aiReview).toBeUndefined();
+    // Nor ask for an AI review of it, which would read the deployed code.
+    expect((await call("blind", `/${draft.body.id}/ai-review`)).status).toBe(
+      403,
+    );
     // Nor can they take the draft over by submitting it.
     expect((await call("blind", `/${draft.body.id}/submit`)).status).toBe(403);
     expect(store.getWriteRequest(draft.body.id)!.status).toBe("DRAFT");

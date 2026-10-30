@@ -153,6 +153,58 @@ describe("checkJobCommand", () => {
     ).toBeNull();
   });
 
+  it("refuses a quoted name the checker and the engine would read differently", () => {
+    expect(
+      checkJobCommand("EXEC dbo.[get_order'];SHUTDOWN--']", "mssql"),
+    ).toContain("can't be checked");
+    expect(
+      checkJobCommand(
+        "UPDATE dbo.[t'] SET a = 1 WHERE id = 1; DROP TABLE x --']",
+        "mssql",
+      ),
+    ).toContain("can't be checked");
+    expect(
+      checkJobCommand('CALL "app_core"."re""calc"()', "postgres"),
+    ).toContain("can't be checked");
+    // Bracketed names without such characters are fine.
+    expect(
+      checkJobCommand("EXEC [app_core].[refresh_order_totals] 7", "mssql"),
+    ).toBeNull();
+  });
+
+  it("allows a cast only to a plain type name", () => {
+    const why = (cmd: string) => checkJobCommand(cmd, "postgres");
+    expect(
+      why("SELECT app_core.f(1::bool or pg_terminate_backend(1))"),
+    ).toContain("literal arguments");
+    expect(
+      why(
+        "CALL app_core.f('2026-01-01'::timestamp with time zone, 'x'::character varying(10), '{1}'::int[])",
+      ),
+    ).toBeNull();
+  });
+
+  it("sends every non-trivial function a write calls to the catalog check", () => {
+    expect(
+      jobCommandRoutines(
+        "UPDATE app_core.orders SET notes = query_to_xml('select 1', true, true, '') WHERE id = 1",
+        "postgres",
+      ),
+    ).toEqual(["query_to_xml"]);
+    expect(
+      jobCommandRoutines(
+        "UPDATE app_core.orders SET notes = OPENROWSET('SQLNCLI', 'x', 'select 1') WHERE id = 1",
+        "mssql",
+      ),
+    ).toEqual(["OPENROWSET"]);
+    expect(
+      jobCommandRoutines(
+        "INSERT INTO app_core.audit (at, n) VALUES (now(), coalesce(1, 2)); UPDATE app_core.orders SET due = DATEADD(day, 1, GETDATE()), total = app_core.total_for(id) WHERE id IN (1, 2) AND EXISTS (SELECT 1)",
+        "mssql",
+      ),
+    ).toEqual(["app_core.total_for"]);
+  });
+
   it("names the routines a command calls, for the catalog check", () => {
     expect(
       jobCommandRoutines(

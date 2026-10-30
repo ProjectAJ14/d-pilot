@@ -348,6 +348,8 @@ describe("job_change", () => {
       "EXEC sp_addrolemember 'db_owner', 'app_user'",
       "EXEC dbo.sp_rename 'dbo.orders', 'orders_old'",
       "EXEC app_core.not_ours",
+      // A built-in that runs SQL from a string, inside an otherwise fine write.
+      "UPDATE app_core.orders SET notes = OPENROWSET('SQLNCLI', 'x', 'SELECT 1') WHERE id = 1",
     ]) {
       const res = await raise({ type: "edit_step", stepId: 1, command });
       expect(res.status).toBe(400);
@@ -355,7 +357,7 @@ describe("job_change", () => {
         "not a procedure or function of this database",
       );
     }
-    expect(refusals()).toHaveLength(before + 3);
+    expect(refusals()).toHaveLength(before + 4);
     expect(
       (
         await raise({

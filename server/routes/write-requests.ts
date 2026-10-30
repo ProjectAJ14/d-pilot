@@ -110,16 +110,27 @@ function canReadEnv(user: AuthUser, env: string): boolean {
 
 /**
  * The request as `user` may see it: the deployed definition (or job steps) an
- * object or job change snapshotted is the environment's code, so it is left
- * out for anyone who can't read that environment — write or approve alone
- * does not show it.
+ * object or job change snapshotted is the environment's code, so it (and the
+ * AI review that read it) is left out for anyone who can't read that
+ * environment — write or approve alone does not show it.
  */
 function visible<T extends WriteRequest | null | undefined>(
   user: AuthUser,
   wr: T,
 ): T {
-  if (!wr || canReadEnv(user, wr.env) || wr.snapshot == null) return wr;
-  return { ...wr, snapshot: undefined, restoreSql: undefined };
+  if (
+    !wr ||
+    canReadEnv(user, wr.env) ||
+    (wr.kind !== "object_change" && wr.kind !== "job_change")
+  )
+    return wr;
+  // The AI review was given the deployed code, and may quote it.
+  return {
+    ...wr,
+    snapshot: undefined,
+    restoreSql: undefined,
+    aiReview: undefined,
+  };
 }
 function canApproveEnv(user: AuthUser, env: string): boolean {
   return user.isAdmin || user.approveEnvironments.includes(env);
@@ -1454,6 +1465,17 @@ router.post("/:id/ai-review", async (req: Request, res: Response) => {
     res
       .status(403)
       .json({ error: "You do not have access to this write request" });
+    return;
+  }
+  // The review of an object or job change reads the deployed code (and
+  // quotes it): only for someone who may read it.
+  if (
+    (wr.kind === "object_change" || wr.kind === "job_change") &&
+    !canReadEnv(user, wr.env)
+  ) {
+    res
+      .status(403)
+      .json({ error: `You are not allowed to read objects in ${wr.env}` });
     return;
   }
 

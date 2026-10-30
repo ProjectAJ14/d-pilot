@@ -45,7 +45,9 @@ const TSQL_EXEC = new RegExp(
   String.raw`^EXEC(?:UTE)?\s+(?:@\w+\s*=\s*)?(${NAME})(?:\s+${TSQL_ARG}(?:\s*,\s*${TSQL_ARG})*)?\s*;?\s*$`,
   "i",
 );
-const CAST = String.raw`(?:\s*::\s*[A-Za-z_][\w ]*(?:\(\d+(?:\s*,\s*\d+)?\))?(?:\[\])?)?`;
+// A cast to a plain type name: one word, or one of the fixed multi-word
+// names — never free text, which could carry an expression.
+const CAST = String.raw`(?:\s*::\s*[A-Za-z_]\w*(?:\s+(?:precision|varying|with(?:out)?\s+time\s+zone))?(?:\(\d+(?:\s*,\s*\d+)?\))?(?:\[\])?)?`;
 const CALL_ARG = String.raw`(?:[A-Za-z_]\w*\s*=>\s*)?${VALUE}${CAST}`;
 const CALL = new RegExp(
   String.raw`^(?:CALL|SELECT)\s+(${NAME})\s*\(\s*(?:${CALL_ARG}(?:\s*,\s*${CALL_ARG})*)?\s*\)\s*;?\s*$`,
@@ -54,13 +56,80 @@ const CALL = new RegExp(
 // Never a job step, whatever the catalog says.
 const SYSTEM_ROUTINE = /^(xp_|pg_|lo_|dblink)|^set_config$/i;
 
+// What the tokenizer reads left to right: strings, comments and quoted
+// identifiers, so a quote inside one is never mistaken for the other.
+const LEXEMES =
+  /(?<![\w$])[eE]'(?:[^'\\]|\\.|'')*'|N?'(?:[^']|'')*'|\$(\w*)\$[\s\S]*?\$\1\$|--[^\n]*|\/\*[\s\S]*?\*\/|\[(?:[^\]]|\]\])*\]|"(?:[^"]|"")*"/g;
+
+/**
+ * Why a quoted identifier in `command` can't be checked, or null: one that
+ * holds a quote, a semicolon or a comment marker reads differently to this
+ * checker and to the engine — exactly where a second statement would hide.
+ */
+function oddIdentifier(command: string): string | null {
+  for (const m of command.matchAll(LEXEMES)) {
+    const t = m[0];
+    if (
+      (t.startsWith("[") || t.startsWith('"')) &&
+      /['";]|--|\/\*|\[/.test(t.slice(1, -1))
+    )
+      return `${t}: a name holding quotes, semicolons or comment markers can't be checked as a job step.`;
+  }
+  return null;
+}
+
+// Built-ins a scoped write may use: they compute values and touch nothing.
+const SAFE_FUNCTIONS = new Set(
+  (
+    "now getdate getutcdate sysdatetime sysutcdatetime current_timestamp " +
+    "coalesce isnull nullif greatest least lower upper trim ltrim rtrim " +
+    "length len substring left right replace concat abs round floor ceiling " +
+    "ceil dateadd datediff datepart date_trunc date_part extract make_interval " +
+    "to_char to_date cast convert count sum min max avg newid gen_random_uuid"
+  ).split(" "),
+);
+// Words that take parentheses without being calls.
+const PAREN_KEYWORDS = new Set(
+  "in values exists any all some and or not on as over filter using where set into from join".split(
+    " ",
+  ),
+);
+
+/**
+ * Functions a write statement calls that are not on the safe list — each
+ * must pass the catalog check (isUserRoutine), since a built-in may run SQL
+ * handed to it as a string (query_to_xml, OPENROWSET, dblink…).
+ */
+function dmlFunctionCalls(stmt: string): string[] {
+  const t = callTokens(stmt);
+  const names: string[] = [];
+  const call = new RegExp(String.raw`(${NAME})\s*\(`, "g");
+  for (const m of t.matchAll(call)) {
+    const before = t.slice(0, m.index).trimEnd().split(/\s+/).pop() ?? "";
+    // INSERT INTO t (cols), JOIN t (…): a table, not a call.
+    if (/^(into|join|from|update|table)$/i.test(before)) continue;
+    const name = m[1].replace(/\s+/g, "");
+    const p = parts(name);
+    const last = p[p.length - 1].toLowerCase();
+    if (
+      p.length === 1 &&
+      (PAREN_KEYWORDS.has(last) || SAFE_FUNCTIONS.has(last))
+    )
+      continue;
+    names.push(name);
+  }
+  return names;
+}
+
 /** `stmt` with each string literal as the token S and comments removed. */
 function callTokens(stmt: string): string {
   return stmt
-    .replace(
-      // E'…' first: in it a backslash escapes the quote.
-      /(?<![\w$])[eE]'(?:[^'\\]|\\.|'')*'|N?'(?:[^']|'')*'|\$(\w*)\$[\s\S]*?\$\1\$|--[^\n]*|\/\*[\s\S]*?\*\//g,
-      (t) => (t.startsWith("--") || t.startsWith("/*") ? " " : " S "),
+    .replace(LEXEMES, (t) =>
+      t.startsWith("[") || t.startsWith('"')
+        ? t // a quoted identifier stays as written
+        : t.startsWith("--") || t.startsWith("/*")
+          ? " "
+          : " S ",
     )
     .trim();
 }
@@ -84,6 +153,10 @@ function parseRoutineCall(
     return {
       error: `${p[p.length - 1]}: system and administration routines can't run as a job step. ${PATTERN_HINT}`,
     };
+  if (!p.every((x) => /^[\w$#@]+$/.test(x)))
+    return {
+      error: `${name}: a job step calls a routine with a plain name (letters, digits, _).`,
+    };
   if (p.length > 2)
     return {
       error: `${name}: a job step calls a routine in this database — name it schema.routine.`,
@@ -106,9 +179,12 @@ export function jobCommandRoutines(
   const names: string[] = [];
   for (const raw of scanSql(command).statements) {
     const stmt = raw.trim();
-    if (!stmt || !ROUTINE_CALL.test(scanSql(stmt).masked)) continue;
-    const call = parseRoutineCall(stmt, dbType);
-    if ("name" in call) names.push(call.name);
+    if (!stmt) continue;
+    const m = scanSql(stmt).masked;
+    if (ROUTINE_CALL.test(m)) {
+      const call = parseRoutineCall(stmt, dbType);
+      if ("name" in call) names.push(call.name);
+    } else if (DML.test(m.slice(0, 7))) names.push(...dmlFunctionCalls(stmt));
   }
   return names;
 }
@@ -132,6 +208,8 @@ export function checkJobCommand(
 ): string | null {
   const { statements, masked } = scanSql(command);
   if (!statements.some((s) => s.trim())) return "The command is empty.";
+  const odd = oddIdentifier(command);
+  if (odd) return odd;
   if (DDL.test(masked))
     return `A job step can't run DDL (CREATE/ALTER/DROP/TRUNCATE/GRANT…). ${PATTERN_HINT}`;
   for (const raw of statements) {
