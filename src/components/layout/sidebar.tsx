@@ -12,7 +12,7 @@ import {
   pickEnv,
 } from "@src/utils/explorer-search";
 import { useState } from "react";
-import { ObjectTree } from "./object-tree";
+import { JobTree, ObjectTree } from "./object-tree";
 import { Link } from "react-router-dom";
 import {
   Text,
@@ -1243,6 +1243,10 @@ export function Sidebar() {
                                 schema={sch}
                                 query={q}
                               />
+                            )}
+                          {expandedConn === conn.id &&
+                            SCHEMA_DB_TYPES.includes(conn.type) && (
+                              <JobTree connId={conn.id} query={q} />
                             )}
                         </div>
                       );

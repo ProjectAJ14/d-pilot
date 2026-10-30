@@ -75,7 +75,7 @@ Naming conventions for the Action word:
   credentials directly, not a JWT.
   Run **Auth / Login** once — its post-response script writes the JWT into `{{token}}`.
 - **Variables** (per environment): `{{baseUrl}}`, `{{token}}`, `{{connectionId}}`,
-  `{{tableName}}`, `{{objectKind}}`, `{{objectName}}`, `{{savedQueryId}}`, `{{phiRuleId}}`, `{{userId}}`, `{{writeRequestId}}`,
+  `{{tableName}}`, `{{objectKind}}`, `{{objectName}}`, `{{jobId}}`, `{{savedQueryId}}`, `{{phiRuleId}}`, `{{userId}}`, `{{writeRequestId}}`,
   `{{mcpUsername}}` / `{{mcpPassword}}` (MCP service account).
   Path params always use one of these placeholders — never hard-code an id.
 - **PHI** — endpoints that return maskable data (Execute Query, Export CSV/JSON, Preview

@@ -3,6 +3,7 @@ import { QueryTabs } from "./query-tabs";
 import { QueryEditor } from "./query-editor";
 import { ArtifactView } from "./artifact-view";
 import { ObjectView } from "./object-view";
+import { JobView } from "./job-view";
 import { ResultsGrid } from "./results-grid";
 import { AiAssistantPanel } from "./ai-assistant-panel";
 import { useStore } from "../../store";
@@ -88,6 +89,7 @@ export function QueryWorkspace() {
       <QueryTabs onSaveTab={() => setSaveSignal((n) => n + 1)} />
       {activeTab?.kind === "artifact" && <ArtifactView tab={activeTab} />}
       {activeTab?.kind === "object" && <ObjectView tab={activeTab} />}
+      {activeTab?.kind === "job" && <JobView tab={activeTab} />}
       {activeTab && (activeTab.kind ?? "sql") === "sql" && (
         <>
           <QueryEditor

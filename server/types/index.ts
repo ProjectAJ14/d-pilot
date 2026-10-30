@@ -264,6 +264,77 @@ export interface DriftReport {
   items: DriftItem[];
 }
 
+/** SQL Server Agent's run_status, decoded; pg_cron's status mapped onto it. */
+export type JobRunStatus =
+  | "failed"
+  | "succeeded"
+  | "retry"
+  | "cancelled"
+  | "running";
+
+export interface JobRun {
+  status: JobRunStatus | null;
+  /** Server-local time, `YYYY-MM-DD HH:MM:SS` (msdb records no zone). */
+  startedAt: string | null;
+  durationSec: number | null;
+  message?: string;
+}
+
+/** A scheduled job: a SQL Server Agent job, or a pg_cron job. */
+export interface JobInfo {
+  id: string;
+  name: string;
+  engine: "agent" | "pg_cron";
+  enabled: boolean;
+  description?: string;
+  category?: string;
+  /** Plain-language schedule summary (Agent) or the cron expression (pg_cron). */
+  schedule?: string;
+  lastRun?: JobRun;
+  nextRunAt?: string | null;
+  stepCount: number;
+}
+
+export interface JobStep {
+  id: number;
+  name: string;
+  /** TSQL, CmdExec, PowerShell, SSIS, … — `SQL` for pg_cron. */
+  subsystem: string;
+  command: string;
+  database?: string;
+  lastRun?: JobRun;
+}
+
+export interface JobSchedule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  /** "Every 30 minutes, 06:00–22:00, Mon–Fri", or the cron expression. */
+  description: string;
+  /** Other jobs that share this schedule — editing it changes them too. */
+  sharedWith: number;
+  /** Whether a job_change may edit it (daily/weekly/monthly; once or every N min/h). */
+  editable: boolean;
+  /** pg_cron: the cron expression. */
+  cron?: string;
+  /** Agent: the msdb columns, for an edit form. */
+  msdb?: Record<string, number>;
+}
+
+export interface JobDetail extends JobInfo {
+  steps: JobStep[];
+  schedules: JobSchedule[];
+  /** Most recent job-level outcomes, newest first. */
+  history: JobRun[];
+}
+
+export interface JobList {
+  /** False when the connection can't read jobs; `reason` names the missing grant. */
+  available: boolean;
+  reason?: string;
+  jobs: JobInfo[];
+}
+
 export interface ColumnInfo {
   name: string;
   dataType: string;

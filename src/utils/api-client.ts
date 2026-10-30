@@ -13,6 +13,8 @@ import type {
   DbObjectDependencies,
   DbObjectInfo,
   DriftReport,
+  JobDetail,
+  JobList,
 } from "../types";
 import { BASE_PATH } from "./base-path";
 import {
@@ -495,6 +497,12 @@ export const api = {
     request<DbObjectDefinition>(objectPath(connectionId, o, "definition")),
   getObjectDependencies: (connectionId: string, o: DbObjectInfo) =>
     request<DbObjectDependencies>(objectPath(connectionId, o, "dependencies")),
+  getJobs: (connectionId: string) =>
+    request<JobList>(`/schema/${connectionId}/jobs`),
+  getJob: (connectionId: string, jobId: string) =>
+    request<JobDetail>(
+      `/schema/${connectionId}/jobs/${encodeURIComponent(jobId)}`,
+    ),
   getDrift: (connectionId: string, against: string, schema?: string) =>
     request<DriftReport>(
       `/schema/${connectionId}/drift?${new URLSearchParams({ against, ...(schema && { schema }) })}`,

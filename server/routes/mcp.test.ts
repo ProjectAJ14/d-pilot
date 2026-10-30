@@ -523,6 +523,72 @@ describe("schema and listing tools", () => {
     await client.close();
   });
 
+  it("list_jobs names the missing grant instead of an empty list", async () => {
+    const api = answering({
+      "/schema/qa-ms/jobs": {
+        available: false,
+        reason:
+          "This connection can't read SQL Server Agent jobs (its login needs SQLAgentReaderRole in msdb).",
+        jobs: [],
+      },
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("list_jobs", { connectionId: "qa-ms" });
+    expect(text).toContain("SQLAgentReaderRole");
+    await client.close();
+  });
+
+  it("get_job shows each step's command and why a run failed", async () => {
+    const api = answering({
+      "/schema/qa-ms/jobs/abc": {
+        id: "abc",
+        name: "recalc due dates",
+        engine: "agent",
+        enabled: true,
+        stepCount: 1,
+        lastRun: {
+          status: "failed",
+          startedAt: "2026-10-30 02:00:00",
+          durationSec: 3,
+          message: "Deadlock",
+        },
+        steps: [
+          {
+            id: 1,
+            name: "run proc",
+            subsystem: "TSQL",
+            command: "EXEC app_core.refresh_order_totals",
+            database: "app_core",
+          },
+        ],
+        schedules: [
+          {
+            id: "8",
+            name: "s",
+            enabled: true,
+            description: "Daily, at 02:00",
+            sharedWith: 2,
+            editable: true,
+          },
+        ],
+        history: [],
+      },
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("get_job", {
+      connectionId: "qa-ms",
+      jobId: "abc",
+    });
+    expect(text).toContain(
+      "last run: failed at 2026-10-30 02:00:00 (3s) — Deadlock",
+    );
+    expect(text).toContain(
+      "1. run proc (TSQL on app_core) — last: never run\nEXEC app_core.refresh_order_totals",
+    );
+    expect(text).toContain("- Daily, at 02:00 — shared with 2 other job(s)");
+    await client.close();
+  });
+
   it("list_tables withColumns reads the cached full schema once", async () => {
     const api = answering({
       "/schema/qa-pg/full?schema=app_core": {

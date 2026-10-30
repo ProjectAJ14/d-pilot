@@ -20,6 +20,7 @@ import {
   OBJECT_KINDS,
   supportsObjects,
 } from "../services/schema-objects.js";
+import { getJobDetail, getJobs, validJobId } from "../services/jobs.js";
 import { logAudit } from "../services/sqlite-store.js";
 import type { ConnectionConfig, DbObjectKind } from "../types/index.js";
 
@@ -271,5 +272,64 @@ router.get("/:connectionId/drift", async (req: Request, res: Response) => {
     sendSchemaError(res, left, err, "Failed to compare connections");
   }
 });
+
+// Scheduled jobs that run against this connection's database: SQL Server
+// Agent (msdb) or pg_cron. `available: false` + `reason` when the
+// connection's login lacks the grant to read them.
+router.get("/:connectionId/jobs", async (req: Request, res: Response) => {
+  const conn = resolveReadableConnection(
+    req,
+    res,
+    req.params.connectionId as string,
+  );
+  if (!conn) return;
+  try {
+    res.json(await getJobs(conn));
+  } catch (err: any) {
+    sendSchemaError(res, conn, err, "Failed to fetch jobs");
+  }
+});
+
+// One job's steps (with their commands), schedules and recent runs. Audited
+// like a definition read: step commands are code, sometimes with literals.
+router.get(
+  "/:connectionId/jobs/:jobId",
+  async (req: Request, res: Response) => {
+    const conn = resolveReadableConnection(
+      req,
+      res,
+      req.params.connectionId as string,
+    );
+    if (!conn) return;
+    const id = req.params.jobId as string;
+    if (!validJobId(conn, id)) {
+      res.status(400).json({
+        error:
+          conn.type === "mssql"
+            ? "A SQL Server Agent job id is a GUID"
+            : "A pg_cron job id is an integer",
+      });
+      return;
+    }
+    try {
+      const job = await getJobDetail(conn, id);
+      if (!job) {
+        res.status(404).json({ error: `No job ${id} on this connection` });
+        return;
+      }
+      logAudit({
+        userId: req.user!.sub,
+        userEmail: req.user!.email,
+        action: "JOB_VIEW",
+        phiAccessed: false,
+        sql: `job ${job.name} (${job.id})`,
+        connectionId: conn.id,
+      });
+      res.json(job);
+    } catch (err: any) {
+      sendSchemaError(res, conn, err, "Failed to fetch job");
+    }
+  },
+);
 
 export default router;

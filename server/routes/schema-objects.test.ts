@@ -51,6 +51,12 @@ vi.mock("../services/schema-objects.js", async (orig) => ({
   getDrift,
 }));
 vi.mock("../services/schema-introspector.js", () => ({}));
+const getJobDetail = vi.fn();
+vi.mock("../services/jobs.js", async (orig) => ({
+  ...(await orig<typeof import("../services/jobs.js")>()),
+  getJobs: vi.fn(async () => ({ available: true, jobs: [] })),
+  getJobDetail,
+}));
 
 const { default: router } = await import("./schema.js");
 const { AmbiguousObjectError } = await import("../services/schema-objects.js");
@@ -170,6 +176,22 @@ describe("object routes", () => {
       conns["qa-core"],
       conns["qa-core"],
       "app_core",
+    );
+  });
+
+  it("refuses a malformed job id before it reaches SQL, and audits a job read", async () => {
+    expect((await get("/qa-ms/jobs/1;DROP")).status).toBe(400);
+    expect((await get("/qa-core/jobs/not-a-number")).status).toBe(400);
+    expect((await get("/prod-core/jobs/1")).status).toBe(403);
+    expect(getJobDetail).not.toHaveBeenCalled();
+
+    getJobDetail.mockResolvedValueOnce({ id: "7", name: "recalc due dates" });
+    expect((await get("/qa-core/jobs/7")).status).toBe(200);
+    expect(logAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "JOB_VIEW",
+        sql: "job recalc due dates (7)",
+      }),
     );
   });
 });

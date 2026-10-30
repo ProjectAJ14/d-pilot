@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Button, Loader, Text } from "@mantine/core";
+import { Badge, Button, Loader, Text } from "@mantine/core";
 import {
   IconChevronDown,
   IconChevronRight,
+  IconClock,
   IconCode,
 } from "@tabler/icons-react";
-import type { DbObjectInfo, DbObjectKind } from "@src/types";
+import type { DbObjectInfo, DbObjectKind, JobList } from "@src/types";
 import { api } from "@src/utils/api-client";
 import { nameMatches } from "@src/utils/explorer-search";
 import { useStore } from "@src/store";
@@ -179,6 +180,117 @@ export function ObjectTree({
             </div>
           );
         })}
+    </div>
+  );
+}
+
+/**
+ * SQL Server Agent / pg_cron jobs that run against this connection's database.
+ * Loaded on first expand. A connection without pg_cron shows nothing; one whose
+ * login lacks the grant says which grant.
+ */
+export function JobTree({ connId, query }: { connId: string; query: string }) {
+  const openJobTab = useStore((s) => s.openJobTab);
+  const [open, setOpen] = useState(false);
+  const [list, setList] = useState<JobList | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const toggle = () => {
+    setOpen(!open);
+    if (open || list || loading) return;
+    setLoading(true);
+    api
+      .getJobs(connId)
+      .then(setList)
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  };
+
+  // pg_cron not installed: nothing to show, so no node once we know.
+  if (list && !list.available && !list.reason) return null;
+  const jobs = (list?.jobs ?? []).filter(
+    (j) => !query || nameMatches(j.name, query),
+  );
+
+  return (
+    <div style={{ paddingLeft: 14, paddingBottom: 4 }}>
+      <div
+        onClick={toggle}
+        className="dp-row"
+        role="button"
+        aria-expanded={open}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "6px 10px",
+          borderRadius: "var(--radius-sm)",
+          cursor: "pointer",
+        }}
+      >
+        {open ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
+        <Text size="xs" c="dimmed" style={{ flex: 1, fontSize: 11 }}>
+          Scheduled jobs{list?.available && ` (${list.jobs.length})`}
+        </Text>
+        {loading && <Loader size={10} color="var(--accent)" />}
+      </div>
+      {open && (error || list?.reason) && (
+        <Text
+          size="xs"
+          c="dimmed"
+          style={{ fontSize: 10, padding: "4px 24px" }}
+        >
+          {error ?? list?.reason}
+        </Text>
+      )}
+      {open && list?.available && jobs.length === 0 && (
+        <Text
+          size="xs"
+          c="dimmed"
+          style={{ fontSize: 10, padding: "4px 24px" }}
+        >
+          No jobs run against this database
+        </Text>
+      )}
+      {open &&
+        jobs.map((j) => (
+          <div
+            key={j.id}
+            onClick={() => openJobTab(connId, { id: j.id, name: j.name })}
+            className="dp-row"
+            role="button"
+            title={j.schedule}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "5px 10px 5px 22px",
+              borderRadius: "var(--radius-sm)",
+              cursor: "pointer",
+            }}
+          >
+            <IconClock
+              size={12}
+              color={j.enabled ? "var(--accent)" : "var(--muted)"}
+              style={{ flexShrink: 0 }}
+            />
+            <Text
+              size="xs"
+              className="dp-row-label"
+              truncate
+              style={{ flex: 1, fontSize: 11 }}
+              c={j.enabled ? undefined : "dimmed"}
+            >
+              {j.name}
+            </Text>
+            {j.lastRun?.status === "failed" && (
+              <Badge size="xs" color="red" variant="light">
+                failed
+              </Badge>
+            )}
+          </div>
+        ))}
     </div>
   );
 }

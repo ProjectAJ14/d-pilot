@@ -139,6 +139,9 @@ interface AppState {
     compareWith?: string,
   ) => void;
 
+  /** Open a scheduled job as a tab, focusing it if open. */
+  openJobTab: (connectionId: string, job: { id: string; name: string }) => void;
+
   // Sidebar
   sidebarOpen: boolean;
   toggleSidebar: () => void;
@@ -223,6 +226,7 @@ const initialTabs: QueryTab[] = persistedTabs
       kind: t.kind,
       artifactId: t.artifactId,
       object: t.object,
+      job: t.job,
       sql: t.sql,
       connectionId: t.connectionId,
       schema: t.schema,
@@ -352,8 +356,10 @@ export const useStore = create<AppState>((set, get) => ({
     set({
       // Carry the connection's remembered schema (undefined if never browsed —
       // the editor's default-seeding fills it in).
+      // Object and job tabs show something read from one database, so they
+      // stay on it; only the tab the user queries from follows the pick.
       tabs: tabs.map((t) =>
-        t.id === activeTabId
+        t.id === activeTabId && t.kind !== "object" && t.kind !== "job"
           ? {
               ...t,
               connectionId: id,
@@ -511,6 +517,27 @@ export const useStore = create<AppState>((set, get) => ({
         compareWith,
         schema: object.schema,
         title: object.name,
+      };
+      set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id }));
+    }
+    persistAfterSet();
+  },
+
+  openJobTab: (connectionId, job) => {
+    const existing = get().tabs.find(
+      (t) =>
+        t.kind === "job" &&
+        t.connectionId === connectionId &&
+        t.job?.id === job.id,
+    );
+    if (existing) {
+      set({ activeTabId: existing.id });
+    } else {
+      const tab: QueryTab = {
+        ...createTab(connectionId),
+        kind: "job",
+        job,
+        title: job.name,
       };
       set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id }));
     }

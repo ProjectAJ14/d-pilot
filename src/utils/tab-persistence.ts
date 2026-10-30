@@ -8,11 +8,13 @@ const CURRENT_VERSION = 2;
 interface PersistedTab {
   id: string;
   title: string;
-  kind?: "sql" | "artifact" | "object";
+  kind?: "sql" | "artifact" | "object" | "job";
   /** Pointer only — the document itself is re-fetched, like results are. */
   artifactId?: string;
   /** Pointer only — the definition is re-read from the database. */
   object?: DbObjectInfo;
+  /** Pointer only — the job is re-read from the database. */
+  job?: { id: string; name: string };
   sql: string;
   connectionId: string | null;
   schema?: string;
@@ -41,6 +43,7 @@ function sanitizeTab(tab: QueryTab): PersistedTab {
     kind: tab.kind,
     artifactId: tab.artifactId,
     object: tab.object,
+    job: tab.job,
     sql: tab.sql,
     connectionId: tab.connectionId,
     schema: tab.schema,

@@ -57,6 +57,9 @@ import type {
   DbObjectInfo,
   DbObjectReference,
   DriftReport,
+  JobDetail,
+  JobList,
+  JobRun,
   TableInfo,
 } from "../types/index.js";
 
@@ -560,6 +563,83 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
               (i) => `- ${i.kind} ${objectLabel(i)}: ${where[i.status]}`,
             ),
           ].join("\n"),
+        );
+      }),
+  );
+
+  tool(
+    "list_jobs",
+    {
+      title: "List scheduled jobs",
+      description:
+        "SQL Server Agent jobs (or pg_cron jobs on Postgres) that run against this connection's database: one line each with enabled state, schedule in plain language, last outcome and next run. Read one with get_job.",
+      inputSchema: { connectionId: z.string() },
+      annotations: readOnly,
+    },
+    ({ connectionId }) =>
+      guard(async () => {
+        const list = await client.get<JobList>(
+          `/schema/${encodeURIComponent(connectionId)}/jobs`,
+        );
+        if (!list.available)
+          return text(
+            list.reason ??
+              "This connection has no job scheduler (pg_cron is not installed).",
+          );
+        if (!list.jobs.length)
+          return text("No jobs run against this database.");
+        return text(
+          list.jobs
+            .map(
+              (j) =>
+                `- ${j.name} [id ${j.id}] ${j.enabled ? "enabled" : "DISABLED"} · ${j.schedule ?? "no schedule"} · last: ${j.lastRun?.status ?? "never run"}${j.lastRun?.startedAt ? ` at ${j.lastRun.startedAt}` : ""}${j.nextRunAt ? ` · next ${j.nextRunAt}` : ""}`,
+            )
+            .join("\n"),
+        );
+      }),
+  );
+
+  tool(
+    "get_job",
+    {
+      title: "Read a scheduled job",
+      description:
+        "One job's steps with their full commands, its schedules (and how many other jobs share each), and its recent runs with their messages — e.g. to find why last night's run failed.",
+      inputSchema: { connectionId: z.string(), jobId: z.string() },
+      annotations: readOnly,
+    },
+    ({ connectionId, jobId }) =>
+      guard(async () => {
+        const j = await client.get<JobDetail>(
+          `/schema/${encodeURIComponent(connectionId)}/jobs/${encodeURIComponent(jobId)}`,
+        );
+        const run = (r?: JobRun) =>
+          r?.status
+            ? `${r.status}${r.startedAt ? ` at ${r.startedAt}` : ""}${r.durationSec != null ? ` (${r.durationSec}s)` : ""}${r.message ? ` — ${r.message}` : ""}`
+            : "never run";
+        return text(
+          [
+            `${j.name} [${j.engine}, id ${j.id}] ${j.enabled ? "enabled" : "DISABLED"}`,
+            j.description ?? "",
+            `last run: ${run(j.lastRun)}${j.nextRunAt ? `; next ${j.nextRunAt}` : ""}`,
+            "",
+            "steps:",
+            ...j.steps.map(
+              (s) =>
+                `${s.id}. ${s.name} (${s.subsystem}${s.database ? ` on ${s.database}` : ""}) — last: ${run(s.lastRun)}\n${s.command}`,
+            ),
+            "",
+            "schedules:",
+            ...j.schedules.map(
+              (s) =>
+                `- ${s.description}${s.enabled ? "" : " (disabled)"}${s.sharedWith ? ` — shared with ${s.sharedWith} other job(s)` : ""}`,
+            ),
+            "",
+            "recent runs:",
+            ...j.history.map((r) => `- ${run(r)}`),
+          ]
+            .filter((l, i, a) => l !== "" || a[i - 1] !== "")
+            .join("\n"),
         );
       }),
   );

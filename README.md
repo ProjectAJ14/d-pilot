@@ -395,6 +395,8 @@ exports), so agent traffic can be told apart from people using the UI.
 | `get_object_definition`   | Full source of one of those objects, read live                                       |
 | `get_object_dependencies` | What an object uses and what uses it                                                 |
 | `compare_objects`         | Drift report: objects that differ between two connections                            |
+| `list_jobs`               | SQL Server Agent / pg_cron jobs on the database: schedule, last outcome, next run    |
+| `get_job`                 | One job's step commands, schedules and recent runs                                   |
 | `run_query`               | Runs a read-only query on one connection or several (`connectionIds`); compact CSV   |
 | `create_artifact`         | Publishes a shareable document (rich page + runnable read queries), returns its link |
 | `update_artifact`         | Edits an artifact the service account created                                        |
