@@ -1,0 +1,24 @@
+meta {
+  name: Drift Report
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/api/schema/{{connectionId}}/drift?against={{connectionId}}
+  body: none
+  auth: inherit
+}
+
+params:query {
+  against: {{connectionId}}
+  ~schema: public
+}
+
+docs {
+  Procedures, functions, views and triggers in one schema that differ between this connection and `against` (same engine — MongoDB and Elasticsearch objects compare too): { schema, identical, items: [{ schema, name, kind, args?, parent?, status }] }, status different | only_left | only_right. Definitions are compared by SHA-256 of their normalized text (line endings and trailing whitespace removed); none is returned. A definition hidden on either side counts as different.
+
+  Requires a valid Bearer JWT ({{token}}) plus **read** capability on **both** connections' environments — 403 otherwise.
+
+  Errors: 400 when `against` is missing or the two connections are different engines; 503 { error, code: "CONNECTION_FAILED" }; 500 { error }.
+}

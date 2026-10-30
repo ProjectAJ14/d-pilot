@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import { Text, ActionIcon, Tooltip, Menu } from "@mantine/core";
 import {
   IconDeviceFloppy,
+  IconClock,
+  IconCode,
   IconFileText,
   IconPencil,
   IconPlus,
@@ -86,6 +88,12 @@ export function QueryTabs({ onSaveTab }: Props) {
         >
           {tab.kind === "artifact" && (
             <IconFileText size={12} style={{ flexShrink: 0 }} />
+          )}
+          {tab.kind === "object" && (
+            <IconCode size={12} style={{ flexShrink: 0 }} />
+          )}
+          {tab.kind === "job" && (
+            <IconClock size={12} style={{ flexShrink: 0 }} />
           )}
           {editingTabId === tab.id ? (
             <input
@@ -189,7 +197,7 @@ export function QueryTabs({ onSaveTab }: Props) {
           >
             Rename
           </Menu.Item>
-          {menuTab?.kind !== "artifact" && (
+          {(menuTab?.kind ?? "sql") === "sql" && (
             <Menu.Item
               leftSection={<IconDeviceFloppy size={14} />}
               onClick={() => {

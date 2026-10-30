@@ -39,6 +39,7 @@ import {
   notReachedTitle,
 } from "../../utils/write-not-reached";
 import { useStore } from "../../store";
+import { JobChangeSummary, ObjectChangeReview } from "./object-change";
 import { countActionRequired } from "./requests-page";
 import type {
   WriteRequest,
@@ -63,6 +64,7 @@ export function WriteRequestDetail() {
   const setWriteHandoff = useStore((s) => s.setWriteHandoff);
   const canWrite = useStore((s) => !!s.user?.canWrite);
   const isAdmin = useStore((s) => !!s.user?.isAdmin);
+  const writeEnvs = useStore((s) => s.user?.writeEnvironments);
 
   // Keep the "needs my action" nav badge accurate after acting on a request.
   const refreshBadge = () =>
@@ -599,63 +601,87 @@ export function WriteRequestDetail() {
             boxShadow: "var(--shadow-2)",
           }}
         >
-          {/* Queries — write first, verify second */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
-            <SqlBlock
-              step={1}
-              label={wr.isMigration ? "Migration script" : "Write statement"}
-              hint={
-                wr.isMigration
-                  ? wr.noTransaction
-                    ? "multiple statements · RUNS WITHOUT ROLLBACK — a mid-script failure leaves partial changes"
-                    : "multiple statements · runs as one transaction (rolls back atomically on failure)"
-                  : "the change this request will apply · single INSERT / UPDATE / DELETE"
-              }
-              code={wr.writeSql}
-              dbType={wr.dbType}
-              accent="orange"
-              barTone="amber"
-              barLabel="WRITES DATA — RUNS ON APPROVAL"
-              barIcon={<IconArrowBarToUp size={13} />}
+          {wr.kind === "object_change" && wr.object ? (
+            <ObjectChangeReview
+              wr={wr}
+              canAuthor={isAdmin || !!writeEnvs?.includes(wr.env)}
             />
-            {!wr.isMigration && (
-              <SqlBlock
-                step={2}
-                label="Verify SELECT"
-                hint="a read-only query that previews the rows the write will affect"
-                code={wr.selectSql}
-                dbType={wr.dbType}
-                accent="gray"
-                barTone="neutral"
-                barLabel="READ-ONLY PREVIEW QUERY"
-                barIcon={<IconEye size={13} />}
-                footer={
-                  <Group gap={12} align="center" wrap="nowrap">
-                    <Tooltip
-                      label={`You need read access to ${wr.env} to preview rows`}
-                      disabled={wr.viewerCanPreview !== false}
-                    >
-                      <Button
-                        size="xs"
-                        variant="default"
-                        leftSection={<IconPlayerPlay size={14} />}
-                        onClick={runPreview}
-                        loading={previewLoading}
-                        disabled={
-                          !wr.selectSql || wr.viewerCanPreview === false
-                        }
-                      >
-                        Run this SELECT
-                      </Button>
-                    </Tooltip>
-                    <Text size="xs" c="dimmed">
-                      {previewNote}
-                    </Text>
-                  </Group>
-                }
-              />
-            )}
-          </div>
+          ) : (
+            <>
+              {wr.kind === "job_change" && wr.jobChange && (
+                <div style={{ marginBottom: 22 }}>
+                  <JobChangeSummary wr={wr} />
+                </div>
+              )}
+              {/* Queries — write first, verify second */}
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 22 }}
+              >
+                <SqlBlock
+                  step={1}
+                  label={
+                    wr.kind === "job_change"
+                      ? "Generated statement"
+                      : wr.isMigration
+                        ? "Migration script"
+                        : "Write statement"
+                  }
+                  hint={
+                    wr.kind === "job_change"
+                      ? "written by D-Pilot from the change above · runs in a transaction"
+                      : wr.isMigration
+                        ? wr.noTransaction
+                          ? "multiple statements · RUNS WITHOUT ROLLBACK — a mid-script failure leaves partial changes"
+                          : "multiple statements · runs as one transaction (rolls back atomically on failure)"
+                        : "the change this request will apply · single INSERT / UPDATE / DELETE"
+                  }
+                  code={wr.writeSql}
+                  dbType={wr.dbType}
+                  accent="orange"
+                  barTone="amber"
+                  barLabel="WRITES DATA — RUNS ON APPROVAL"
+                  barIcon={<IconArrowBarToUp size={13} />}
+                />
+                {!wr.isMigration && (
+                  <SqlBlock
+                    step={2}
+                    label="Verify SELECT"
+                    hint="a read-only query that previews the rows the write will affect"
+                    code={wr.selectSql}
+                    dbType={wr.dbType}
+                    accent="gray"
+                    barTone="neutral"
+                    barLabel="READ-ONLY PREVIEW QUERY"
+                    barIcon={<IconEye size={13} />}
+                    footer={
+                      <Group gap={12} align="center" wrap="nowrap">
+                        <Tooltip
+                          label={`You need read access to ${wr.env} to preview rows`}
+                          disabled={wr.viewerCanPreview !== false}
+                        >
+                          <Button
+                            size="xs"
+                            variant="default"
+                            leftSection={<IconPlayerPlay size={14} />}
+                            onClick={runPreview}
+                            loading={previewLoading}
+                            disabled={
+                              !wr.selectSql || wr.viewerCanPreview === false
+                            }
+                          >
+                            Run this SELECT
+                          </Button>
+                        </Tooltip>
+                        <Text size="xs" c="dimmed">
+                          {previewNote}
+                        </Text>
+                      </Group>
+                    }
+                  />
+                )}
+              </div>
+            </>
+          )}
 
           {previewError && (
             <Alert color="red" mt="md" variant="light">

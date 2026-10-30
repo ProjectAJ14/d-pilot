@@ -40,8 +40,8 @@ submission/rejection when write mode is off.
 ## Auth & access (`middleware/auth.ts`)
 
 - Local JWT (bcrypt hashing, `jsonwebtoken`). No external IdP.
-- **Capability model** — `deriveUserProfile` turns a user row into `isAdmin` + four env
-  lists (read/unmask/write/approve). Admin ⇒ all envs on every list.
+- **Capability model** — `deriveUserProfile` turns a user row into `isAdmin` + five env
+  lists (read/unmask/write/approve/jobs). Admin ⇒ all envs on every list.
 - **`resolveReadableConnection(req, res, connectionId)`** — the _only_ way a route may turn a
   caller-supplied `connectionId` into a `ConnectionConfig`. It 400/404/403s for you and
   enforces read access for that connection's environment. A bare `getConnection()` in a route
@@ -238,6 +238,43 @@ connection afterwards (`connectionIfUnchanged`) and 409s if it changed — befor
 inserted, claimed or revised, so a retry never duplicates — and then binds and runs with no
 await in between. Existing pending requests and drafts are bound to their connection as of the upgrade (the migration backfills them); one whose
 connection was already gone, or now sits in another env, has no target and never runs.
+
+**Object changes** (`kind: "object_change"`, `services/object-change.ts`) replace one
+procedure/function/view/trigger. `writeSql` must be one idempotent `CREATE OR ALTER` /
+`CREATE OR REPLACE` of that same object, run as one batch (no `GO`); it runs as a
+transactional migration through `executeMigration` — no side door. Create and revise store
+`snapshot`, the definition deployed at that moment (`prepareObjectChange`; a hidden
+definition is refused, since it can't be diffed or guarded). Submit, approve and override
+call `objectChangedSince` and 409 `OBJECT_CHANGED` if the deployed definition's normalized
+hash moved — never overwrite a version nobody reviewed. Revise re-bases on what is
+deployed. The AI review gets the deployed version and the object's dependents.
+
+**Job changes** (`kind: "job_change"`, `services/job-change.ts`) make one structured action
+on one SQL Server Agent / pg\*cron job. The author sends `jobChange: { jobId, action }` and
+**the server writes the SQL** (`buildJobChangeSql`: ids validated, values quoted) — that
+text is what is reviewed and what runs, as a transactional migration. Raising one needs the
+`jobEnvironments` capability on top of write and read (so does submitting a drafted one); an
+object_change needs read as well as write, since both return the deployed snapshot.
+A step command is never read with text patterns: `checkJobStep` (`services/job-step.ts`)
+has the engine parse it. Postgres's own parser (`libpg-query`) gives the statement tree;
+SQL Server compiles the batch under `SET SHOWPLAN_XML ON` (nothing runs; the step can't turn
+it off) and reports every statement it would run. Allowed: CALL/EXEC of a routine, SELECT,
+INSERT, UPDATE/DELETE with a WHERE (at any depth), Postgres VACUUM/ANALYZE/REFRESH
+MATERIALIZED VIEW — any other statement type (SHUTDOWN, DROP, EXECUTE STRING, IF…) is
+refused, as is a SQL Server plan that reads outside the database (`Remote` operators:
+OPENROWSET, OPENQUERY, linked servers) or touches another database's objects (three-part
+names, inlined functions included). The SHOWPLAN check holds one connection in a
+transaction, so a dropped session fails instead of running the step without SHOWPLAN, and
+anything back that isn't a plan is an error. Every routine called, at any depth, beyond a short
+safe list of value built-ins (`now`, `coalesce`…), must pass `isUserRoutine` in the catalog:
+not built in, not an extension's (dblink, pg_cron, `query_to_xml`-style string runners), not
+a system schema. The pure halves (`analyzePgStep`, `analyzeMssqlPlan`) are tested on real
+parser output and captured SHOWPLAN XML (`__fixtures__/showplan.json`). `validateJobChange`
+also refuses any non-SQL step, a step
+on another database, a schedule shared with other jobs, and every action but an own-step
+edit on a job that also runs on another database (that part is another database's work); every refusal is audited as `JOB_CHANGE_REFUSED` (`refuseJobChange`).
+The whole job is snapshotted (`jobSnapshot`) and checked like an object change's
+definition; a job change can't be revised — raise a new one.
 
 Every request carries a paired verify **SELECT** and the **WRITE**.
 `WriteAiReview` holds the structured safety verdict (SAFE/CAUTION/DANGEROUS, blast

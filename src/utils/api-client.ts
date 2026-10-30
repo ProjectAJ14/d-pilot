@@ -9,6 +9,13 @@ import type {
   QueryResult,
   AppSettingView,
   ConnectionAdminView,
+  DbObjectDefinition,
+  DbObjectDependencies,
+  DbObjectInfo,
+  DriftReport,
+  JobChangeAction,
+  JobDetail,
+  JobList,
 } from "../types";
 import { BASE_PATH } from "./base-path";
 import {
@@ -41,6 +48,15 @@ const BASE_URL = `${BASE_PATH}/api`;
 
 // Error thrown for non-OK API responses. Carries the HTTP status and the
 // server's machine-readable code (e.g. CONNECTION_FAILED) when present.
+/** `args` / `parent` go along even when empty: `args=` is a zero-argument overload. */
+function objectPath(connectionId: string, o: DbObjectInfo, what: string) {
+  const q = new URLSearchParams({ schema: o.schema });
+  if (o.args != null) q.set("args", o.args);
+  if (o.argTypes != null) q.set("argTypes", o.argTypes);
+  if (o.parent != null) q.set("parent", o.parent);
+  return `/schema/${connectionId}/objects/${o.kind}/${encodeURIComponent(o.name)}/${what}?${q}`;
+}
+
 export class ApiError extends Error {
   status: number;
   code?: ApiErrorCode;
@@ -288,6 +304,10 @@ export const api = {
     noTransaction?: boolean;
     /** Save only — the request is neither queued for approval nor executed. */
     draft?: boolean;
+    /** Makes it an object_change: `writeSql` is this object's new definition. */
+    object?: DbObjectInfo;
+    /** Makes it a job_change: the server writes the SQL, `writeSql` is ignored. */
+    jobChange?: { jobId: string; action: JobChangeAction };
   }) =>
     request<WriteRequest>("/write-requests", {
       method: "POST",
@@ -475,6 +495,24 @@ export const api = {
     request<any[]>(
       `/schema/${connectionId}/tables${schema ? `?schema=${encodeURIComponent(schema)}` : ""}`,
     ),
+  getObjects: (connectionId: string, schema?: string) =>
+    request<DbObjectInfo[]>(
+      `/schema/${connectionId}/objects${schema ? `?schema=${encodeURIComponent(schema)}` : ""}`,
+    ),
+  getObjectDefinition: (connectionId: string, o: DbObjectInfo) =>
+    request<DbObjectDefinition>(objectPath(connectionId, o, "definition")),
+  getObjectDependencies: (connectionId: string, o: DbObjectInfo) =>
+    request<DbObjectDependencies>(objectPath(connectionId, o, "dependencies")),
+  getJobs: (connectionId: string) =>
+    request<JobList>(`/schema/${connectionId}/jobs`),
+  getJob: (connectionId: string, jobId: string) =>
+    request<JobDetail>(
+      `/schema/${connectionId}/jobs/${encodeURIComponent(jobId)}`,
+    ),
+  getDrift: (connectionId: string, against: string, schema?: string) =>
+    request<DriftReport>(
+      `/schema/${connectionId}/drift?${new URLSearchParams({ against, ...(schema && { schema }) })}`,
+    ),
   getFullSchema: (connectionId: string, schema?: string) =>
     request<{
       tables: { name: string; type: string }[];
@@ -589,6 +627,7 @@ export const api = {
     unmaskEnvironments?: string[];
     writeEnvironments?: string[];
     approveEnvironments?: string[];
+    jobEnvironments?: string[];
   }) =>
     request<any>("/users", {
       method: "POST",
@@ -603,6 +642,7 @@ export const api = {
       unmaskEnvironments?: string[];
       writeEnvironments?: string[];
       approveEnvironments?: string[];
+      jobEnvironments?: string[];
     },
   ) =>
     request<any>(`/users/${id}`, {

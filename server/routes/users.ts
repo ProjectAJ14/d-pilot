@@ -53,6 +53,7 @@ function mapUserRow(u: any) {
     unmaskEnvironments: scoped(u.unmask_environments),
     writeEnvironments: scoped(u.write_environments),
     approveEnvironments: scoped(u.approve_environments),
+    jobEnvironments: scoped(u.job_environments),
     createdAt: u.created_at,
     lastLogin: u.last_login,
   };
@@ -69,6 +70,7 @@ router.post("/", (req: Request, res: Response) => {
     unmaskEnvironments,
     writeEnvironments,
     approveEnvironments,
+    jobEnvironments,
   } = req.body;
 
   if (!email || !password) {
@@ -111,9 +113,10 @@ router.post("/", (req: Request, res: Response) => {
   const unmask = admin ? getEnvironments() : sanitizeEnvs(unmaskEnvironments);
   const write = admin ? getEnvironments() : sanitizeEnvs(writeEnvironments);
   const approve = admin ? getEnvironments() : sanitizeEnvs(approveEnvironments);
+  const jobs = admin ? getEnvironments() : sanitizeEnvs(jobEnvironments);
 
   db.prepare(
-    "INSERT INTO users (id, username, password_hash, email, display_name, is_admin, allowed_environments, unmask_environments, write_environments, approve_environments) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO users (id, username, password_hash, email, display_name, is_admin, allowed_environments, unmask_environments, write_environments, approve_environments, job_environments) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
     id,
     email,
@@ -125,6 +128,7 @@ router.post("/", (req: Request, res: Response) => {
     JSON.stringify(unmask),
     JSON.stringify(write),
     JSON.stringify(approve),
+    JSON.stringify(jobs),
   );
 
   const created = db.prepare("SELECT * FROM users WHERE id = ?").get(id) as any;
@@ -141,6 +145,7 @@ router.put("/:id", (req: Request, res: Response) => {
     unmaskEnvironments,
     writeEnvironments,
     approveEnvironments,
+    jobEnvironments,
   } = req.body;
 
   const db = getDb();
@@ -193,6 +198,13 @@ router.put("/:id", (req: Request, res: Response) => {
       JSON.stringify(
         sanitizeEnvs(approveEnvironments, existing.approve_environments),
       ),
+    );
+  }
+
+  if (jobEnvironments !== undefined) {
+    updates.push("job_environments = ?");
+    values.push(
+      JSON.stringify(sanitizeEnvs(jobEnvironments, existing.job_environments)),
     );
   }
 

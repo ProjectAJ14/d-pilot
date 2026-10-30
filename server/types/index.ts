@@ -9,7 +9,7 @@ export type Environment = string;
 export type MaskingType = "FULL" | "PARTIAL" | "HASH" | "REDACT";
 
 // Machine-readable error codes returned by the API (body: { error, code? }).
-export type ApiErrorCode = "CONNECTION_FAILED";
+export type ApiErrorCode = "CONNECTION_FAILED" | "OBJECT_NOT_FOUND";
 
 export interface ApiErrorBody {
   error: string;
@@ -214,6 +214,206 @@ export interface TableInfo {
   rowCount?: number;
 }
 
+/** Programmable objects on Postgres/SQL Server — what an object_change can edit. */
+export type SqlObjectKind = "procedure" | "function" | "view" | "trigger";
+
+/**
+ * Everything the object browser lists: the SQL kinds, plus MongoDB views,
+ * indexes and validation rules and Elasticsearch index templates, ingest
+ * pipelines, aliases and ILM policies (read-only; definitions are JSON).
+ */
+export type DbObjectKind =
+  | SqlObjectKind
+  | "index"
+  | "validator"
+  | "index_template"
+  | "ingest_pipeline"
+  | "alias"
+  | "ilm_policy";
+
+export interface DbObjectInfo {
+  schema: string;
+  name: string;
+  kind: DbObjectKind;
+  /**
+   * Postgres routines only: identity argument types, e.g. `integer, text`.
+   * Overloads share a name, so this is part of the object's key.
+   */
+  args?: string;
+  /**
+   * Postgres routines: argument types alone (`integer, text`), which identify
+   * the same overload in another environment even if a parameter was renamed.
+   */
+  argTypes?: string;
+  /**
+   * Triggers: the table it fires on (Postgres trigger names are per table).
+   * MongoDB indexes: their collection.
+   */
+  parent?: string;
+}
+
+export interface DbObjectDefinition extends DbObjectInfo {
+  /** Null when the engine hides it: encrypted, or no VIEW DEFINITION permission. */
+  definition: string | null;
+  /**
+   * The definition as a re-runnable script (`CREATE OR ALTER` / `CREATE OR
+   * REPLACE`): what "Edit" starts from and "Copy as migration" copies. Null
+   * when there is none (hidden, or a Postgres materialized view).
+   */
+  migration?: string | null;
+}
+
+/** A write request that changes something other than rows. */
+export type WriteRequestKind = "object_change" | "job_change";
+
+/** One side of a dependency edge. `kind` is null when the engine can't resolve it. */
+export interface DbObjectReference {
+  schema?: string;
+  name: string;
+  /** procedure | function | view | trigger | table, or null for an unresolved reference. */
+  kind: DbObjectKind | "table" | null;
+  /** Set on a cross-database reference (SQL Server). */
+  database?: string;
+  /** A Postgres routine's identity arguments, to open that overload. */
+  args?: string;
+  /** A trigger's table, to open that trigger. */
+  parent?: string;
+}
+
+export interface DbObjectDependencies {
+  uses: DbObjectReference[];
+  usedBy: DbObjectReference[];
+  /** True when part of the answer came from scanning bodies for names (Postgres functions). */
+  bestEffort: boolean;
+  /** Jobs on this database whose step names the object — found by name, best effort. */
+  jobs?: { id: string; name: string }[];
+}
+
+/** One object whose definition differs between two connections, or exists on one only. */
+export interface DriftItem extends DbObjectInfo {
+  status: "different" | "only_left" | "only_right";
+}
+
+export interface DriftReport {
+  schema: string;
+  /** Objects present on both sides with the same normalized definition. */
+  identical: number;
+  items: DriftItem[];
+}
+
+/** SQL Server Agent's run_status, decoded; pg_cron's status mapped onto it. */
+export type JobRunStatus =
+  | "failed"
+  | "succeeded"
+  | "retry"
+  | "cancelled"
+  | "running";
+
+export interface JobRun {
+  status: JobRunStatus | null;
+  /** Server-local time, `YYYY-MM-DD HH:MM:SS` (msdb records no zone). */
+  startedAt: string | null;
+  durationSec: number | null;
+  message?: string;
+}
+
+/** A scheduled job: a SQL Server Agent job, or a pg_cron job. */
+export interface JobInfo {
+  id: string;
+  name: string;
+  engine: "agent" | "pg_cron";
+  enabled: boolean;
+  description?: string;
+  category?: string;
+  /** Plain-language schedule summary (Agent) or the cron expression (pg_cron). */
+  schedule?: string;
+  lastRun?: JobRun;
+  nextRunAt?: string | null;
+  stepCount: number;
+}
+
+export interface JobStep {
+  id: number;
+  name: string;
+  /** TSQL, CmdExec, PowerShell, SSIS, … — `SQL` for pg_cron. */
+  subsystem: string;
+  command: string;
+  database?: string;
+  lastRun?: JobRun;
+}
+
+export interface JobSchedule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  /** "Every 30 minutes, 06:00–22:00, Mon–Fri", or the cron expression. */
+  description: string;
+  /** Other jobs that share this schedule — editing it changes them too. */
+  sharedWith: number;
+  /** Whether a job_change may edit it (daily/weekly/monthly; once or every N min/h). */
+  editable: boolean;
+  /** pg_cron: the cron expression. */
+  cron?: string;
+  /** Agent: the msdb columns, for an edit form. */
+  msdb?: Record<string, number>;
+}
+
+export interface JobDetail extends JobInfo {
+  /** The connection's own database — the one new steps run against. */
+  database?: string;
+  steps: JobStep[];
+  schedules: JobSchedule[];
+  /** Most recent job-level outcomes, newest first. */
+  history: JobRun[];
+}
+
+export interface JobList {
+  /** False when the connection can't read jobs; `reason` names the missing grant. */
+  available: boolean;
+  reason?: string;
+  jobs: JobInfo[];
+}
+
+/** The editable fields of a SQL Server Agent schedule (see job-schedule.ts). */
+export interface MsdbScheduleFields {
+  /** 4 daily, 8 weekly, 16 monthly. */
+  freq_type: number;
+  /** Daily: every N days. Weekly: weekday bitmask (Sun 1 … Sat 64). Monthly: day of month. */
+  freq_interval: number;
+  /** 1 once a day, 4 every N minutes, 8 every N hours. */
+  freq_subday_type: number;
+  freq_subday_interval: number;
+  /** Weekly/monthly: every N weeks/months. */
+  freq_recurrence_factor: number;
+  /** HHMMSS. */
+  active_start_time: number;
+  active_end_time: number;
+}
+
+/** One change to a scheduled job; a job_change request carries exactly one. */
+export type JobChangeAction =
+  | { type: "set_enabled"; enabled: boolean }
+  | { type: "rename"; name: string }
+  | { type: "set_description"; description: string }
+  | { type: "edit_step"; stepId: number; command: string }
+  | { type: "add_step"; name: string; command: string }
+  | { type: "delete_step"; stepId: number }
+  | {
+      type: "set_schedule";
+      scheduleId: string;
+      /** pg_cron. */
+      cron?: string;
+      /** SQL Server Agent. */
+      msdb?: MsdbScheduleFields;
+    };
+
+export interface JobChange {
+  jobId: string;
+  jobName: string;
+  engine: "agent" | "pg_cron";
+  action: JobChangeAction;
+}
+
 export interface ColumnInfo {
   name: string;
   dataType: string;
@@ -238,6 +438,8 @@ export interface AuthUser {
   unmaskEnvironments: string[];
   writeEnvironments: string[];
   approveEnvironments: string[];
+  /** Environments where this user may raise job_change requests. */
+  jobEnvironments: string[];
   canWrite: boolean;
   canApprove: boolean;
 }
@@ -324,6 +526,24 @@ export interface WriteRequest {
   isMigration?: boolean;
   /** Migration opted out of the transaction wrapper (no rollback on failure). */
   noTransaction?: boolean;
+  /** Set on a request that changes a database object or a job, not data. */
+  kind?: WriteRequestKind;
+  /** object_change: the procedure/function/view/trigger it replaces. */
+  object?: DbObjectInfo;
+  /**
+   * object_change: the definition deployed when it was (re)submitted — what
+   * the review diffs against, what approval checks is still there, and what
+   * "Restore previous version" puts back. Null: the object did not exist.
+   */
+  snapshot?: string | null;
+  /** object_change: `snapshot` as a re-runnable script, for "Restore previous version". */
+  restoreSql?: string | null;
+  /** job_change: the job and the one change made to it. */
+  jobChange?: JobChange;
+  /** job_change: what it does, in one line ("Disables the job"). */
+  summary?: string;
+  /** Things the author and approver should see, e.g. a credential in a definition. */
+  warnings?: string[];
   aiVerdict?: string;
   aiReview?: WriteAiReview;
   createdAt: string;

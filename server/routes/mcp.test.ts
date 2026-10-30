@@ -406,6 +406,217 @@ describe("schema and listing tools", () => {
     await client.close();
   });
 
+  it("list_objects groups by kind and tells overloads apart", async () => {
+    const api = answering({
+      "/schema/qa-pg/objects?schema=app_core": [
+        {
+          schema: "app_core",
+          name: "refresh_order_totals",
+          kind: "function",
+          args: "",
+        },
+        {
+          schema: "app_core",
+          name: "refresh_order_totals",
+          kind: "function",
+          args: "integer",
+        },
+        {
+          schema: "app_core",
+          name: "orders_audit",
+          kind: "trigger",
+          parent: "orders",
+        },
+      ],
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("list_objects", {
+      connectionId: "qa-pg",
+      schema: "app_core",
+    });
+    expect(text).toBe(
+      "function: app_core.refresh_order_totals(), app_core.refresh_order_totals(integer)\ntrigger: app_core.orders_audit on orders",
+    );
+    await client.close();
+  });
+
+  it("get_object_definition sends a zero-argument overload as args= and explains a hidden body", async () => {
+    const api = answering({
+      "/schema/qa-pg/objects/function/refresh_order_totals/definition?args=": {
+        schema: "app_core",
+        name: "refresh_order_totals",
+        kind: "function",
+        args: "",
+        definition: null,
+      },
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("get_object_definition", {
+      connectionId: "qa-pg",
+      kind: "function",
+      name: "refresh_order_totals",
+      args: "",
+    });
+    expect(text).toContain("function app_core.refresh_order_totals()");
+    expect(text).toContain("Definition not available");
+    await client.close();
+  });
+
+  it("compare_objects lists what differs and where", async () => {
+    const api = answering({
+      "/schema/qa-pg/drift?against=prod-pg": {
+        schema: "app_core",
+        identical: 4,
+        items: [
+          {
+            schema: "app_core",
+            name: "close_stale_orders",
+            kind: "procedure",
+            args: "",
+            status: "different",
+          },
+          {
+            schema: "app_core",
+            name: "dev_only_view",
+            kind: "view",
+            status: "only_left",
+          },
+        ],
+      },
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("compare_objects", {
+      connectionId: "qa-pg",
+      againstConnectionId: "prod-pg",
+    });
+    expect(text).toBe(
+      "2 differ, 4 identical in app_core.\n- procedure app_core.close_stale_orders(): differs\n- view app_core.dev_only_view: only on qa-pg",
+    );
+    await client.close();
+  });
+
+  it("get_object_dependencies marks unresolved references, best effort, and the jobs that run it", async () => {
+    const api = answering({
+      "/schema/qa-pg/objects/view/open_orders/dependencies": {
+        uses: [
+          { schema: "app_core", name: "orders", kind: "table" },
+          {
+            database: "archive",
+            schema: "dbo",
+            name: "orders_2019",
+            kind: null,
+          },
+        ],
+        usedBy: [],
+        bestEffort: true,
+        jobs: [{ id: "7", name: "recalc due dates" }],
+      },
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("get_object_dependencies", {
+      connectionId: "qa-pg",
+      kind: "view",
+      name: "open_orders",
+    });
+    expect(text).toBe(
+      "uses: app_core.orders (table), archive.dbo.orders_2019 (?)\nused by: nothing found\n(best effort: found by name in function bodies)\nrun by jobs (found by name in their steps): recalc due dates [7]",
+    );
+    await client.close();
+  });
+
+  it("list_jobs names the missing grant instead of an empty list", async () => {
+    const api = answering({
+      "/schema/qa-ms/jobs": {
+        available: false,
+        reason:
+          "This connection can't read SQL Server Agent jobs (its login needs SQLAgentReaderRole in msdb).",
+        jobs: [],
+      },
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("list_jobs", { connectionId: "qa-ms" });
+    expect(text).toContain("SQLAgentReaderRole");
+    await client.close();
+  });
+
+  it("get_job shows each step's command and why a run failed", async () => {
+    const api = answering({
+      "/schema/qa-ms/jobs/abc": {
+        id: "abc",
+        name: "recalc due dates",
+        engine: "agent",
+        enabled: true,
+        stepCount: 1,
+        lastRun: {
+          status: "failed",
+          startedAt: "2026-10-30 02:00:00",
+          durationSec: 3,
+          message: "Deadlock",
+        },
+        steps: [
+          {
+            id: 1,
+            name: "run proc",
+            subsystem: "TSQL",
+            command: "EXEC app_core.refresh_order_totals",
+            database: "app_core",
+          },
+        ],
+        schedules: [
+          {
+            id: "8",
+            name: "s",
+            enabled: true,
+            description: "Daily, at 02:00",
+            sharedWith: 2,
+            editable: true,
+          },
+        ],
+        history: [],
+      },
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("get_job", {
+      connectionId: "qa-ms",
+      jobId: "abc",
+    });
+    expect(text).toContain(
+      "last run: failed at 2026-10-30 02:00:00 (3s) — Deadlock",
+    );
+    expect(text).toContain(
+      "1. run proc (TSQL on app_core) — last: never run\nEXEC app_core.refresh_order_totals",
+    );
+    expect(text).toContain("- Daily, at 02:00 — shared with 2 other job(s)");
+    await client.close();
+  });
+
+  it("create_write_request drafts an object change, never more than a draft", async () => {
+    const post = vi.fn(async () => ({
+      id: "w1",
+      status: "DRAFT",
+      env: "QA",
+      connectionName: "QA core",
+    }));
+    const { client, call } = await connect({ post: post as any });
+    const object = {
+      schema: "app_core",
+      name: "refresh_order_totals",
+      kind: "procedure",
+    };
+    await call("create_write_request", {
+      title: "Fix due dates",
+      connectionId: "qa-ms",
+      writeSql:
+        "CREATE OR ALTER PROCEDURE app_core.refresh_order_totals AS SELECT 1",
+      object,
+    });
+    expect(post).toHaveBeenCalledWith(
+      "/write-requests",
+      expect.objectContaining({ object, draft: true }),
+    );
+    await client.close();
+  });
+
   it("list_tables withColumns reads the cached full schema once", async () => {
     const api = answering({
       "/schema/qa-pg/full?schema=app_core": {

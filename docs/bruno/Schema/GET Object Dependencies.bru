@@ -1,0 +1,27 @@
+meta {
+  name: Object Dependencies
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/api/schema/{{connectionId}}/objects/{{objectKind}}/{{objectName}}/dependencies
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~schema: public
+  ~args: integer
+  ~parent: orders
+}
+
+docs {
+  What an object reads and what reads it: { uses, usedBy, bestEffort, jobs }. Each reference is { schema?, name, kind, database? }; `kind` is procedure | function | view | trigger | table, or null for a reference SQL Server could not resolve (dropped, late-bound, cross-database — `database` is set for the last). `bestEffort` is true when part of the answer came from matching names in Postgres function bodies. `jobs` lists { id, name } of the Agent or pg_cron jobs on this database whose step names the object — also matched by name, and empty when the connection can't read jobs.
+
+  Same `objectKind` / `args` / `parent` rules as Object Definition.
+
+  Requires a valid Bearer JWT ({{token}}) plus **read** capability for the connection's environment — 403 otherwise.
+
+  Errors: 400 for an unknown kind, an engine without objects, or an ambiguous name; 503 { error, code: "CONNECTION_FAILED" }; 500 { error }.
+}

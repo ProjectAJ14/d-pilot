@@ -1,0 +1,229 @@
+// The rules for a job_change write request. A job is SQL that runs later,
+// unattended, so a change to one gets at least the scrutiny of a direct
+// write. Pure functions — the route reads the job and does the I/O; a step's
+// command is checked by its own engine (job-step.ts).
+//
+// The SQL that runs is generated here from one structured action, never
+// typed by the author: ids are validated, every other value is a quoted
+// literal. That text is what the reviewer sees and what executes.
+
+import { isEditableSchedule } from "./job-schedule.js";
+export { describeJobAction } from "./job-action.js";
+import type {
+  JobChangeAction,
+  JobDetail,
+  MsdbScheduleFields,
+} from "../types/index.js";
+
+/** `N'…'` with quotes doubled — SQL Server. */
+const nstr = (s: string) => `N'${s.replace(/'/g, "''")}'`;
+/** `'…'` with quotes doubled — Postgres (standard_conforming_strings). */
+const pstr = (s: string) => `'${s.replace(/'/g, "''")}'`;
+
+/**
+ * Whether a step's database is not the connection's. SQL Server compares
+ * database names case-insensitively, and a Postgres connection only works
+ * when its name matches, so case never makes it another database.
+ */
+const otherDb = (step: string | undefined, own: string | undefined) =>
+  !!step && step.toLowerCase() !== (own ?? "").toLowerCase();
+
+const SQL_SUBSYSTEMS = ["TSQL", "SQL"];
+const validTime = (t: number) =>
+  Number.isInteger(t) &&
+  t >= 0 &&
+  t <= 235959 &&
+  Math.floor(t / 100) % 100 < 60 &&
+  t % 100 < 60;
+
+function checkMsdbSchedule(s: MsdbScheduleFields | undefined): string | null {
+  if (!s) return "A SQL Server Agent schedule needs its msdb fields.";
+  const int = (n: unknown) => Number.isInteger(n);
+  if (!Object.values(s).every(int)) return "Schedule fields must be integers.";
+  if (!isEditableSchedule({ ...s, freq_relative_interval: 0 }))
+    return "Only daily, weekly or monthly schedules that run once a day or every N minutes/hours can be set here.";
+  if (s.freq_type === 4 && (s.freq_interval < 1 || s.freq_interval > 365))
+    return "Daily: every 1–365 days.";
+  if (s.freq_type === 8 && (s.freq_interval < 1 || s.freq_interval > 127))
+    return "Weekly: pick at least one weekday.";
+  if (s.freq_type === 16 && (s.freq_interval < 1 || s.freq_interval > 31))
+    return "Monthly: a day from 1 to 31.";
+  if (s.freq_type !== 4 && s.freq_recurrence_factor < 1)
+    return "Repeat every 1 or more weeks/months.";
+  if (
+    s.freq_subday_type === 4 &&
+    (s.freq_subday_interval < 1 || s.freq_subday_interval > 1439)
+  )
+    return "Every 1–1439 minutes.";
+  if (
+    s.freq_subday_type === 8 &&
+    (s.freq_subday_interval < 1 || s.freq_subday_interval > 23)
+  )
+    return "Every 1–23 hours.";
+  if (!validTime(s.active_start_time) || !validTime(s.active_end_time))
+    return "Times are HHMMSS, 000000–235959.";
+  return null;
+}
+
+// Five fields of cron, pg_cron's "N seconds", or a @-shortcut.
+const CRON =
+  /^(@(yearly|annually|monthly|weekly|daily|hourly|reboot)|([0-9*,/-]+\s+){4}[0-9*,/-]+|[1-5]?[0-9]\s+seconds)$/i;
+
+/**
+ * Why `action` can't be made to `job`, or null. `database` is the
+ * connection's own: a step aimed at another database is not this reader's
+ * to change, and new steps run here.
+ */
+export function validateJobChange(
+  action: JobChangeAction,
+  job: JobDetail,
+): string | null {
+  const agent = job.engine === "agent";
+  const step = (id: number) => job.steps.find((s) => s.id === id);
+  const agentOnly = () =>
+    agent
+      ? null
+      : "pg_cron jobs can't be renamed or described, and have exactly one command.";
+  // A job that also runs steps on another database is partly that database's
+  // work: disabling, renaming, rescheduling or re-ordering it changes what
+  // runs there, which this connection's readers and approvers can't see.
+  // Only this database's own step commands may change.
+  const foreign = job.steps.some((s) => otherDb(s.database, job.database));
+  if (foreign && action.type !== "edit_step")
+    return "This job also runs steps against another database, so only this database's own step commands can be changed here.";
+  switch (action.type) {
+    case "set_enabled":
+      return typeof action.enabled === "boolean"
+        ? action.enabled === job.enabled
+          ? `The job is already ${job.enabled ? "enabled" : "disabled"}.`
+          : null
+        : "enabled must be true or false.";
+    case "rename":
+      return (
+        agentOnly() ?? (action.name?.trim() ? null : "A name is required.")
+      );
+    case "set_description":
+      return (
+        agentOnly() ??
+        (typeof action.description === "string"
+          ? null
+          : "A description is required.")
+      );
+    case "delete_step": {
+      const s = step(action.stepId);
+      if (agentOnly()) return agentOnly();
+      if (!s) return `Step ${action.stepId} does not exist.`;
+      if (otherDb(s.database, job.database))
+        return "That step runs against another database.";
+      return job.steps.length === 1 ? "A job needs at least one step." : null;
+    }
+    case "edit_step":
+    case "add_step": {
+      if (action.type === "add_step") {
+        if (agentOnly()) return agentOnly();
+        if (!action.name?.trim()) return "A step name is required.";
+      } else {
+        const s = step(action.stepId);
+        if (!s) return `Step ${action.stepId} does not exist.`;
+        // CmdExec, PowerShell, SSIS… run operating-system commands the SQL
+        // checker can't see; they are not changed through D-Pilot.
+        if (!SQL_SUBSYSTEMS.includes(s.subsystem.toUpperCase()))
+          return `Step ${s.id} is a ${s.subsystem} step — it runs an operating-system command D-Pilot can't check, so it can't be changed here.`;
+        if (otherDb(s.database, job.database))
+          return "That step runs against another database.";
+      }
+      // What the command runs is checked by the engine itself (checkJobStep).
+      return action.command?.trim() ? null : "The command is empty.";
+    }
+    case "set_schedule": {
+      const sch = job.schedules.find((s) => s.id === String(action.scheduleId));
+      if (!sch)
+        return `Schedule ${action.scheduleId} is not attached to this job.`;
+      // The other jobs may belong to other databases; moving their run time
+      // is not this request's to decide.
+      if (sch.sharedWith > 0)
+        return `This schedule is shared with ${sch.sharedWith} other job${sch.sharedWith > 1 ? "s" : ""}, so it can't be changed here — give this job its own schedule first.`;
+      if (agent) {
+        if (!sch.editable)
+          return "This schedule (one-time, monthly-relative, or on Agent start/idle) is read-only here.";
+        return checkMsdbSchedule(action.msdb);
+      }
+      return CRON.test((action.cron ?? "").trim())
+        ? null
+        : "Not a cron expression: five fields, 'N seconds', or @daily/@hourly/….";
+    }
+    default:
+      return "Unknown job change.";
+  }
+}
+
+/** The statement that makes the change. Call only after validateJobChange. */
+export function buildJobChangeSql(
+  action: JobChangeAction,
+  job: JobDetail,
+): string {
+  if (job.engine === "pg_cron") {
+    const id = Number(job.id);
+    const set = (arg: string) =>
+      `SELECT cron.alter_job(job_id := ${id}, ${arg});`;
+    switch (action.type) {
+      case "set_enabled":
+        return set(`active := ${action.enabled}`);
+      case "edit_step":
+        return set(`command := ${pstr(action.command.trim())}`);
+      case "set_schedule":
+        return set(`schedule := ${pstr(action.cron!.trim())}`);
+      default:
+        throw new Error(`${action.type} is not a pg_cron change`);
+    }
+  }
+  const job_ = `@job_id = ${nstr(job.id)}`;
+  switch (action.type) {
+    case "set_enabled":
+      return `EXEC msdb.dbo.sp_update_job ${job_}, @enabled = ${action.enabled ? 1 : 0};`;
+    case "rename":
+      return `EXEC msdb.dbo.sp_update_job ${job_}, @new_name = ${nstr(action.name.trim())};`;
+    case "set_description":
+      return `EXEC msdb.dbo.sp_update_job ${job_}, @description = ${nstr(action.description)};`;
+    case "edit_step":
+      // The database it runs in is the one the command was checked in: a
+      // step with none set would otherwise run in the login's default.
+      return `EXEC msdb.dbo.sp_update_jobstep ${job_}, @step_id = ${action.stepId}, @database_name = ${nstr(job.database!)}, @command = ${nstr(action.command.trim())};`;
+    case "add_step":
+      return `EXEC msdb.dbo.sp_add_jobstep ${job_}, @step_name = ${nstr(action.name.trim())}, @subsystem = N'TSQL', @database_name = ${nstr(job.database!)}, @command = ${nstr(action.command.trim())};`;
+    case "delete_step":
+      return `EXEC msdb.dbo.sp_delete_jobstep ${job_}, @step_id = ${action.stepId};`;
+    case "set_schedule": {
+      const s = action.msdb!;
+      return `EXEC msdb.dbo.sp_update_schedule @schedule_id = ${Number(action.scheduleId)}, @freq_type = ${s.freq_type}, @freq_interval = ${s.freq_interval}, @freq_subday_type = ${s.freq_subday_type}, @freq_subday_interval = ${s.freq_subday_interval}, @freq_recurrence_factor = ${s.freq_recurrence_factor}, @active_start_time = ${s.active_start_time}, @active_end_time = ${s.active_end_time};`;
+    }
+  }
+}
+
+/**
+ * The job as reviewed: everything a change could collide with. Approval
+ * re-reads the job and refuses if this moved — someone else changed it.
+ */
+export function jobSnapshot(job: JobDetail): string {
+  return JSON.stringify({
+    name: job.name,
+    enabled: job.enabled,
+    description: job.description ?? null,
+    steps: job.steps.map(({ id, name, subsystem, command, database }) => ({
+      id,
+      name,
+      subsystem,
+      command,
+      database: database ?? null,
+    })),
+    // sharedWith too: another job attaching the schedule widens what a
+    // schedule change reaches, which the reviewer did not see.
+    schedules: job.schedules.map(({ id, enabled, msdb, cron, sharedWith }) => ({
+      id,
+      enabled,
+      msdb: msdb ?? null,
+      cron: cron ?? null,
+      sharedWith,
+    })),
+  });
+}

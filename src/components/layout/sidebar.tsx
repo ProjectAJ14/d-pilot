@@ -12,6 +12,7 @@ import {
   pickEnv,
 } from "@src/utils/explorer-search";
 import { useState } from "react";
+import { JobTree, ObjectTree } from "./object-tree";
 import { Link } from "react-router-dom";
 import {
   Text,
@@ -1232,6 +1233,20 @@ export function Sidebar() {
                                     );
                                   })}
                               </div>
+                            )}
+
+                          {expandedConn === conn.id && (
+                            <ObjectTree
+                              dbType={conn.type}
+                              key={tKey}
+                              connId={conn.id}
+                              schema={sch}
+                              query={q}
+                            />
+                          )}
+                          {expandedConn === conn.id &&
+                            SCHEMA_DB_TYPES.includes(conn.type) && (
+                              <JobTree connId={conn.id} query={q} />
                             )}
                         </div>
                       );

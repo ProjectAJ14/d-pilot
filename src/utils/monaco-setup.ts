@@ -2,6 +2,7 @@ import * as monaco from "monaco-editor";
 import { loader } from "@monaco-editor/react";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
+import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import { readGround, bare, withAlpha, type Ground } from "./theme-tokens";
 
 /**
@@ -128,13 +129,15 @@ function defineEditorTheme(name: string, ground: Ground) {
 defineEditorTheme("d-pilot-light", "light");
 defineEditorTheme("d-pilot-dark", "dark");
 
-// Language services run in web workers. Only `typescript`/`javascript` is
-// actually needed beyond the core (the Mongo shell editor uses the JS grammar,
-// and its "Format" button routes through the TS worker) — SQL and plaintext
-// need no language worker of their own.
+// Language services run in web workers. Beyond the core, `typescript`/
+// `javascript` is needed (the Mongo shell editor uses the JS grammar, and its
+// "Format" button routes through the TS worker) and `json` (MongoDB and
+// Elasticsearch object definitions) — SQL and plaintext need no language
+// worker of their own.
 self.MonacoEnvironment = {
   getWorker(_workerId: string, label: string) {
     if (label === "typescript" || label === "javascript") return new tsWorker();
+    if (label === "json") return new jsonWorker();
     return new editorWorker();
   },
 };

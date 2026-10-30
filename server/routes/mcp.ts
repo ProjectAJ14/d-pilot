@@ -50,7 +50,35 @@ import {
   tableCatalog,
   type FullSchema,
 } from "../services/schema-introspector.js";
-import type { ColumnInfo, TableInfo } from "../types/index.js";
+import type {
+  ColumnInfo,
+  DbObjectDefinition,
+  DbObjectDependencies,
+  DbObjectInfo,
+  DbObjectReference,
+  DriftReport,
+  JobDetail,
+  JobList,
+  JobRun,
+  TableInfo,
+} from "../types/index.js";
+
+/** What an object_change can edit, and what has dependencies. */
+const SQL_OBJECT_KIND = z.enum(["procedure", "function", "view", "trigger"]);
+/** Everything list_objects lists, MongoDB and Elasticsearch included. */
+const OBJECT_KIND = z.enum([
+  ...SQL_OBJECT_KIND.options,
+  "index",
+  "validator",
+  "index_template",
+  "ingest_pipeline",
+  "alias",
+  "ilm_policy",
+]);
+
+/** `schema.name(args)` — how an agent sees one object, overloads told apart. */
+const objectLabel = (o: DbObjectInfo) =>
+  `${o.schema ? `${o.schema}.` : ""}${o.name}${o.args != null ? `(${o.args})` : ""}${o.parent ? ` on ${o.parent}` : ""}`;
 
 const router = Router();
 
@@ -157,7 +185,9 @@ function logToolCall(tool: string, result: ToolResult, ms: number): void {
 }
 
 const qs = (params: Record<string, string | undefined>): string => {
-  const entries = Object.entries(params).filter(([, v]) => v);
+  // An empty string is kept only where it means something (`args=`, a
+  // zero-argument overload); elsewhere the routes read it as absent anyway.
+  const entries = Object.entries(params).filter(([, v]) => v != null);
   return entries.length
     ? `?${entries.map(([k, v]) => `${k}=${encodeURIComponent(v!)}`).join("&")}`
     : "";
@@ -411,6 +441,227 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
       }),
   );
 
+  tool(
+    "list_objects",
+    {
+      title: "List database objects",
+      description:
+        "The code and configuration a database keeps beside its data, one line per kind: `procedure: schema.name, …`. Postgres/SQL Server: procedures, functions, views and triggers (Postgres overloads once per signature, `name(arg types)`; triggers say which table they fire on). MongoDB: views, indexes (`on` their collection) and validation rules. Elasticsearch: index templates, ingest pipelines, aliases and ILM policies. Read one with get_object_definition instead of querying the system catalog.",
+      inputSchema: {
+        connectionId: z.string(),
+        schema: z
+          .string()
+          .optional()
+          .describe("Defaults to the connection's schema."),
+        kind: OBJECT_KIND.optional(),
+      },
+      annotations: readOnly,
+    },
+    ({ connectionId, schema, kind }) =>
+      guard(async () => {
+        const objects = await client.get<DbObjectInfo[]>(
+          `/schema/${encodeURIComponent(connectionId)}/objects${qs({ schema, kind })}`,
+        );
+        if (!objects.length) return text("No objects.");
+        const byKind = new Map<string, string[]>();
+        for (const o of objects)
+          byKind.set(o.kind, [...(byKind.get(o.kind) ?? []), objectLabel(o)]);
+        return text(
+          [...byKind].map(([k, list]) => `${k}: ${list.join(", ")}`).join("\n"),
+        );
+      }),
+  );
+
+  tool(
+    "get_object_definition",
+    {
+      title: "Read an object's definition",
+      description:
+        'The full source of a procedure, function, view or trigger (or the JSON of a MongoDB/Elasticsearch object), read live. For an overloaded Postgres function pass `args` exactly as list_objects shows it (`""` for no arguments); for a Postgres trigger pass `parent`, its table. To compare environments, call it once per connection.',
+      inputSchema: {
+        connectionId: z.string(),
+        kind: OBJECT_KIND,
+        name: z.string(),
+        schema: z.string().optional(),
+        args: z.string().optional(),
+        parent: z.string().optional(),
+      },
+      annotations: readOnly,
+    },
+    ({ connectionId, kind, name, schema, args, parent }) =>
+      guard(async () => {
+        const o = await client.get<DbObjectDefinition>(
+          `/schema/${encodeURIComponent(connectionId)}/objects/${kind}/${encodeURIComponent(name)}/definition${qs({ schema, args, parent })}`,
+        );
+        return text(
+          `${o.kind} ${objectLabel(o)}\n\n${
+            o.definition ??
+            "Definition not available: the object is encrypted, or this connection's login lacks VIEW DEFINITION."
+          }${
+            o.migration && o.migration !== o.definition
+              ? `\n\n-- As a re-runnable script (start a create_write_request \`object\` change from this):\n${o.migration}`
+              : ""
+          }`,
+        );
+      }),
+  );
+
+  tool(
+    "get_object_dependencies",
+    {
+      title: "What an object uses and what uses it",
+      description:
+        "Before changing a procedure, function, view or trigger: what it reads (`uses`) and what reads it (`used by`), one line each. `(?)` marks a reference the database could not resolve (dropped, late-bound or in another database). Postgres function bodies are matched by name, so their answer is best-effort and says so. Also lists the scheduled jobs whose steps name it.",
+      inputSchema: {
+        connectionId: z.string(),
+        kind: SQL_OBJECT_KIND,
+        name: z.string(),
+        schema: z.string().optional(),
+        args: z.string().optional(),
+        parent: z.string().optional(),
+      },
+      annotations: readOnly,
+    },
+    ({ connectionId, kind, name, schema, args, parent }) =>
+      guard(async () => {
+        const d = await client.get<DbObjectDependencies>(
+          `/schema/${encodeURIComponent(connectionId)}/objects/${kind}/${encodeURIComponent(name)}/dependencies${qs({ schema, args, parent })}`,
+        );
+        const line = (list: DbObjectReference[]) =>
+          list
+            .map(
+              (r) =>
+                `${[r.database, r.schema, r.name].filter(Boolean).join(".")}${r.kind == null ? " (?)" : ` (${r.kind})`}`,
+            )
+            .join(", ") || "nothing found";
+        return text(
+          [
+            `uses: ${line(d.uses)}`,
+            `used by: ${line(d.usedBy)}`,
+            d.bestEffort
+              ? "(best effort: found by name in function bodies)"
+              : "",
+            d.jobs?.length
+              ? `run by jobs (found by name in their steps): ${d.jobs.map((j) => `${j.name} [${j.id}]`).join(", ")}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        );
+      }),
+  );
+
+  tool(
+    "compare_objects",
+    {
+      title: "Drift report between two connections",
+      description:
+        "Which procedures, functions, views and triggers in a schema differ between two connections of the same engine (e.g. QA vs PROD), or exist on only one. Compares normalized definitions by hash; lists names only. Read a pair with get_object_definition on each connection to see how they differ.",
+      inputSchema: {
+        connectionId: z.string(),
+        againstConnectionId: z.string(),
+        schema: z.string().optional(),
+      },
+      annotations: readOnly,
+    },
+    ({ connectionId, againstConnectionId, schema }) =>
+      guard(async () => {
+        const r = await client.get<DriftReport>(
+          `/schema/${encodeURIComponent(connectionId)}/drift${qs({ against: againstConnectionId, schema })}`,
+        );
+        const where = {
+          different: "differs",
+          only_left: `only on ${connectionId}`,
+          only_right: `only on ${againstConnectionId}`,
+        };
+        return text(
+          [
+            `${r.items.length} differ, ${r.identical} identical in ${r.schema}.`,
+            ...r.items.map(
+              (i) => `- ${i.kind} ${objectLabel(i)}: ${where[i.status]}`,
+            ),
+          ].join("\n"),
+        );
+      }),
+  );
+
+  tool(
+    "list_jobs",
+    {
+      title: "List scheduled jobs",
+      description:
+        "SQL Server Agent jobs (or pg_cron jobs on Postgres) that run against this connection's database: one line each with enabled state, schedule in plain language, last outcome and next run. Read one with get_job.",
+      inputSchema: { connectionId: z.string() },
+      annotations: readOnly,
+    },
+    ({ connectionId }) =>
+      guard(async () => {
+        const list = await client.get<JobList>(
+          `/schema/${encodeURIComponent(connectionId)}/jobs`,
+        );
+        if (!list.available)
+          return text(
+            list.reason ??
+              "This connection has no job scheduler (pg_cron is not installed).",
+          );
+        if (!list.jobs.length)
+          return text("No jobs run against this database.");
+        return text(
+          list.jobs
+            .map(
+              (j) =>
+                `- ${j.name} [id ${j.id}] ${j.enabled ? "enabled" : "DISABLED"} · ${j.schedule ?? "no schedule"} · last: ${j.lastRun?.status ?? "never run"}${j.lastRun?.startedAt ? ` at ${j.lastRun.startedAt}` : ""}${j.nextRunAt ? ` · next ${j.nextRunAt}` : ""}`,
+            )
+            .join("\n"),
+        );
+      }),
+  );
+
+  tool(
+    "get_job",
+    {
+      title: "Read a scheduled job",
+      description:
+        "One job's steps with their full commands, its schedules (and how many other jobs share each), and its recent runs with their messages — e.g. to find why last night's run failed.",
+      inputSchema: { connectionId: z.string(), jobId: z.string() },
+      annotations: readOnly,
+    },
+    ({ connectionId, jobId }) =>
+      guard(async () => {
+        const j = await client.get<JobDetail>(
+          `/schema/${encodeURIComponent(connectionId)}/jobs/${encodeURIComponent(jobId)}`,
+        );
+        const run = (r?: JobRun) =>
+          r?.status
+            ? `${r.status}${r.startedAt ? ` at ${r.startedAt}` : ""}${r.durationSec != null ? ` (${r.durationSec}s)` : ""}${r.message ? ` — ${r.message}` : ""}`
+            : "never run";
+        return text(
+          [
+            `${j.name} [${j.engine}, id ${j.id}] ${j.enabled ? "enabled" : "DISABLED"}`,
+            j.description ?? "",
+            `last run: ${run(j.lastRun)}${j.nextRunAt ? `; next ${j.nextRunAt}` : ""}`,
+            "",
+            "steps:",
+            ...j.steps.map(
+              (s) =>
+                `${s.id}. ${s.name} (${s.subsystem}${s.database ? ` on ${s.database}` : ""}) — last: ${run(s.lastRun)}\n${s.command}`,
+            ),
+            "",
+            "schedules:",
+            ...j.schedules.map(
+              (s) =>
+                `- ${s.description}${s.enabled ? "" : " (disabled)"}${s.sharedWith ? ` — shared with ${s.sharedWith} other job(s)` : ""}`,
+            ),
+            "",
+            "recent runs:",
+            ...j.history.map((r) => `- ${run(r)}`),
+          ]
+            .filter((l, i, a) => l !== "" || a[i - 1] !== "")
+            .join("\n"),
+        );
+      }),
+  );
+
   /**
    * One query on one connection, as the text an agent reads: a status line
    * (row count, every way the answer was cut short, which columns are PHI
@@ -599,6 +850,18 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
           .string()
           .optional()
           .describe("Why the change is needed. Link a ticket if there is one."),
+        object: z
+          .object({
+            schema: z.string(),
+            name: z.string(),
+            kind: SQL_OBJECT_KIND,
+            args: z.string().optional(),
+            parent: z.string().optional(),
+          })
+          .optional()
+          .describe(
+            "To change a procedure, function, view or trigger: the object, exactly as list_objects names it. `writeSql` is then its complete new definition — start from get_object_definition's `migration` form (CREATE OR ALTER / CREATE OR REPLACE) and edit it; no other statements, no GO. The reviewer sees a diff against the deployed version, and it won't run if that version changes before approval.",
+          ),
       },
       annotations: writes,
     },

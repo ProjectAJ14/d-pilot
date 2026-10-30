@@ -1,0 +1,27 @@
+meta {
+  name: List Objects
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/schema/{{connectionId}}/objects
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~schema: public
+  ~kind: procedure
+}
+
+docs {
+  The objects a database keeps beside its data, read live: procedures, functions, views and triggers in a schema (Postgres/MSSQL); views, indexes and validation rules (MongoDB); index templates, ingest pipelines, aliases and ILM policies (Elasticsearch — Elastic-managed ones are skipped).
+
+  Each entry is { schema, name, kind, args?, parent? }: `args` (Postgres routines) are the identity argument types that tell overloads apart; `parent` is a trigger's table. `kind` filters to one kind; `parent` is also a MongoDB index's collection.
+
+  Requires a valid Bearer JWT ({{token}}) plus **read** capability for the connection's environment — 403 otherwise (admins hold every environment).
+
+  Errors: 503 { error, code: "CONNECTION_FAILED" } when the database host is
+  unreachable (network); 500 { error } for other introspection failures.
+}

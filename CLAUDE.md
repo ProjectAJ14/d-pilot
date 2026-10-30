@@ -20,6 +20,8 @@ npm run format           # Prettier
 npm run format:check     # Prettier in check mode (what CI runs)
 npm run typecheck        # tsc --noEmit over src + server
 npm run verify           # format:check + lint + typecheck + test — the CI gate, minus the build
+npm run dev:db           # Docker: local DEV/QA/PROD Postgres (5433-5435), reseeded and registered as connections
+npm run dev:db:down      # Stop them
 ```
 
 `predev` frees the dev ports first (`scripts/free-ports.mjs`). Ports are set in `.env`
@@ -62,9 +64,10 @@ run, since that would put the Basic credential in a model's context and transcri
   code needs a hardcoded fallback, use the neutral `D-Pilot` / `d-pilot`. Test fixtures
   must use generic names (`app_core`, `orders`, `customers`), never real internal ones.
 - **Capability-based access, scoped per environment** (`DEV`/`QA`/`UAT`/`STG`/`PROD` in a
-  standard deployment). A user has `isAdmin` plus four env lists: read
+  standard deployment). A user has `isAdmin` plus five env lists: read
   (`allowedEnvironments`), unmask PHI (`unmaskEnvironments`), write (`writeEnvironments`),
-  approve (`approveEnvironments`). Admin implies all capabilities on all envs. There is
+  approve (`approveEnvironments`), change jobs (`jobEnvironments` — job_change requests;
+  empty by default, never implied by write, and needs write and read too). Admin implies all capabilities on all envs. There is
   **no** legacy `role` column — it was migrated to capabilities (see `initAuthTables` in
   `server/middleware/auth.ts`).
 - **The environment list is runtime config, never a literal.** `getEnvironments()`

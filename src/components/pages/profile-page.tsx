@@ -23,6 +23,7 @@ import {
   IconCheck,
   IconShieldLock,
   IconPencilBolt,
+  IconClock,
   IconGitPullRequest,
   IconEye,
 } from "@tabler/icons-react";
@@ -391,6 +392,12 @@ function AccountTab({ initials }: { initials: string }) {
           icon={<IconGitPullRequest size={15} color="var(--muted)" />}
           label="Approve"
           envs={user?.approveEnvironments || []}
+          isAdmin={user?.isAdmin}
+        />
+        <EnvRow
+          icon={<IconClock size={15} color="var(--muted)" />}
+          label="Change jobs"
+          envs={user?.jobEnvironments || []}
           isAdmin={user?.isAdmin}
         />
       </Card>
