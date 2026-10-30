@@ -206,7 +206,7 @@ describe("buildJobChangeSql", () => {
         agentJob,
       ),
     ).toBe(
-      "EXEC msdb.dbo.sp_update_jobstep @job_id = N'28741445-2c81-4de3-8fe9-bb30b243dd28', @step_id = 1, @command = N'EXEC app_core.p @note = ''it''''s''';",
+      "EXEC msdb.dbo.sp_update_jobstep @job_id = N'28741445-2c81-4de3-8fe9-bb30b243dd28', @step_id = 1, @database_name = N'app_core', @command = N'EXEC app_core.p @note = ''it''''s''';",
     );
     expect(
       buildJobChangeSql(

@@ -245,7 +245,7 @@ describe("job_change", () => {
     expect(ok.body.status).toBe("EXECUTED");
     expect(h.executeMigration).toHaveBeenCalledWith(
       expect.objectContaining({ id: "qa-ms" }),
-      `EXEC msdb.dbo.sp_update_jobstep @job_id = N'${JOB_ID}', @step_id = 1, @command = N'EXEC app_core.refresh_order_totals @days = 14';`,
+      `EXEC msdb.dbo.sp_update_jobstep @job_id = N'${JOB_ID}', @step_id = 1, @database_name = N'app_core', @command = N'EXEC app_core.refresh_order_totals @days = 14';`,
       { noTransaction: false },
     );
   });

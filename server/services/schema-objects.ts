@@ -641,7 +641,7 @@ WHERE n.nspname = $1 AND p.proname = $2 AND p.prokind IN ('f', 'p')
           `SELECT 1 AS ok FROM sys.objects o
 WHERE o.name = PARSENAME(@name, 1)
   AND SCHEMA_NAME(o.schema_id) = COALESCE(PARSENAME(@name, 2), SCHEMA_NAME())
-  AND (PARSENAME(@name, 3) IS NULL OR PARSENAME(@name, 3) = DB_NAME())
+  AND (PARSENAME(@name, 3) IS NULL OR DB_ID(PARSENAME(@name, 3)) = DB_ID())
   AND PARSENAME(@name, 4) IS NULL
   AND o.is_ms_shipped = 0
   AND o.type IN ('P', 'PC', 'FN', 'IF', 'TF', 'FS', 'FT')`,

@@ -186,7 +186,9 @@ export function buildJobChangeSql(
     case "set_description":
       return `EXEC msdb.dbo.sp_update_job ${job_}, @description = ${nstr(action.description)};`;
     case "edit_step":
-      return `EXEC msdb.dbo.sp_update_jobstep ${job_}, @step_id = ${action.stepId}, @command = ${nstr(action.command.trim())};`;
+      // The database it runs in is the one the command was checked in: a
+      // step with none set would otherwise run in the login's default.
+      return `EXEC msdb.dbo.sp_update_jobstep ${job_}, @step_id = ${action.stepId}, @database_name = ${nstr(job.database!)}, @command = ${nstr(action.command.trim())};`;
     case "add_step":
       return `EXEC msdb.dbo.sp_add_jobstep ${job_}, @step_name = ${nstr(action.name.trim())}, @subsystem = N'TSQL', @database_name = ${nstr(job.database!)}, @command = ${nstr(action.command.trim())};`;
     case "delete_step":

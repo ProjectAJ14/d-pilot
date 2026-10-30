@@ -217,7 +217,9 @@ export function planStatements(plans: string[]): PlanStatement[] {
   return out;
 }
 
-const unbracket = (s: string) => s.replace(/^\[|\]$/g, "").toLowerCase();
+/** A plan's [name] as the name itself: brackets off, ]] unescaped. */
+const unbracket = (s: string) =>
+  s.replace(/^\[|\]$/g, "").replace(/\]\]/g, "]");
 
 /**
  * The rules over SQL Server's plan of a step, compiled in `database`;
@@ -235,8 +237,10 @@ export function analyzeMssqlPlan(plans: string[], database: string): Analysis {
       };
     // Another database's tables or functions, three-part named: not this
     // connection's to change or read from a job (tempdb: temporary tables).
+    // Compared exactly: on a case-sensitive server, App_Core and app_core
+    // are two databases — a name differing only in case is refused.
     const elsewhere = s.databases.find(
-      (d) => ![database.toLowerCase(), "tempdb"].includes(unbracket(d)),
+      (d) => ![database, "tempdb"].includes(unbracket(d)),
     );
     if (elsewhere)
       return {

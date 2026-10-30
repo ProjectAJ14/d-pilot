@@ -171,6 +171,11 @@ describe("SQL Server steps, as SHOWPLAN compiles them", () => {
     );
   });
 
+  it("compares database names exactly: one differing in case may be another database", () => {
+    const a = analyzeMssqlPlan(plans.update_scoped.plans, "APP_CORE");
+    expect("error" in a && a.error).toContain("reaches database [app_core]");
+  });
+
   it("sends the functions a write calls to the catalog check", () => {
     const a = analyzeMssqlPlan(plans.udf_in_update.plans, "app_core");
     expect("routines" in a && a.routines).toEqual([
