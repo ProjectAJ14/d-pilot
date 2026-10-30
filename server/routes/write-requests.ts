@@ -29,7 +29,6 @@ import {
   definitionHash,
   getObjectDefinition,
   getObjectDependencies,
-  isUserRoutine,
   pgArgTypes,
   SQL_OBJECT_KINDS,
   supportsObjects,
@@ -43,10 +42,10 @@ import { getJobDetail, JobAccessError, validJobId } from "../services/jobs.js";
 import {
   buildJobChangeSql,
   describeJobAction,
-  jobCommandRoutines,
   jobSnapshot,
   validateJobChange,
 } from "../services/job-change.js";
+import { checkJobStep } from "../services/job-step.js";
 import { extractReferencedTables } from "../services/query-examples.js";
 import {
   getAzureConfig,
@@ -628,19 +627,15 @@ async function createJobChange(
     return sendRefusal(res, readFailure(conn, err, { status: 400 }));
   }
   if (!job) return refuse(404, `No job ${req.jobId} on this connection`);
-  const invalid = validateJobChange(req.action, job, conn.type);
+  const invalid = validateJobChange(req.action, job);
   if (invalid) return refuse(400, invalid);
-  // A step may call only this database's own routines: a built-in or an
-  // extension's (query_to_xml, dblink, cron.schedule…) can run SQL it is
-  // handed as a string, out of the command checker's sight.
+  // What a step runs is checked by its engine: Postgres parses it, SQL Server
+  // compiles it under SHOWPLAN (nothing runs), and every routine it calls must
+  // be the database's own.
   if (req.action.type === "edit_step" || req.action.type === "add_step") {
     try {
-      for (const name of jobCommandRoutines(req.action.command, conn.type))
-        if (!(await isUserRoutine(conn, name)))
-          return refuse(
-            400,
-            `${name} is not a procedure or function of this database — a job step can only call the database's own routines, never a built-in, an extension's or another database's.`,
-          );
+      const why = await checkJobStep(conn, req.action.command);
+      if (why) return refuse(400, why);
     } catch (err) {
       return sendRefusal(res, readFailure(conn, err, { status: 400 }));
     }

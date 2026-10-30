@@ -1,8 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   buildJobChangeSql,
-  checkJobCommand,
-  jobCommandRoutines,
   jobSnapshot,
   validateJobChange,
 } from "./job-change.js";
@@ -93,233 +91,12 @@ const cronJob: JobDetail = {
   ],
 };
 
-describe("checkJobCommand", () => {
-  it.each([
-    "EXEC app_core.refresh_order_totals",
-    "EXEC app_core.refresh_order_totals @days = 7; EXEC app_core.notify",
-    "UPDATE app_core.orders SET due_date = GETDATE() WHERE status = 'placed'",
-    "INSERT INTO app_core.audit (at) VALUES (GETDATE()); DELETE FROM app_core.audit WHERE at < '2020-01-01'",
-  ])("accepts %s", (cmd) => {
-    expect(checkJobCommand(cmd, "mssql")).toBeNull();
-  });
-
-  it("accepts Postgres maintenance and CALL", () => {
-    expect(
-      checkJobCommand("VACUUM ANALYZE app_core.orders", "postgres"),
-    ).toBeNull();
-    expect(
-      checkJobCommand(
-        "REFRESH MATERIALIZED VIEW app_core.order_totals",
-        "postgres",
-      ),
-    ).toBeNull();
-    expect(checkJobCommand("CALL app_core.recalc()", "postgres")).toBeNull();
-  });
-
-  it("accepts one call with literal, variable, named and output arguments", () => {
-    for (const cmd of [
-      "EXEC [app_core].[refresh_order_totals] @days = 7, @note = N'it''s; -- fine', @out = @x OUTPUT",
-      "EXECUTE @rc = app_core.refresh_order_totals 7, NULL, DEFAULT;",
-      "SELECT app_core.recalc(1, 'a)b')",
-    ])
-      expect(checkJobCommand(cmd, "mssql")).toBeNull();
-    expect(
-      checkJobCommand("CALL app_core.recalc($$x$$, 2);", "postgres"),
-    ).toBeNull();
-  });
-
-  it("refuses Postgres administration functions, nested calls and expressions", () => {
-    const why = (cmd: string) => checkJobCommand(cmd, "postgres");
-    expect(why("SELECT pg_terminate_backend(123)")).toContain("system");
-    expect(why("SELECT pg_catalog.pg_read_file('/etc/passwd')")).toContain(
-      "system",
-    );
-    expect(why("SELECT set_config('role', 'postgres', false)")).toContain(
-      "system",
-    );
-    // Only literal arguments: nothing else can run inside the call.
-    for (const cmd of [
-      "SELECT app_core.f(pg_cancel_backend(1))",
-      'SELECT app_core.f("pg_terminate_backend"(1))',
-      "SELECT app_core.f((SELECT 1))",
-      "SELECT app_core.f(1 + 1)",
-    ])
-      expect(why(cmd)).toContain("literal arguments");
-    // A Postgres job runs with its own search_path.
-    expect(why("CALL recalc()")).toContain("Qualify");
-    expect(
-      why("CALL app_core.recalc('2026-01-01'::date, p_days => 7)"),
-    ).toBeNull();
-  });
-
-  it("refuses a quoted name the checker and the engine would read differently", () => {
-    expect(
-      checkJobCommand("EXEC dbo.[get_order'];SHUTDOWN--']", "mssql"),
-    ).toContain("can't be checked");
-    expect(
-      checkJobCommand(
-        "UPDATE dbo.[t'] SET a = 1 WHERE id = 1; DROP TABLE x --']",
-        "mssql",
-      ),
-    ).toContain("can't be checked");
-    expect(
-      checkJobCommand('CALL "app_core"."re""calc"()', "postgres"),
-    ).toContain("can't be checked");
-    // Bracketed names without such characters are fine.
-    expect(
-      checkJobCommand("EXEC [app_core].[refresh_order_totals] 7", "mssql"),
-    ).toBeNull();
-  });
-
-  it("allows a cast only to a plain type name", () => {
-    const why = (cmd: string) => checkJobCommand(cmd, "postgres");
-    expect(
-      why("SELECT app_core.f(1::bool or pg_terminate_backend(1))"),
-    ).toContain("literal arguments");
-    expect(
-      why(
-        "CALL app_core.f('2026-01-01'::timestamp with time zone, 'x'::character varying(10), '{1}'::int[])",
-      ),
-    ).toBeNull();
-  });
-
-  it("checks functions in FROM, JOIN and UPDATE positions too", () => {
-    expect(
-      jobCommandRoutines(
-        "UPDATE app_core.orders SET notes = x.t FROM query_to_xml('select 1', true, true, '') AS x(t) WHERE id = 1",
-        "postgres",
-      ),
-    ).toEqual(["query_to_xml"]);
-    expect(
-      jobCommandRoutines(
-        "UPDATE o SET notes = 'x' FROM app_core.orders o JOIN dblink('db', 'select 1') AS d(n int) ON true WHERE o.id = 1",
-        "postgres",
-      ),
-    ).toEqual(["dblink"]);
-    expect(
-      jobCommandRoutines(
-        "UPDATE OPENQUERY(srv, 'select 1') SET a = 1 WHERE id = 1; INSERT INTO OPENQUERY(srv, 'select 1') VALUES (1)",
-        "mssql",
-      ),
-    ).toEqual(["OPENQUERY", "OPENQUERY"]);
-  });
-
-  it("reads each dialect's strings its own way", () => {
-    // Postgres: E'…' is refused outright — the splitter reads it differently.
-    expect(
-      checkJobCommand(
-        "UPDATE app_core.orders SET notes = E'\\'' WHERE id = 1; DROP TABLE x; --'",
-        "postgres",
-      ),
-    ).toContain("plain '…' string");
-    // SQL Server has no E-strings: E is a name, the quote starts a string.
-    expect(
-      jobCommandRoutines(
-        "UPDATE app_core.orders SET notes = E'\\', due = OPENROWSET('a', 'b', 'c') WHERE id = 1",
-        "mssql",
-      ),
-    ).toEqual(["OPENROWSET"]);
-  });
-
-  it("sends every non-trivial function a write calls to the catalog check", () => {
-    expect(
-      jobCommandRoutines(
-        "UPDATE app_core.orders SET notes = query_to_xml('select 1', true, true, '') WHERE id = 1",
-        "postgres",
-      ),
-    ).toEqual(["query_to_xml"]);
-    expect(
-      jobCommandRoutines(
-        "UPDATE app_core.orders SET notes = OPENROWSET('SQLNCLI', 'x', 'select 1') WHERE id = 1",
-        "mssql",
-      ),
-    ).toEqual(["OPENROWSET"]);
-    expect(
-      jobCommandRoutines(
-        "INSERT INTO app_core.audit (at, n) VALUES (now(), coalesce(1, 2)); UPDATE app_core.orders SET due = DATEADD(day, 1, GETDATE()), total = app_core.total_for(id) WHERE id IN (1, 2) AND EXISTS (SELECT 1)",
-        "mssql",
-      ),
-    ).toEqual(["app_core.total_for"]);
-  });
-
-  it("names the routines a command calls, for the catalog check", () => {
-    expect(
-      jobCommandRoutines(
-        "EXEC [app_core].[refresh_order_totals] 7; EXEC dbo.sp_ProcessOrders",
-        "mssql",
-      ),
-    ).toEqual(["[app_core].[refresh_order_totals]", "dbo.sp_ProcessOrders"]);
-    expect(
-      jobCommandRoutines("SELECT query_to_xml.x('q', true)", "postgres"),
-    ).toEqual(["query_to_xml.x"]);
-  });
-
-  it("refuses SQL handed to a function as a string", () => {
-    expect(
-      checkJobCommand(
-        "SELECT dblink_exec('dbname=app', 'UPDATE app_core.orders SET status = 1')",
-        "postgres",
-      ),
-    ).toContain("not inside a call or a string");
-  });
-
-  it.each([
-    ["UPDATE app_core.orders SET status = 'x'", "without a WHERE"],
-    ["DELETE FROM app_core.orders", "without a WHERE"],
-    ["TRUNCATE TABLE app_core.orders", "DDL"],
-    ["EXEC app_core.p; DROP TABLE app_core.orders", "DDL"],
-    [
-      "EXEC app_core.p; UPDATE app_core.orders SET status = 'x' WHERE id = 1 UPDATE app_core.orders SET status = 'y'",
-      "semicolon",
-    ],
-    [
-      "EXEC sp_executesql N'UPDATE app_core.orders SET status = 1'",
-      "Dynamic SQL",
-    ],
-    [
-      "IF 1 = 1 UPDATE app_core.orders SET status = 'x' WHERE id = 1",
-      "can't be checked",
-    ],
-    [
-      "MERGE app_core.orders AS t USING src ON 1=1 WHEN MATCHED THEN DELETE;",
-      "Only INSERT, UPDATE and DELETE",
-    ],
-    ["", "empty"],
-    // A routine call is exactly one call: no trailing T-SQL statements, no
-    // system or administration routines.
-    ["EXEC master..xp_cmdshell 'whoami'", "system and administration"],
-    ["EXECUTE AS LOGIN = 'sa'", "one routine with literal arguments"],
-    [
-      "EXEC dbo.refresh SHUTDOWN WITH NOWAIT",
-      "one routine with literal arguments",
-    ],
-    ["EXEC app_core.p 'x' SHUTDOWN", "one routine with literal arguments"],
-    ["SELECT 1 KILL 52", "one routine with literal arguments"],
-    ["SELECT 1 DBCC SHRINKDATABASE(0)", "one routine with literal arguments"],
-    [
-      "EXEC dbo.p1 BACKUP DATABASE app_core TO DISK = 'x'",
-      "one routine with literal arguments",
-    ],
-    [
-      "SELECT * INTO dbo.copy FROM dbo.orders",
-      "one routine with literal arguments",
-    ],
-    [
-      "SELECT app_core.f(1) FROM app_core.orders",
-      "one routine with literal arguments",
-    ],
-  ])("refuses %s", (cmd, why) => {
-    expect(checkJobCommand(cmd, "mssql")).toContain(why);
-  });
-});
-
 describe("validateJobChange", () => {
   it.each([
     [{ type: "edit_step", stepId: 2, command: "EXEC p" }, "CmdExec step"],
-    [
-      { type: "edit_step", stepId: 1, command: "DELETE FROM app_core.orders" },
-      "without a WHERE",
-    ],
+    // What a command runs is the engine's to check (job-step.ts); here only
+    // that there is one.
+    [{ type: "edit_step", stepId: 1, command: "  " }, "empty"],
     [{ type: "set_enabled", enabled: true }, "already enabled"],
     [{ type: "set_schedule", scheduleId: "9", msdb: {} }, "read-only"],
     [{ type: "set_schedule", scheduleId: "7", msdb: {} }, "not attached"],
@@ -358,7 +135,7 @@ describe("validateJobChange", () => {
       "HHMMSS",
     ],
   ])("refuses %j", (action, why) => {
-    expect(validateJobChange(action as any, agentJob, "mssql")).toContain(why);
+    expect(validateJobChange(action as any, agentJob)).toContain(why);
   });
 
   it("on a job that also runs on another database, allows only this database's own step edits", () => {
@@ -370,14 +147,13 @@ describe("validateJobChange", () => {
       { type: "delete_step", stepId: 1 },
       { type: "edit_step", stepId: 3, command: "EXEC p" },
     ])
-      expect(validateJobChange(action as any, foreignJob, "mssql")).toContain(
+      expect(validateJobChange(action as any, foreignJob)).toContain(
         "another database",
       );
     expect(
       validateJobChange(
         { type: "edit_step", stepId: 1, command: "EXEC app_core.p" },
         foreignJob,
-        "mssql",
       ),
     ).toBeNull();
   });
@@ -390,34 +166,29 @@ describe("validateJobChange", () => {
         st.database ? { ...st, database: "appcore" } : st,
       ),
     };
-    expect(
-      validateJobChange({ type: "rename", name: "x" }, job, "mssql"),
-    ).toBeNull();
+    expect(validateJobChange({ type: "rename", name: "x" }, job)).toBeNull();
   });
 
   it("keeps pg_cron to what cron.alter_job can do", () => {
-    expect(
-      validateJobChange({ type: "rename", name: "x" }, cronJob, "postgres"),
-    ).toContain("pg_cron");
+    expect(validateJobChange({ type: "rename", name: "x" }, cronJob)).toContain(
+      "pg_cron",
+    );
     expect(
       validateJobChange(
         { type: "set_schedule", scheduleId: "12", cron: "every day" },
         cronJob,
-        "postgres",
       ),
     ).toContain("cron expression");
     expect(
       validateJobChange(
         { type: "set_schedule", scheduleId: "12", cron: "0 2 * * 1-5" },
         cronJob,
-        "postgres",
       ),
     ).toBeNull();
     expect(
       validateJobChange(
         { type: "set_schedule", scheduleId: "12", cron: "30 seconds" },
         cronJob,
-        "postgres",
       ),
     ).toBeNull();
   });

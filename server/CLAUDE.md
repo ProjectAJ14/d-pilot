@@ -255,13 +255,19 @@ on one SQL Server Agent / pg\*cron job. The author sends `jobChange: { jobId, ac
 text is what is reviewed and what runs, as a transactional migration. Raising one needs the
 `jobEnvironments` capability on top of write and read (so does submitting a drafted one); an
 object_change needs read as well as write, since both return the deployed snapshot.
-`validateJobChange` refuses a step command that would not pass as a direct write
-(`checkJobCommand`: exactly one EXEC/CALL/SELECT of a routine with literal arguments and
-nothing after the call, or scoped DML separated by semicolons; no DDL, no dynamic SQL, no
-quoted name holding quotes, `;` or comment markers). Every routine a step calls, including
-functions inside its DML beyond a short safe list (`now`, `coalesce`, `dateadd`…), must pass
-`isUserRoutine` in the target's catalog: not built in, not an extension's (dblink, pg_cron,
-`query_to_xml`-style string runners), not a system schema. It also refuses any non-SQL step, a step
+A step command is never read with text patterns: `checkJobStep` (`services/job-step.ts`)
+has the engine parse it. Postgres's own parser (`libpg-query`) gives the statement tree;
+SQL Server compiles the batch under `SET SHOWPLAN_XML ON` (nothing runs; the step can't turn
+it off) and reports every statement it would run. Allowed: CALL/EXEC of a routine, SELECT,
+INSERT, UPDATE/DELETE with a WHERE (at any depth), Postgres VACUUM/ANALYZE/REFRESH
+MATERIALIZED VIEW — any other statement type (SHUTDOWN, DROP, EXECUTE STRING, IF…) is
+refused, as is a SQL Server plan that reads outside the database (`Remote` operators:
+OPENROWSET, OPENQUERY, linked servers). Every routine called, at any depth, beyond a short
+safe list of value built-ins (`now`, `coalesce`…), must pass `isUserRoutine` in the catalog:
+not built in, not an extension's (dblink, pg_cron, `query_to_xml`-style string runners), not
+a system schema. The pure halves (`analyzePgStep`, `analyzeMssqlPlan`) are tested on real
+parser output and captured SHOWPLAN XML (`__fixtures__/showplan.json`). `validateJobChange`
+also refuses any non-SQL step, a step
 on another database, a schedule shared with other jobs, and every action but an own-step
 edit on a job that also runs on another database (that part is another database's work); every refusal is audited as `JOB_CHANGE_REFUSED` (`refuseJobChange`).
 The whole job is snapshotted (`jobSnapshot`) and checked like an object change's

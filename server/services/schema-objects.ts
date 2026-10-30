@@ -602,21 +602,17 @@ function dedupe(d: DbObjectDependencies): DbObjectDependencies {
 }
 
 /**
- * Whether `name` (schema.routine, or routine on SQL Server) is a procedure or
- * function this database's team wrote: not built in, not owned by an
- * extension (dblink, pg_cron, …), not in a system schema. A job step may only
- * call one of those — a built-in can run SQL handed to it as a string.
+ * Whether a routine is a procedure or function this database's team wrote:
+ * not built in, not owned by an extension (dblink, pg_cron, …), not in a
+ * system schema. Postgres takes the schema and name exactly as its parser
+ * resolved them; SQL Server the procedure name SHOWPLAN reported.
  */
 export async function isUserRoutine(
   conn: ConnectionConfig,
-  name: string,
+  routine: { schema: string; name: string } | string,
 ): Promise<boolean> {
   if (conn.type === "postgres") {
-    // Resolved as Postgres would: unquoted folds to lower case.
-    const [schema, routine] = (name.match(/"[^"]+"|[^.]+/g) ?? []).map((p) =>
-      p.startsWith('"') ? p.slice(1, -1) : p.trim().toLowerCase(),
-    );
-    if (!routine) return false;
+    if (typeof routine === "string") return false;
     const pool = introspectPgPool(conn);
     try {
       const res = await pool.query(
@@ -624,7 +620,7 @@ export async function isUserRoutine(
 WHERE n.nspname = $1 AND p.proname = $2 AND p.prokind IN ('f', 'p')
   AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\\_%'
   AND ${PG_NOT_EXTENSION} LIMIT 1`,
-        [schema, routine],
+        [routine.schema, routine.name],
       );
       return res.rows.length > 0;
     } finally {
@@ -639,7 +635,7 @@ WHERE n.nspname = $1 AND p.proname = $2 AND p.prokind IN ('f', 'p')
       // ones (sp_*, xp_* live in sys.system_objects / master).
       const res = await pool
         .request()
-        .input("name", mssql.NVarChar, name)
+        .input("name", mssql.NVarChar, routine)
         .query(
           `SELECT 1 AS ok FROM sys.objects
 WHERE object_id = OBJECT_ID(@name) AND is_ms_shipped = 0

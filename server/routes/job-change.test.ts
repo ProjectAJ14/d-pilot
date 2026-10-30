@@ -61,14 +61,16 @@ const h = vi.hoisted(() => ({
   executeMigration: vi.fn(),
   job: null as JobDetail | null,
   readError: null as Error | null,
-  // Routines the catalog knows as this database's own.
-  userRoutines: ["app_core.refresh_order_totals"] as string[],
+  // What the engine check (job-step.ts, tested on its own) says of a
+  // command: a reason to refuse it, or nothing.
+  stepVerdicts: {} as Record<string, string>,
+  stepError: null as Error | null,
 }));
-vi.mock("../services/schema-objects.js", async (orig) => ({
-  ...(await orig<typeof import("../services/schema-objects.js")>()),
-  isUserRoutine: vi.fn(async (_c: unknown, name: string) =>
-    h.userRoutines.includes(name),
-  ),
+vi.mock("../services/job-step.js", () => ({
+  checkJobStep: vi.fn(async (_c: unknown, command: string) => {
+    if (h.stepError) throw h.stepError;
+    return h.stepVerdicts[command] ?? null;
+  }),
 }));
 vi.mock("../services/write-executor.js", async (orig) => ({
   ...(await orig<typeof import("../services/write-executor.js")>()),
@@ -140,6 +142,11 @@ afterAll(() => {
 beforeEach(() => {
   h.job = job();
   h.readError = null;
+  h.stepError = null;
+  h.stepVerdicts = {
+    "UPDATE app_core.orders SET status = 'x'":
+      "UPDATE without a WHERE clause would change every row — refused, as it would be as a direct write.",
+  };
   h.executeMigration.mockReset();
   h.executeMigration.mockResolvedValue({
     rowsAffected: 0,
@@ -342,22 +349,24 @@ describe("job_change", () => {
     expect(refusals()).toHaveLength(before + 2);
   });
 
-  it("calls only the database's own routines, never a built-in or system one", async () => {
+  it("refuses, and audits, whatever the engine check refuses — and answers when it can't run", async () => {
     const before = refusals().length;
-    for (const command of [
-      "EXEC sp_addrolemember 'db_owner', 'app_user'",
-      "EXEC dbo.sp_rename 'dbo.orders', 'orders_old'",
-      "EXEC app_core.not_ours",
-      // A built-in that runs SQL from a string, inside an otherwise fine write.
-      "UPDATE app_core.orders SET notes = OPENROWSET('SQLNCLI', 'x', 'SELECT 1') WHERE id = 1",
-    ]) {
-      const res = await raise({ type: "edit_step", stepId: 1, command });
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain(
-        "not a procedure or function of this database",
-      );
-    }
-    expect(refusals()).toHaveLength(before + 4);
+    h.stepVerdicts["EXEC master..xp_cmdshell 'whoami'"] =
+      "calls a system or extended procedure";
+    const res = await raise({
+      type: "edit_step",
+      stepId: 1,
+      command: "EXEC master..xp_cmdshell 'whoami'",
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("system or extended procedure");
+    expect(refusals()).toHaveLength(before + 1);
+
+    h.stepError = Object.assign(new Error("connect ECONNREFUSED"), {
+      name: "ConnectionError",
+      code: "ESOCKET",
+      preConnect: true,
+    });
     expect(
       (
         await raise({
@@ -366,7 +375,7 @@ describe("job_change", () => {
           command: "EXEC app_core.refresh_order_totals 7",
         })
       ).status,
-    ).toBe(201);
+    ).toBe(503);
   });
 
   it("needs read on the environment, since the request returns the job's steps", async () => {

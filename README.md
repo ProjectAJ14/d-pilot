@@ -351,13 +351,13 @@ instance instead.
 D-Pilot reads objects and jobs with the connection's own login, so what it can show is a
 deployment decision. The minimum grants:
 
-| To                                          | SQL Server                                                                                | PostgreSQL                                                                 |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| List procedures, functions, views, triggers | `CONNECT` (catalog views list what the login can see)                                     | none — the catalog is public                                               |
-| Read their definitions                      | `VIEW DEFINITION` on the schema or database (else "definition not available")             | none (`pg_get_functiondef`, `pg_get_viewdef`, `pg_get_triggerdef`)         |
-| Change one through an object change         | `ALTER` on the object's schema (plus `CREATE PROCEDURE`/`FUNCTION`/`VIEW` to create)      | owner of the object (and `CREATE` on the schema to create)                 |
-| Read jobs                                   | `SQLAgentReaderRole` in `msdb`                                                            | `USAGE` on schema `cron` + `SELECT` on `cron.job`, `cron.job_run_details`  |
-| Change jobs                                 | `SQLAgentOperatorRole` in `msdb` (or job ownership), plus a D-Pilot **Change jobs** grant | owner of the job (or superuser) for `cron.alter_job`, plus **Change jobs** |
+| To                                          | SQL Server                                                                                                                                        | PostgreSQL                                                                 |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| List procedures, functions, views, triggers | `CONNECT` (catalog views list what the login can see)                                                                                             | none — the catalog is public                                               |
+| Read their definitions                      | `VIEW DEFINITION` on the schema or database (else "definition not available")                                                                     | none (`pg_get_functiondef`, `pg_get_viewdef`, `pg_get_triggerdef`)         |
+| Change one through an object change         | `ALTER` on the object's schema (plus `CREATE PROCEDURE`/`FUNCTION`/`VIEW` to create)                                                              | owner of the object (and `CREATE` on the schema to create)                 |
+| Read jobs                                   | `SQLAgentReaderRole` in `msdb`                                                                                                                    | `USAGE` on schema `cron` + `SELECT` on `cron.job`, `cron.job_run_details`  |
+| Change jobs                                 | `SQLAgentOperatorRole` in `msdb` (or job ownership) and `SHOWPLAN` in the database (to check step commands), plus a D-Pilot **Change jobs** grant | owner of the job (or superuser) for `cron.alter_job`, plus **Change jobs** |
 
 MongoDB needs `listCollections` and `listIndexes` (the built-in `read` role); Elasticsearch
 needs the `manage_index_templates`, `manage_ingest_pipelines`, `read_ilm` and
@@ -367,9 +367,12 @@ Without the job grant, the explorer says which grant is missing rather than fail
 Keep job steps thin: put the logic in a procedure and have the step only `EXEC`/`CALL` it.
 Then most fixes are object changes, with a diff and a rollback, and the job itself rarely
 changes. A job change D-Pilot writes is one action (enable/disable, rename, description,
-edit/add/delete a step, change a schedule — not a schedule shared with other jobs, and on a job that also runs steps on another database only this database's own step commands), checked like a direct write — a step command
-with an unscoped UPDATE/DELETE, DDL or dynamic SQL is refused, CmdExec/PowerShell/SSIS steps
-can't be changed, and every refusal is audited as `JOB_CHANGE_REFUSED`.
+edit/add/delete a step, change a schedule — not a schedule shared with other jobs, and on a job that also runs steps on another database only this database's own step commands). A step command is parsed by the database itself (the Postgres
+parser; SQL Server compiles it under `SHOWPLAN_XML` without running it): it may call the
+database's own procedures and functions and run scoped INSERT/UPDATE/DELETE, but never DDL,
+dynamic SQL, an unscoped write, a built-in or extension routine that runs SQL from a string,
+or anything that reads outside the database. CmdExec/PowerShell/SSIS steps can't be changed,
+and every refusal is audited as `JOB_CHANGE_REFUSED`.
 
 ### Access model
 

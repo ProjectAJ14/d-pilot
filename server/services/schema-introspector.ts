@@ -103,7 +103,11 @@ export const introspectPgPool = (conn: ConnectionConfig) =>
     }),
   );
 
-export const introspectMssqlPool = (conn: ConnectionConfig) =>
+/** `pool.max: 1` pins every request to one session (for session settings). */
+export const introspectMssqlPool = (
+  conn: ConnectionConfig,
+  pool?: { max: number },
+) =>
   logDroppedConnections(
     conn,
     new mssql.ConnectionPool({
@@ -114,6 +118,7 @@ export const introspectMssqlPool = (conn: ConnectionConfig) =>
       password: conn.password,
       options: { encrypt: false, trustServerCertificate: true },
       connectionTimeout: 10000,
+      ...(pool && { pool: { ...pool, min: 0 } }),
     }),
   );
 

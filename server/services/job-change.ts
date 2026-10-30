@@ -1,17 +1,15 @@
 // The rules for a job_change write request. A job is SQL that runs later,
 // unattended, so a change to one gets at least the scrutiny of a direct
-// write. Pure functions — the route reads the job and does the I/O.
+// write. Pure functions — the route reads the job and does the I/O; a step's
+// command is checked by its own engine (job-step.ts).
 //
 // The SQL that runs is generated here from one structured action, never
 // typed by the author: ids are validated, every other value is a quoted
 // literal. That text is what the reviewer sees and what executes.
 
-import { scanSql } from "./sql-scan.js";
-import { validateWriteQuery } from "./write-executor.js";
 import { isEditableSchedule } from "./job-schedule.js";
 export { describeJobAction } from "./job-action.js";
 import type {
-  DatabaseType,
   JobChangeAction,
   JobDetail,
   MsdbScheduleFields,
@@ -21,252 +19,6 @@ import type {
 const nstr = (s: string) => `N'${s.replace(/'/g, "''")}'`;
 /** `'…'` with quotes doubled — Postgres (standard_conforming_strings). */
 const pstr = (s: string) => `'${s.replace(/'/g, "''")}'`;
-
-const ROUTINE_CALL = /^(EXEC|EXECUTE|CALL|SELECT)\b/i;
-const PG_MAINTENANCE = /^(VACUUM|ANALYZE|REFRESH\s+MATERIALIZED\s+VIEW)\b/i;
-const DML = /\b(INSERT|UPDATE|DELETE|MERGE)\b/i;
-const DML_ALL = /\b(INSERT|UPDATE|DELETE|MERGE)\b/gi;
-// SQL built from a string runs text the checker never sees.
-const DYNAMIC_SQL = /\bEXEC(UTE)?\s*\(|\bsp_executesql\b/i;
-const DDL = /\b(CREATE|ALTER|DROP|TRUNCATE|RENAME|GRANT|REVOKE|DENY)\b/i;
-
-// The shape of exactly one routine call, over `callTokens` text: a string
-// literal is the single token §, comments are gone. Arguments are literal
-// values only — no nested calls, operators or subqueries — so the routine
-// named is the only code that runs, and the server then checks in the
-// catalog that it is one of the database's own (see isUserRoutine). Anything
-// after the call fails: T-SQL needs no semicolon, so "EXEC p 1 SHUTDOWN" is
-// two statements.
-const IDENT = String.raw`(?:\[[^\]]+\]|"[^"]+"|[A-Za-z_#][\w$#@]*)`;
-const NAME = String.raw`${IDENT}(?:\s*\.\s*${IDENT}?){0,3}`;
-const VALUE = String.raw`(?:§|[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?|0x[0-9a-f]+|@\w+|NULL|DEFAULT|TRUE|FALSE)`;
-const TSQL_ARG = String.raw`(?:@\w+\s*=\s*)?${VALUE}(?:\s+OUT(?:PUT)?)?`;
-const TSQL_EXEC = new RegExp(
-  String.raw`^EXEC(?:UTE)?\s+(?:@\w+\s*=\s*)?(${NAME})(?:\s+${TSQL_ARG}(?:\s*,\s*${TSQL_ARG})*)?\s*;?\s*$`,
-  "i",
-);
-// A cast to a plain type name: one word, or one of the fixed multi-word
-// names — never free text, which could carry an expression.
-const CAST = String.raw`(?:\s*::\s*[A-Za-z_]\w*(?:\s+(?:precision|varying|with(?:out)?\s+time\s+zone))?(?:\(\d+(?:\s*,\s*\d+)?\))?(?:\[\])?)?`;
-const CALL_ARG = String.raw`(?:[A-Za-z_]\w*\s*=>\s*)?${VALUE}${CAST}`;
-const CALL = new RegExp(
-  String.raw`^(?:CALL|SELECT)\s+(${NAME})\s*\(\s*(?:${CALL_ARG}(?:\s*,\s*${CALL_ARG})*)?\s*\)\s*;?\s*$`,
-  "i",
-);
-// Never a job step, whatever the catalog says.
-const SYSTEM_ROUTINE = /^(xp_|pg_|lo_|dblink)|^set_config$/i;
-
-// What the tokenizer reads left to right, per dialect: strings, comments and
-// quoted identifiers, so a quote inside one is never mistaken for the other.
-// Postgres has E'…' (backslash escapes) and $tag$ quotes; SQL Server has
-// [names] — read with the other dialect's rules, text would split differently
-// than the engine splits it.
-const LEXEMES: Record<string, RegExp> = {
-  postgres:
-    /(?<![\w$])[eE]'(?:[^'\\]|\\.|'')*'|N?'(?:[^']|'')*'|\$(\w*)\$[\s\S]*?\$\1\$|--[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"]|"")*"/g,
-  mssql:
-    /N?'(?:[^']|'')*'|--[^\n]*|\/\*[\s\S]*?\*\/|\[(?:[^\]]|\]\])*\]|"(?:[^"]|"")*"/g,
-};
-const lexemes = (dbType: DatabaseType) => LEXEMES[dbType] ?? LEXEMES.mssql;
-
-/**
- * Why a quoted identifier in `command` can't be checked, or null: one that
- * holds a quote, a semicolon or a comment marker reads differently to this
- * checker and to the engine — exactly where a second statement would hide.
- */
-function oddIdentifier(command: string, dbType: DatabaseType): string | null {
-  for (const m of command.matchAll(lexemes(dbType))) {
-    const t = m[0];
-    // The statement splitter reads backslashes in E'…' differently than
-    // Postgres does; a plain '…' string says the same.
-    if (/^[eE]'/.test(t))
-      return "Use a plain '…' string, not E'…', in a job step — it can't be checked.";
-    if (
-      (t.startsWith("[") || t.startsWith('"')) &&
-      /['";]|--|\/\*|\[/.test(t.slice(1, -1))
-    )
-      return `${t}: a name holding quotes, semicolons or comment markers can't be checked as a job step.`;
-  }
-  return null;
-}
-
-// Built-ins a scoped write may use: they compute values and touch nothing.
-const SAFE_FUNCTIONS = new Set(
-  (
-    "now getdate getutcdate sysdatetime sysutcdatetime current_timestamp " +
-    "coalesce isnull nullif greatest least lower upper trim ltrim rtrim " +
-    "length len substring left right replace concat abs round floor ceiling " +
-    "ceil dateadd datediff datepart date_trunc date_part extract make_interval " +
-    "to_char to_date cast convert count sum min max avg newid gen_random_uuid"
-  ).split(" "),
-);
-// Words that take parentheses without being calls.
-const PAREN_KEYWORDS = new Set(
-  "in values exists any all some and or not on as over filter using where set into from join".split(
-    " ",
-  ),
-);
-
-/**
- * Functions a write statement calls that are not on the safe list — each
- * must pass the catalog check (isUserRoutine), since a built-in may run SQL
- * handed to it as a string (query_to_xml, OPENROWSET, dblink…).
- */
-function dmlFunctionCalls(stmt: string, dbType: DatabaseType): string[] {
-  const t = callTokens(stmt, dbType);
-  const names: string[] = [];
-  const call = new RegExp(String.raw`(${NAME})\s*\(`, "g");
-  for (const m of t.matchAll(call)) {
-    const before = t.slice(0, m.index).trimEnd().split(/\s+/).pop() ?? "";
-    // INSERT INTO t (a, b): a table and its columns, not a call. Anywhere
-    // else — FROM f(…), JOIN f(…), UPDATE OPENQUERY(…) — a name and "(" is
-    // a call, and is checked.
-    // Same for an alias's column list: AS x(t), AS d(n int).
-    const col = String.raw`${IDENT}(?:\s+[A-Za-z_]\w*)?`;
-    const columns = new RegExp(
-      String.raw`^\s*\(\s*${col}(?:\s*,\s*${col})*\s*\)`,
-    );
-    if (
-      /^(into|as)$/i.test(before) &&
-      columns.test(t.slice(m.index! + m[0].length - 1))
-    )
-      continue;
-    const name = m[1].replace(/\s+/g, "");
-    const p = parts(name);
-    const last = p[p.length - 1].toLowerCase();
-    if (
-      p.length === 1 &&
-      (PAREN_KEYWORDS.has(last) || SAFE_FUNCTIONS.has(last))
-    )
-      continue;
-    names.push(name);
-  }
-  return names;
-}
-
-/** `stmt` with each string literal as the token § (never part of a name) and comments removed. */
-function callTokens(stmt: string, dbType: DatabaseType): string {
-  return stmt
-    .replace(lexemes(dbType), (t) =>
-      t.startsWith("[") || t.startsWith('"')
-        ? t // a quoted identifier stays as written
-        : t.startsWith("--") || t.startsWith("/*")
-          ? " "
-          : " § ",
-    )
-    .trim();
-}
-
-const parts = (name: string) =>
-  name.split(/\s*\.\s*/).map((p) => p.trim().replace(/^[["]|[\]"]$/g, ""));
-
-/** The routine a call statement runs, or why it is not exactly one call. */
-function parseRoutineCall(
-  stmt: string,
-  dbType: DatabaseType,
-): { name: string } | { error: string } {
-  const t = callTokens(stmt, dbType);
-  const name = (TSQL_EXEC.exec(t) ?? CALL.exec(t))?.[1];
-  if (!name)
-    return {
-      error: `A job step calls one routine with literal arguments and nothing else — "EXEC name args", "CALL name(args)" or "SELECT name(args)". ${PATTERN_HINT}`,
-    };
-  const p = parts(name);
-  if (SYSTEM_ROUTINE.test(p[p.length - 1]))
-    return {
-      error: `${p[p.length - 1]}: system and administration routines can't run as a job step. ${PATTERN_HINT}`,
-    };
-  if (!p.every((x) => /^[\w$#@]+$/.test(x)))
-    return {
-      error: `${name}: a job step calls a routine with a plain name (letters, digits, _).`,
-    };
-  if (p.length > 2)
-    return {
-      error: `${name}: a job step calls a routine in this database — name it schema.routine.`,
-    };
-  // A Postgres job runs with its own search_path: say which routine.
-  if (dbType === "postgres" && p.length < 2)
-    return { error: `Qualify ${name} with its schema (schema.${name}).` };
-  return { name: name.replace(/\s+/g, "") };
-}
-
-/**
- * The routines `command` calls, for the catalog check that each is one of
- * this database's own — not built in, not an extension's (dblink, pg_cron…),
- * not another database's. Only meaningful once checkJobCommand passed.
- */
-export function jobCommandRoutines(
-  command: string,
-  dbType: DatabaseType,
-): string[] {
-  const names: string[] = [];
-  for (const raw of scanSql(command).statements) {
-    const stmt = raw.trim();
-    if (!stmt) continue;
-    const m = scanSql(stmt).masked;
-    if (ROUTINE_CALL.test(m)) {
-      const call = parseRoutineCall(stmt, dbType);
-      if ("name" in call) names.push(call.name);
-    } else if (DML.test(m.slice(0, 7)))
-      names.push(...dmlFunctionCalls(stmt, dbType));
-  }
-  return names;
-}
-
-const PATTERN_HINT =
-  "Keep the logic in a procedure (changed through an object change) and have the step only EXEC/CALL it.";
-
-/**
- * Why `command` may not become a job step, or null. A step D-Pilot writes is
- * either exactly one call of a user routine (EXEC/CALL, or SELECT of a
- * function — never a system or administration routine), Postgres
- * maintenance (VACUUM, ANALYZE, REFRESH MATERIALIZED VIEW), or INSERT/UPDATE/
- * DELETE statements that would each pass as a direct write — so an UPDATE
- * with no WHERE is refused here exactly as it is there. DDL and anything
- * the checker can't see through (T-SQL control flow, DML inside a call) is
- * refused.
- */
-export function checkJobCommand(
-  command: string,
-  dbType: DatabaseType,
-): string | null {
-  const { statements, masked } = scanSql(command);
-  if (!statements.some((s) => s.trim())) return "The command is empty.";
-  const odd = oddIdentifier(command, dbType);
-  if (odd) return odd;
-  if (DDL.test(masked))
-    return `A job step can't run DDL (CREATE/ALTER/DROP/TRUNCATE/GRANT…). ${PATTERN_HINT}`;
-  for (const raw of statements) {
-    const stmt = raw.trim();
-    if (!stmt) continue;
-    const m = scanSql(stmt).masked;
-    if (dbType === "postgres" && PG_MAINTENANCE.test(m)) continue;
-    if (ROUTINE_CALL.test(m)) {
-      if (DYNAMIC_SQL.test(m))
-        return `Dynamic SQL (EXEC('…'), sp_executesql) can't be checked as a job step. ${PATTERN_HINT}`;
-      // The raw text, strings included: a function such as dblink_exec runs
-      // the SQL it is handed as a string.
-      if (DML.test(stmt) || DDL.test(stmt))
-        return `Write the INSERT/UPDATE/DELETE as its own statement, not inside a call or a string, so it can be checked. ${PATTERN_HINT}`;
-      const call = parseRoutineCall(stmt, dbType);
-      if ("error" in call) return call.error;
-      continue;
-    }
-    if (DML.test(m.slice(0, 7))) {
-      const v = validateWriteQuery(stmt, dbType);
-      if (!v.valid) return `${v.error} ${PATTERN_HINT}`;
-      // T-SQL needs no semicolons: "UPDATE … WHERE … UPDATE …" is two
-      // statements that would pass as one scoped write.
-      if ((m.match(DML_ALL) ?? []).length > 1)
-        return "Separate each INSERT/UPDATE/DELETE with a semicolon so each can be checked.";
-      if (!v.scoped)
-        return `${v.verb} without a WHERE clause would change every row — refused, as it would be as a direct write.`;
-      continue;
-    }
-    return `"${stmt.split(/\s+/)[0]}" can't be checked as a job step. Use one EXEC/CALL of a procedure, or scoped INSERT/UPDATE/DELETE statements separated by semicolons. ${PATTERN_HINT}`;
-  }
-  return null;
-}
 
 /**
  * Whether a step's database is not the connection's. SQL Server compares
@@ -325,7 +77,6 @@ const CRON =
 export function validateJobChange(
   action: JobChangeAction,
   job: JobDetail,
-  dbType: DatabaseType,
 ): string | null {
   const agent = job.engine === "agent";
   const step = (id: number) => job.steps.find((s) => s.id === id);
@@ -381,7 +132,8 @@ export function validateJobChange(
         if (otherDb(s.database, job.database))
           return "That step runs against another database.";
       }
-      return checkJobCommand(action.command ?? "", dbType);
+      // What the command runs is checked by the engine itself (checkJobStep).
+      return action.command?.trim() ? null : "The command is empty.";
     }
     case "set_schedule": {
       const sch = job.schedules.find((s) => s.id === String(action.scheduleId));
