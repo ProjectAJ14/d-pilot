@@ -6,7 +6,12 @@ import {
   IconClock,
   IconCode,
 } from "@tabler/icons-react";
-import type { DbObjectInfo, DbObjectKind, JobList } from "@src/types";
+import type {
+  DatabaseType,
+  DbObjectInfo,
+  DbObjectKind,
+  JobList,
+} from "@src/types";
 import { api } from "@src/utils/api-client";
 import { nameMatches } from "@src/utils/explorer-search";
 import { useStore } from "@src/store";
@@ -17,7 +22,21 @@ const KIND_LABELS: [DbObjectKind, string][] = [
   ["function", "Functions"],
   ["view", "Views"],
   ["trigger", "Triggers"],
+  ["validator", "Validation rules"],
+  ["index", "Indexes"],
+  ["index_template", "Index templates"],
+  ["ingest_pipeline", "Ingest pipelines"],
+  ["alias", "Aliases"],
+  ["ilm_policy", "ILM policies"],
 ];
+
+/** What the node is called on each engine. */
+const TREE_LABEL: Record<DatabaseType, string> = {
+  postgres: "Procedures, functions, views & triggers",
+  mssql: "Procedures, functions, views & triggers",
+  mongodb: "Views, indexes & validation rules",
+  elasticsearch: "Templates, pipelines, aliases & ILM",
+};
 
 /**
  * Procedures, functions, views and triggers under a connection's tables
@@ -28,10 +47,12 @@ const KIND_LABELS: [DbObjectKind, string][] = [
  */
 export function ObjectTree({
   connId,
+  dbType,
   schema,
   query,
 }: {
   connId: string;
+  dbType: DatabaseType;
   schema: string;
   query: string;
 }) {
@@ -76,7 +97,7 @@ export function ObjectTree({
       >
         {open ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
         <Text size="xs" c="dimmed" style={{ flex: 1, fontSize: 11 }}>
-          Procedures, functions, views & triggers
+          {TREE_LABEL[dbType]}
           {objects && ` (${objects.length})`}
         </Text>
         {loading && <Loader size={10} color="var(--accent)" />}
@@ -112,7 +133,7 @@ export function ObjectTree({
           c="dimmed"
           style={{ fontSize: 10, padding: "4px 24px" }}
         >
-          None in this schema
+          None here
         </Text>
       )}
 

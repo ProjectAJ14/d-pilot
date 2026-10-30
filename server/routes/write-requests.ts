@@ -29,7 +29,7 @@ import {
   definitionHash,
   getObjectDefinition,
   getObjectDependencies,
-  OBJECT_KINDS,
+  SQL_OBJECT_KINDS,
   supportsObjects,
 } from "../services/schema-objects.js";
 import { validateObjectChange } from "../services/object-change.js";
@@ -72,6 +72,7 @@ import type {
   ConnectionConfig,
   DbObjectInfo,
   QueryResult,
+  SqlObjectKind,
   WriteAiReview,
   WriteRequest,
 } from "../types/index.js";
@@ -355,7 +356,7 @@ function objectRef(o: unknown): DbObjectInfo | null {
     !x ||
     typeof x.name !== "string" ||
     typeof x.schema !== "string" ||
-    !OBJECT_KINDS.includes(x.kind as DbObjectInfo["kind"])
+    !SQL_OBJECT_KINDS.includes(x.kind as SqlObjectKind)
   )
     return null;
   return {

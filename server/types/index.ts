@@ -214,8 +214,22 @@ export interface TableInfo {
   rowCount?: number;
 }
 
-/** Programmable objects the object browser lists (Postgres/SQL Server). */
-export type DbObjectKind = "procedure" | "function" | "view" | "trigger";
+/** Programmable objects on Postgres/SQL Server — what an object_change can edit. */
+export type SqlObjectKind = "procedure" | "function" | "view" | "trigger";
+
+/**
+ * Everything the object browser lists: the SQL kinds, plus MongoDB views,
+ * indexes and validation rules and Elasticsearch index templates, ingest
+ * pipelines, aliases and ILM policies (read-only; definitions are JSON).
+ */
+export type DbObjectKind =
+  | SqlObjectKind
+  | "index"
+  | "validator"
+  | "index_template"
+  | "ingest_pipeline"
+  | "alias"
+  | "ilm_policy";
 
 export interface DbObjectInfo {
   schema: string;
@@ -226,7 +240,10 @@ export interface DbObjectInfo {
    * Overloads share a name, so this is part of the object's key.
    */
   args?: string;
-  /** Triggers only: the table it fires on (Postgres trigger names are per table). */
+  /**
+   * Triggers: the table it fires on (Postgres trigger names are per table).
+   * MongoDB indexes: their collection.
+   */
   parent?: string;
 }
 

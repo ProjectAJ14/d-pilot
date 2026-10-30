@@ -16,7 +16,7 @@ params:query {
 }
 
 docs {
-  Procedures, functions, views and triggers in one schema that differ between this connection and `against` (same engine): { schema, identical, items: [{ schema, name, kind, args?, parent?, status }] }, status different | only_left | only_right. Definitions are compared by SHA-256 of their normalized text (line endings and trailing whitespace removed); none is returned. A definition hidden on either side counts as different.
+  Procedures, functions, views and triggers in one schema that differ between this connection and `against` (same engine — MongoDB and Elasticsearch objects compare too): { schema, identical, items: [{ schema, name, kind, args?, parent?, status }] }, status different | only_left | only_right. Definitions are compared by SHA-256 of their normalized text (line endings and trailing whitespace removed); none is returned. A definition hidden on either side counts as different.
 
   Requires a valid Bearer JWT ({{token}}) plus **read** capability on **both** connections' environments — 403 otherwise.
 

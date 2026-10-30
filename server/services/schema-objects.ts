@@ -7,6 +7,7 @@ import type {
   DbObjectInfo,
   DbObjectKind,
   DbObjectReference,
+  SqlObjectKind,
   DriftItem,
   DriftReport,
 } from "../types/index.js";
@@ -15,6 +16,11 @@ import {
   introspectPgPool,
   resolveSchema,
 } from "./schema-introspector.js";
+import {
+  ES_OBJECT_KINDS,
+  getDocumentObjects,
+  MONGO_OBJECT_KINDS,
+} from "./document-objects.js";
 
 /**
  * Procedures, functions, views and triggers — the code that lives in a
@@ -25,14 +31,21 @@ import {
  * file are ever spliced into SQL.
  */
 
-export const OBJECT_KINDS: DbObjectKind[] = [
+export const SQL_OBJECT_KINDS: SqlObjectKind[] = [
   "procedure",
   "function",
   "view",
   "trigger",
 ];
 
-/** Engines that have programmable objects. Mongo/ES list none. */
+/** The kinds each engine has; the routes refuse any other. */
+export function objectKindsFor(conn: ConnectionConfig): DbObjectKind[] {
+  if (conn.type === "mongodb") return MONGO_OBJECT_KINDS;
+  if (conn.type === "elasticsearch") return ES_OBJECT_KINDS;
+  return SQL_OBJECT_KINDS;
+}
+
+/** Engines whose objects are SQL code: dependencies, edits and the SQL kinds. */
 export function supportsObjects(conn: ConnectionConfig): boolean {
   return conn.type === "postgres" || conn.type === "mssql";
 }
@@ -52,7 +65,9 @@ export async function getObjects(
   conn: ConnectionConfig,
   schema?: string,
 ): Promise<DbObjectInfo[]> {
-  return listObjects(conn, resolveSchema(conn, schema), false);
+  const list = await listObjects(conn, resolveSchema(conn, schema), false);
+  // Mongo/ES read definitions with the list; the list itself is names only.
+  return list.map(({ definition: _d, ...o }) => o);
 }
 
 function listObjects(
@@ -64,7 +79,9 @@ function listObjects(
     return getPostgresObjects(conn, schema, withDefinitions);
   if (conn.type === "mssql")
     return getMssqlObjects(conn, schema, withDefinitions);
-  return Promise.resolve([]);
+  // Mongo/ES definitions are small JSON documents read in the same calls
+  // that list them, so they always come back.
+  return getDocumentObjects(conn);
 }
 
 /** The key that identifies "the same object" on two connections. */
@@ -143,7 +160,15 @@ export async function getObjectDefinition(
   const r = { ...ref, schema: resolveSchema(conn, ref.schema) };
   if (conn.type === "postgres") return getPostgresDefinition(conn, r);
   if (conn.type === "mssql") return getMssqlDefinition(conn, r);
-  return null;
+  const all = await getDocumentObjects(conn);
+  return (
+    all.find(
+      (o) =>
+        o.kind === ref.kind &&
+        o.name === ref.name &&
+        (ref.parent == null || o.parent === ref.parent),
+    ) ?? null
+  );
 }
 
 /** One row for the lookup, or an error naming the keys that tell them apart. */
@@ -206,7 +231,7 @@ async function getPostgresObjects(
 
 // $3 is optional: NULL matches any overload / any table, and single() then
 // refuses to guess between several.
-const PG_DEFINITION_SQL: Record<DbObjectKind, string> = {
+const PG_DEFINITION_SQL: Record<SqlObjectKind, string> = {
   function: pgRoutineSql("'f'"),
   procedure: pgRoutineSql("'p'"),
   view: `
@@ -249,7 +274,7 @@ async function getPostgresDefinition(
         : ref.kind === "view"
           ? undefined
           : ref.args;
-    const res = await pool.query(PG_DEFINITION_SQL[ref.kind], [
+    const res = await pool.query(PG_DEFINITION_SQL[ref.kind as SqlObjectKind], [
       ref.schema,
       ref.name,
       key ?? null,
@@ -273,15 +298,15 @@ async function getPostgresDefinition(
 
 // --- SQL Server ---
 
-const MSSQL_TYPES: Record<DbObjectKind, string[]> = {
+const MSSQL_TYPES: Record<SqlObjectKind, string[]> = {
   procedure: ["P"],
   function: ["FN", "IF", "TF"],
   view: ["V"],
   trigger: ["TR"],
 };
 
-const mssqlKind = (type: string): DbObjectKind =>
-  OBJECT_KINDS.find((k) => MSSQL_TYPES[k].includes(type.trim()))!;
+const mssqlKind = (type: string): SqlObjectKind =>
+  SQL_OBJECT_KINDS.find((k) => MSSQL_TYPES[k].includes(type.trim()))!;
 
 /** Like mssqlKind, for either end of a dependency: tables too, null if unresolved. */
 const mssqlRefKind = (type: string | null): DbObjectReference["kind"] =>
@@ -345,7 +370,7 @@ async function getMssqlDefinition(
                 CASE WHEN o.type = 'TR' THEN OBJECT_NAME(o.parent_object_id) END AS parent
          FROM sys.objects o JOIN sys.schemas s ON s.schema_id = o.schema_id
          WHERE s.name = @schema AND o.name = @name AND o.is_ms_shipped = 0
-           AND o.type IN (${sqlList(MSSQL_TYPES[ref.kind])})`,
+           AND o.type IN (${sqlList(MSSQL_TYPES[ref.kind as SqlObjectKind])})`,
       );
     const row = (res.recordset as any[])[0];
     if (!row) return null;

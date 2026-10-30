@@ -16,7 +16,7 @@ ever leaving the building in the clear.
 - **Monaco editor** — syntax highlighting and schema-aware autocomplete (tables, columns, PK and 🔐 PHI markers; Mongo `db.collection.find()` style; ES `/_search` paths). Language adapts to the connection type.
 - **Multi-tab workspace** — independent tabs, inline rename, per-tab schema selection, and run-selection-or-whole-query (Cmd/Ctrl+Enter).
 - **Schema browser** — connections grouped by environment; lazy table/column tree with PK/type/PHI flags; double-click a table to open a `SELECT * … LIMIT 100` tab; copy table metadata as **JSON / DDL / text**.
-- **Database objects** — procedures, functions, views and triggers (Postgres/SQL Server) with their full definitions, "Uses / Used by", "Compare with…" any other connection, and a drift report listing every object that differs between two environments.
+- **Database objects** — procedures, functions, views and triggers (Postgres/SQL Server), MongoDB views, indexes and validation rules, and Elasticsearch index templates, ingest pipelines, aliases and ILM policies, with their full definitions, "Uses / Used by", "Compare with…" any other connection, and a drift report listing every object that differs between two environments.
 - **Scheduled jobs** — SQL Server Agent and pg_cron jobs that run against the database: step commands, plain-language schedules, last outcome, next run and recent history.
 - **Results grid** (AG Grid) — sort/filter/resize, type-aware cell coloring, table ↔ **JSON view** toggle, row count / exec time / truncation badges.
 - **Cell inspector drawer** — click a long cell to open a docked read-only inspector (auto-detects JSON vs text); double-click to copy; hover for a peek.

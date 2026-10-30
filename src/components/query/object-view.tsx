@@ -68,7 +68,7 @@ const sideText = (s: Side) =>
   s.state === "ok" ? (s.obj.definition ?? `-- ${HIDDEN}`) : "";
 
 const label = (o: DbObjectInfo) =>
-  `${o.schema}.${o.name}${o.args != null ? `(${o.args})` : ""}`;
+  `${o.schema ? `${o.schema}.` : ""}${o.name}${o.args != null ? `(${o.args})` : ""}`;
 
 /**
  * A procedure, function, view or trigger, read live from its database —
@@ -88,6 +88,10 @@ export function ObjectView({ tab }: { tab: QueryTab }) {
   const [otherSide, setOther] = useState<Side | null>(null);
   const [reload, setReload] = useState(0);
   const [editing, setEditing] = useState(false);
+  // MongoDB/Elasticsearch objects are JSON documents, read-only here, with
+  // no dependency graph to show.
+  const isSql = conn?.type === "postgres" || conn?.type === "mssql";
+  const language = isSql ? monacoLanguageForDb(conn?.type) : "json";
   const canAuthor = useStore(
     (s) =>
       !!s.user?.isAdmin ||
@@ -203,7 +207,7 @@ export function ObjectView({ tab }: { tab: QueryTab }) {
             <IconFileExport size={15} />
           </ActionIcon>
         </Tooltip>
-        {canAuthor && (
+        {canAuthor && isSql && (
           <Button
             size="xs"
             variant="light"
@@ -232,7 +236,7 @@ export function ObjectView({ tab }: { tab: QueryTab }) {
         </Tooltip>
       </Group>
 
-      {conn && (
+      {conn && isSql && (
         <DependencyStrip
           key={`${tab.id}-${reload}`}
           connId={conn.id}
@@ -269,7 +273,7 @@ export function ObjectView({ tab }: { tab: QueryTab }) {
           <DiffEditor
             original={sideText(mine)}
             modified={sideText(other)}
-            language={monacoLanguageForDb(conn?.type)}
+            language={language}
             theme={theme}
             options={{
               ...baseSqlEditorOptions,
@@ -290,7 +294,7 @@ export function ObjectView({ tab }: { tab: QueryTab }) {
         ) : mine.state === "ok" ? (
           <Editor
             value={mine.obj.definition!}
-            language={monacoLanguageForDb(conn?.type)}
+            language={language}
             theme={theme}
             options={{ ...baseSqlEditorOptions, readOnly: true }}
           />

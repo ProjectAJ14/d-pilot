@@ -156,11 +156,17 @@ describe("object routes", () => {
     expect(logAudit).not.toHaveBeenCalled();
   });
 
-  it("400s on an unknown kind or an engine without objects", async () => {
+  it("400s on a kind the engine does not have", async () => {
     expect((await get("/qa-core/objects/table/orders/definition")).status).toBe(
       400,
     );
-    expect((await get("/qa-mongo/objects/view/v/definition")).status).toBe(400);
+    // Each engine has its own kinds: MongoDB has views, not procedures.
+    expect((await get("/qa-mongo/objects/procedure/p/definition")).status).toBe(
+      400,
+    );
+    expect((await get("/qa-core/objects/ilm_policy/p/definition")).status).toBe(
+      400,
+    );
     expect(getObjectDefinition).not.toHaveBeenCalled();
   });
 

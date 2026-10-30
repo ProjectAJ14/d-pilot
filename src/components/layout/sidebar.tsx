@@ -1235,15 +1235,15 @@ export function Sidebar() {
                               </div>
                             )}
 
-                          {expandedConn === conn.id &&
-                            SCHEMA_DB_TYPES.includes(conn.type) && (
-                              <ObjectTree
-                                key={tKey}
-                                connId={conn.id}
-                                schema={sch}
-                                query={q}
-                              />
-                            )}
+                          {expandedConn === conn.id && (
+                            <ObjectTree
+                              dbType={conn.type}
+                              key={tKey}
+                              connId={conn.id}
+                              schema={sch}
+                              query={q}
+                            />
+                          )}
                           {expandedConn === conn.id &&
                             SCHEMA_DB_TYPES.includes(conn.type) && (
                               <JobTree connId={conn.id} query={q} />

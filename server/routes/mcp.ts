@@ -63,11 +63,22 @@ import type {
   TableInfo,
 } from "../types/index.js";
 
-const OBJECT_KIND = z.enum(["procedure", "function", "view", "trigger"]);
+/** What an object_change can edit, and what has dependencies. */
+const SQL_OBJECT_KIND = z.enum(["procedure", "function", "view", "trigger"]);
+/** Everything list_objects lists, MongoDB and Elasticsearch included. */
+const OBJECT_KIND = z.enum([
+  ...SQL_OBJECT_KIND.options,
+  "index",
+  "validator",
+  "index_template",
+  "ingest_pipeline",
+  "alias",
+  "ilm_policy",
+]);
 
 /** `schema.name(args)` — how an agent sees one object, overloads told apart. */
 const objectLabel = (o: DbObjectInfo) =>
-  `${o.schema}.${o.name}${o.args != null ? `(${o.args})` : ""}${o.parent ? ` on ${o.parent}` : ""}`;
+  `${o.schema ? `${o.schema}.` : ""}${o.name}${o.args != null ? `(${o.args})` : ""}${o.parent ? ` on ${o.parent}` : ""}`;
 
 const router = Router();
 
@@ -433,9 +444,9 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
   tool(
     "list_objects",
     {
-      title: "List procedures, functions, views and triggers",
+      title: "List database objects",
       description:
-        "Programmable objects in a schema (Postgres/SQL Server), one line per kind: `procedure: schema.name, …`. Postgres overloads appear once per signature, `name(arg types)`; triggers say which table they fire on. Read the code with get_object_definition instead of querying the system catalog.",
+        "The code and configuration a database keeps beside its data, one line per kind: `procedure: schema.name, …`. Postgres/SQL Server: procedures, functions, views and triggers (Postgres overloads once per signature, `name(arg types)`; triggers say which table they fire on). MongoDB: views, indexes (`on` their collection) and validation rules. Elasticsearch: index templates, ingest pipelines, aliases and ILM policies. Read one with get_object_definition instead of querying the system catalog.",
       inputSchema: {
         connectionId: z.string(),
         schema: z
@@ -466,7 +477,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
     {
       title: "Read an object's definition",
       description:
-        'The full source of a procedure, function, view or trigger, read live. For an overloaded Postgres function pass `args` exactly as list_objects shows it (`""` for no arguments); for a Postgres trigger pass `parent`, its table. To compare environments, call it once per connection.',
+        'The full source of a procedure, function, view or trigger (or the JSON of a MongoDB/Elasticsearch object), read live. For an overloaded Postgres function pass `args` exactly as list_objects shows it (`""` for no arguments); for a Postgres trigger pass `parent`, its table. To compare environments, call it once per connection.',
       inputSchema: {
         connectionId: z.string(),
         kind: OBJECT_KIND,
@@ -503,7 +514,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
         "Before changing a procedure, function, view or trigger: what it reads (`uses`) and what reads it (`used by`), one line each. `(?)` marks a reference the database could not resolve (dropped, late-bound or in another database). Postgres function bodies are matched by name, so their answer is best-effort and says so.",
       inputSchema: {
         connectionId: z.string(),
-        kind: OBJECT_KIND,
+        kind: SQL_OBJECT_KIND,
         name: z.string(),
         schema: z.string().optional(),
         args: z.string().optional(),
@@ -840,7 +851,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
           .object({
             schema: z.string(),
             name: z.string(),
-            kind: OBJECT_KIND,
+            kind: SQL_OBJECT_KIND,
             args: z.string().optional(),
             parent: z.string().optional(),
           })

@@ -133,12 +133,6 @@ describe("getObjects", () => {
     expect(h.calls[0].params).toEqual({ schema: "app_core" });
     expect(h.calls[0].sql).toContain("is_ms_shipped = 0");
   });
-
-  it("lists nothing for engines without programmable objects", async () => {
-    const mongo = { id: "m", type: "mongodb", env: "QA" } as ConnectionConfig;
-    expect(await getObjects(mongo)).toEqual([]);
-    expect(h.calls).toEqual([]);
-  });
 });
 
 describe("getObjectDefinition", () => {

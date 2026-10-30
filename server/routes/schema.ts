@@ -17,8 +17,7 @@ import {
   getObjectDependencies,
   getObjects,
   type ObjectRef,
-  OBJECT_KINDS,
-  supportsObjects,
+  objectKindsFor,
 } from "../services/schema-objects.js";
 import { getJobDetail, getJobs, validJobId } from "../services/jobs.js";
 import { toIdempotent } from "../services/object-change.js";
@@ -159,16 +158,11 @@ function objectTarget(
   if (!conn) return null;
 
   const kind = req.params.kind as DbObjectKind;
-  if (!OBJECT_KINDS.includes(kind)) {
+  const kinds = objectKindsFor(conn);
+  if (!kinds.includes(kind)) {
     res.status(400).json({
-      error: `Unknown object kind '${kind}' — one of ${OBJECT_KINDS.join(", ")}`,
+      error: `A ${conn.type} connection has no '${kind}' objects — one of ${kinds.join(", ")}`,
     });
-    return null;
-  }
-  if (!supportsObjects(conn)) {
-    res
-      .status(400)
-      .json({ error: `${conn.type} connections have no ${kind}s` });
     return null;
   }
   const q = (k: string) => req.query[k] as string | undefined;
@@ -265,10 +259,9 @@ router.get("/:connectionId/drift", async (req: Request, res: Response) => {
     req.query.against as string | undefined,
   );
   if (!right) return;
-  if (left.type !== right.type || !supportsObjects(left)) {
+  if (left.type !== right.type) {
     res.status(400).json({
-      error:
-        "A drift report compares two Postgres or two SQL Server connections",
+      error: "A drift report compares two connections of the same engine",
     });
     return;
   }
