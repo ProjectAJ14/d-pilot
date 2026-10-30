@@ -250,15 +250,18 @@ hash moved — never overwrite a version nobody reviewed. Revise re-bases on wha
 deployed. The AI review gets the deployed version and the object's dependents.
 
 **Job changes** (`kind: "job_change"`, `services/job-change.ts`) make one structured action
-on one SQL Server Agent / pg*cron job. The author sends `jobChange: { jobId, action }` and
+on one SQL Server Agent / pg\*cron job. The author sends `jobChange: { jobId, action }` and
 **the server writes the SQL** (`buildJobChangeSql`: ids validated, values quoted) — that
 text is what is reviewed and what runs, as a transactional migration. Raising one needs the
 `jobEnvironments` capability on top of write and read (so does submitting a drafted one); an
 object_change needs read as well as write, since both return the deployed snapshot.
 `validateJobChange` refuses a step command that would not pass as a direct write
-(`checkJobCommand`: exactly one EXEC/CALL/SELECT of a user routine — never `xp*`/`sp*`/`pg*`/
-`lo\_`/dblink/set_config, nothing after the call — or scoped DML separated by semicolons; no
-DDL, no dynamic SQL), any non-SQL step, a step
+(`checkJobCommand`: exactly one EXEC/CALL/SELECT of a routine with literal arguments and
+nothing after the call, or scoped DML separated by semicolons; no DDL, no dynamic SQL, no
+quoted name holding quotes, `;` or comment markers). Every routine a step calls, including
+functions inside its DML beyond a short safe list (`now`, `coalesce`, `dateadd`…), must pass
+`isUserRoutine` in the target's catalog: not built in, not an extension's (dblink, pg_cron,
+`query_to_xml`-style string runners), not a system schema. It also refuses any non-SQL step, a step
 on another database, a schedule shared with other jobs, and every action but an own-step
 edit on a job that also runs on another database (that part is another database's work); every refusal is audited as `JOB_CHANGE_REFUSED` (`refuseJobChange`).
 The whole job is snapshotted (`jobSnapshot`) and checked like an object change's
