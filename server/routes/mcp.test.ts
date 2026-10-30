@@ -406,6 +406,62 @@ describe("schema and listing tools", () => {
     await client.close();
   });
 
+  it("list_objects groups by kind and tells overloads apart", async () => {
+    const api = answering({
+      "/schema/qa-pg/objects?schema=app_core": [
+        {
+          schema: "app_core",
+          name: "refresh_order_totals",
+          kind: "function",
+          args: "",
+        },
+        {
+          schema: "app_core",
+          name: "refresh_order_totals",
+          kind: "function",
+          args: "integer",
+        },
+        {
+          schema: "app_core",
+          name: "orders_audit",
+          kind: "trigger",
+          parent: "orders",
+        },
+      ],
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("list_objects", {
+      connectionId: "qa-pg",
+      schema: "app_core",
+    });
+    expect(text).toBe(
+      "function: app_core.refresh_order_totals(), app_core.refresh_order_totals(integer)\ntrigger: app_core.orders_audit on orders",
+    );
+    await client.close();
+  });
+
+  it("get_object_definition sends a zero-argument overload as args= and explains a hidden body", async () => {
+    const api = answering({
+      "/schema/qa-pg/objects/function/refresh_order_totals/definition?args=": {
+        schema: "app_core",
+        name: "refresh_order_totals",
+        kind: "function",
+        args: "",
+        definition: null,
+      },
+    });
+    const { client, call } = await connect({ get: api.get });
+    const { text } = await call("get_object_definition", {
+      connectionId: "qa-pg",
+      kind: "function",
+      name: "refresh_order_totals",
+      args: "",
+    });
+    expect(text).toContain("function app_core.refresh_order_totals()");
+    expect(text).toContain("Definition not available");
+    await client.close();
+  });
+
   it("list_tables withColumns reads the cached full schema once", async () => {
     const api = answering({
       "/schema/qa-pg/full?schema=app_core": {

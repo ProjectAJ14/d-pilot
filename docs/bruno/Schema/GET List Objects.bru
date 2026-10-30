@@ -1,0 +1,27 @@
+meta {
+  name: List Objects
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/schema/{{connectionId}}/objects
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~schema: public
+  ~kind: procedure
+}
+
+docs {
+  Procedures, functions, views and triggers in a schema (Postgres/MSSQL; empty for Mongo/ES). Read live, not cached.
+
+  Each entry is { schema, name, kind, args?, parent? }: `args` (Postgres routines) are the identity argument types that tell overloads apart; `parent` is a trigger's table. `kind` filters to one of procedure | function | view | trigger.
+
+  Requires a valid Bearer JWT ({{token}}) plus **read** capability for the connection's environment — 403 otherwise (admins hold every environment).
+
+  Errors: 503 { error, code: "CONNECTION_FAILED" } when the database host is
+  unreachable (network); 500 { error } for other introspection failures.
+}

@@ -384,22 +384,24 @@ cannot be bypassed. Every agent query lands in the audit log under its service a
 marked _via MCP_ (the audit drawer's **Via** field, and the `source` column of both CSV
 exports), so agent traffic can be told apart from people using the UI.
 
-| Tool                   | Does                                                                                 |
-| ---------------------- | ------------------------------------------------------------------------------------ |
-| `whoami`               | Which account is connected and which environments it may read                        |
-| `list_connections`     | Databases available, one CSV line each (optional `env` filter)                       |
-| `list_schemas`         | Schemas on a connection (Postgres/SQL Server)                                        |
-| `list_tables`          | Tables, collections or indices; `withColumns` adds every table's columns in one call |
-| `describe_table`       | Columns, types, keys and FK targets of one table or several (`tables`)               |
-| `run_query`            | Runs a read-only query on one connection or several (`connectionIds`); compact CSV   |
-| `create_artifact`      | Publishes a shareable document (rich page + runnable read queries), returns its link |
-| `update_artifact`      | Edits an artifact the service account created                                        |
-| `get_artifact`         | Reads one artifact's full body                                                       |
-| `list_artifacts`       | Artifacts visible to the account (optional `search`)                                 |
-| `archive_artifact`     | Archives (or restores) an artifact the service account created                       |
-| `create_write_request` | Saves a **draft** change request for a human to review — it never runs               |
-| `get_write_request`    | Reads one request back, including the AI safety review a human ran on it             |
-| `update_write_request` | Edits a draft the service account saved — drafts only, and it stays a draft          |
+| Tool                    | Does                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------ |
+| `whoami`                | Which account is connected and which environments it may read                        |
+| `list_connections`      | Databases available, one CSV line each (optional `env` filter)                       |
+| `list_schemas`          | Schemas on a connection (Postgres/SQL Server)                                        |
+| `list_tables`           | Tables, collections or indices; `withColumns` adds every table's columns in one call |
+| `describe_table`        | Columns, types, keys and FK targets of one table or several (`tables`)               |
+| `list_objects`          | Procedures, functions, views and triggers in a schema; overloads listed separately   |
+| `get_object_definition` | Full source of one of those objects, read live                                       |
+| `run_query`             | Runs a read-only query on one connection or several (`connectionIds`); compact CSV   |
+| `create_artifact`       | Publishes a shareable document (rich page + runnable read queries), returns its link |
+| `update_artifact`       | Edits an artifact the service account created                                        |
+| `get_artifact`          | Reads one artifact's full body                                                       |
+| `list_artifacts`        | Artifacts visible to the account (optional `search`)                                 |
+| `archive_artifact`      | Archives (or restores) an artifact the service account created                       |
+| `create_write_request`  | Saves a **draft** change request for a human to review — it never runs               |
+| `get_write_request`     | Reads one request back, including the AI safety review a human ran on it             |
+| `update_write_request`  | Edits a draft the service account saved — drafts only, and it stays a draft          |
 
 **Token cost:** an agent pays for every character a tool returns, for as long as it stays in
 its context, so tool output is kept compact. `run_query` returns rows as CSV under a one-line

@@ -9,6 +9,8 @@ import type {
   QueryResult,
   AppSettingView,
   ConnectionAdminView,
+  DbObjectDefinition,
+  DbObjectInfo,
 } from "../types";
 import { BASE_PATH } from "./base-path";
 import {
@@ -475,6 +477,19 @@ export const api = {
     request<any[]>(
       `/schema/${connectionId}/tables${schema ? `?schema=${encodeURIComponent(schema)}` : ""}`,
     ),
+  getObjects: (connectionId: string, schema?: string) =>
+    request<DbObjectInfo[]>(
+      `/schema/${connectionId}/objects${schema ? `?schema=${encodeURIComponent(schema)}` : ""}`,
+    ),
+  /** `args` / `parent` go along even when empty: `args=` is a zero-argument overload. */
+  getObjectDefinition: (connectionId: string, o: DbObjectInfo) => {
+    const q = new URLSearchParams({ schema: o.schema });
+    if (o.args != null) q.set("args", o.args);
+    if (o.parent != null) q.set("parent", o.parent);
+    return request<DbObjectDefinition>(
+      `/schema/${connectionId}/objects/${o.kind}/${encodeURIComponent(o.name)}/definition?${q}`,
+    );
+  },
   getFullSchema: (connectionId: string, schema?: string) =>
     request<{
       tables: { name: string; type: string }[];

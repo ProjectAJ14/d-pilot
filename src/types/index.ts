@@ -45,7 +45,10 @@ export interface CopyFormat {
 // Machine-readable error codes returned by the API (body: { error, code? }).
 // SERVER_UNREACHABLE is client-only — the server can't send it; api-client sets
 // it when there was no response (or a proxy 502/504), so server/types omits it.
-export type ApiErrorCode = "CONNECTION_FAILED" | "SERVER_UNREACHABLE";
+export type ApiErrorCode =
+  | "CONNECTION_FAILED"
+  | "SERVER_UNREACHABLE"
+  | "OBJECT_NOT_FOUND";
 
 export interface ApiErrorBody {
   error: string;
@@ -184,6 +187,27 @@ export interface TableInfo {
   rowCount?: number;
 }
 
+/** Programmable objects the object browser lists (Postgres/SQL Server). */
+export type DbObjectKind = "procedure" | "function" | "view" | "trigger";
+
+export interface DbObjectInfo {
+  schema: string;
+  name: string;
+  kind: DbObjectKind;
+  /**
+   * Postgres routines only: identity argument types, e.g. `integer, text`.
+   * Overloads share a name, so this is part of the object's key.
+   */
+  args?: string;
+  /** Triggers only: the table it fires on (Postgres trigger names are per table). */
+  parent?: string;
+}
+
+export interface DbObjectDefinition extends DbObjectInfo {
+  /** Null when the engine hides it: encrypted, or no VIEW DEFINITION permission. */
+  definition: string | null;
+}
+
 export interface ColumnInfo {
   name: string;
   dataType: string;
@@ -201,10 +225,15 @@ export interface ColumnInfo {
 export interface QueryTab {
   id: string;
   title: string;
-  /** "artifact" tabs render an Artifact document instead of the SQL editor. */
-  kind?: "sql" | "artifact";
+  /**
+   * "artifact" tabs render an Artifact document, "object" tabs a database
+   * object's definition, instead of the SQL editor.
+   */
+  kind?: "sql" | "artifact" | "object";
   /** Set on artifact tabs — the document is fetched fresh, never persisted. */
   artifactId?: string;
+  /** Set on object tabs (with `connectionId`) — the definition is read live, never persisted. */
+  object?: DbObjectInfo;
   sql: string;
   connectionId: string | null;
   /** Active schema for this tab (Postgres/MSSQL). Undefined = connection default. */

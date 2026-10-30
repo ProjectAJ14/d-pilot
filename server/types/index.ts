@@ -9,7 +9,7 @@ export type Environment = string;
 export type MaskingType = "FULL" | "PARTIAL" | "HASH" | "REDACT";
 
 // Machine-readable error codes returned by the API (body: { error, code? }).
-export type ApiErrorCode = "CONNECTION_FAILED";
+export type ApiErrorCode = "CONNECTION_FAILED" | "OBJECT_NOT_FOUND";
 
 export interface ApiErrorBody {
   error: string;
@@ -212,6 +212,27 @@ export interface TableInfo {
   name: string;
   type: string; // TABLE, VIEW
   rowCount?: number;
+}
+
+/** Programmable objects the object browser lists (Postgres/SQL Server). */
+export type DbObjectKind = "procedure" | "function" | "view" | "trigger";
+
+export interface DbObjectInfo {
+  schema: string;
+  name: string;
+  kind: DbObjectKind;
+  /**
+   * Postgres routines only: identity argument types, e.g. `integer, text`.
+   * Overloads share a name, so this is part of the object's key.
+   */
+  args?: string;
+  /** Triggers only: the table it fires on (Postgres trigger names are per table). */
+  parent?: string;
+}
+
+export interface DbObjectDefinition extends DbObjectInfo {
+  /** Null when the engine hides it: encrypted, or no VIEW DEFINITION permission. */
+  definition: string | null;
 }
 
 export interface ColumnInfo {

@@ -16,7 +16,13 @@ import {
   saveNetworkHint,
 } from "@src/utils/server-reachability";
 import { create } from "zustand";
-import type { Artifact, ConnectionInfo, QueryTab, SavedQuery } from "../types";
+import type {
+  Artifact,
+  ConnectionInfo,
+  DbObjectInfo,
+  QueryTab,
+  SavedQuery,
+} from "../types";
 import {
   loadTabs,
   clearPersistedTabs,
@@ -126,6 +132,8 @@ interface AppState {
   removeArtifact: (id: string) => void;
   /** Open an artifact as a tab, focusing it if it is already open. */
   openArtifactTab: (artifact: Pick<Artifact, "id" | "title">) => void;
+  /** Open a procedure/function/view/trigger's definition as a tab, focusing it if open. */
+  openObjectTab: (connectionId: string, object: DbObjectInfo) => void;
 
   // Sidebar
   sidebarOpen: boolean;
@@ -210,6 +218,7 @@ const initialTabs: QueryTab[] = persistedTabs
       title: t.title,
       kind: t.kind,
       artifactId: t.artifactId,
+      object: t.object,
       sql: t.sql,
       connectionId: t.connectionId,
       schema: t.schema,
@@ -470,6 +479,33 @@ export const useStore = create<AppState>((set, get) => ({
         kind: "artifact",
         artifactId: artifact.id,
         title: artifact.title,
+      };
+      set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id }));
+    }
+    persistAfterSet();
+  },
+
+  openObjectTab: (connectionId, object) => {
+    const same = (o?: DbObjectInfo) =>
+      !!o &&
+      (["schema", "name", "kind", "args", "parent"] as const).every(
+        (k) => o[k] === object[k],
+      );
+    const existing = get().tabs.find(
+      (t) =>
+        t.kind === "object" &&
+        t.connectionId === connectionId &&
+        same(t.object),
+    );
+    if (existing) {
+      set({ activeTabId: existing.id });
+    } else {
+      const tab: QueryTab = {
+        ...createTab(connectionId),
+        kind: "object",
+        object,
+        schema: object.schema,
+        title: object.name,
       };
       set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id }));
     }

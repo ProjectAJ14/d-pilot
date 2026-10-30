@@ -10,7 +10,15 @@ import {
   connectionFailedMessage,
   isConnectionError,
 } from "../services/connection-errors.js";
-import type { ConnectionConfig } from "../types/index.js";
+import {
+  AmbiguousObjectError,
+  getObjectDefinition,
+  getObjects,
+  OBJECT_KINDS,
+  supportsObjects,
+} from "../services/schema-objects.js";
+import { logAudit } from "../services/sqlite-store.js";
+import type { ConnectionConfig, DbObjectKind } from "../types/index.js";
 
 const router = Router();
 
@@ -105,6 +113,88 @@ router.get(
       res.json(columns);
     } catch (err: any) {
       sendSchemaError(res, conn, err, "Failed to fetch columns");
+    }
+  },
+);
+
+// Procedures, functions, views and triggers. Empty for Mongo/ES.
+router.get("/:connectionId/objects", async (req: Request, res: Response) => {
+  const conn = resolveReadableConnection(
+    req,
+    res,
+    req.params.connectionId as string,
+  );
+  if (!conn) return;
+
+  try {
+    const schema = (req.query.schema as string) || undefined;
+    const kind = req.query.kind as string | undefined;
+    const objects = await getObjects(conn, schema);
+    res.json(kind ? objects.filter((o) => o.kind === kind) : objects);
+  } catch (err: any) {
+    sendSchemaError(res, conn, err, "Failed to fetch objects");
+  }
+});
+
+// One object's definition, read live. `args` picks a Postgres overload,
+// `parent` a Postgres trigger's table. Audited: a definition is code someone
+// read, and may hold literals worth knowing who saw.
+router.get(
+  "/:connectionId/objects/:kind/:name/definition",
+  async (req: Request, res: Response) => {
+    const conn = resolveReadableConnection(
+      req,
+      res,
+      req.params.connectionId as string,
+    );
+    if (!conn) return;
+
+    const kind = req.params.kind as DbObjectKind;
+    if (!OBJECT_KINDS.includes(kind)) {
+      res.status(400).json({
+        error: `Unknown object kind '${kind}' — one of ${OBJECT_KINDS.join(", ")}`,
+      });
+      return;
+    }
+    if (!supportsObjects(conn)) {
+      res
+        .status(400)
+        .json({ error: `${conn.type} connections have no ${kind}s` });
+      return;
+    }
+
+    const q = (k: string) => (req.query[k] as string | undefined) ?? undefined;
+    const ref = {
+      kind,
+      name: req.params.name as string,
+      schema: q("schema") || undefined,
+      args: q("args"),
+      parent: q("parent") || undefined,
+    };
+    try {
+      const obj = await getObjectDefinition(conn, ref);
+      if (!obj) {
+        res.status(404).json({
+          error: `No ${kind} named ${ref.name} on this connection`,
+          code: "OBJECT_NOT_FOUND",
+        });
+        return;
+      }
+      logAudit({
+        userId: req.user!.sub,
+        userEmail: req.user!.email,
+        action: "OBJECT_VIEW",
+        phiAccessed: false,
+        sql: `${kind} ${obj.schema}.${obj.name}${obj.args != null ? `(${obj.args})` : ""}`,
+        connectionId: conn.id,
+      });
+      res.json(obj);
+    } catch (err: any) {
+      if (err instanceof AmbiguousObjectError) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
+      sendSchemaError(res, conn, err, "Failed to fetch definition");
     }
   },
 );

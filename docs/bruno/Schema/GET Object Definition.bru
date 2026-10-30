@@ -1,0 +1,27 @@
+meta {
+  name: Object Definition
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/api/schema/{{connectionId}}/objects/{{objectKind}}/{{objectName}}/definition
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~schema: public
+  ~args: integer
+  ~parent: orders
+}
+
+docs {
+  One object's full definition, read live: { schema, name, kind, args?, parent?, definition }. `definition` is null when the engine hides it (encrypted, or no VIEW DEFINITION permission).
+
+  `objectKind` is procedure | function | view | trigger. `args` picks a Postgres overload by its identity argument types (empty string = no arguments); `parent` picks a Postgres trigger by its table. Without them an ambiguous name is a 400 that lists the choices.
+
+  Requires a valid Bearer JWT ({{token}}) plus **read** capability for the connection's environment — 403 otherwise (admins hold every environment). Each successful read is audited as OBJECT_VIEW.
+
+  Errors: 400 for an unknown kind, an engine without objects, or an ambiguous name; 404 { error, code: "OBJECT_NOT_FOUND" }; 503 { error, code: "CONNECTION_FAILED" } when the database host is unreachable; 500 { error } for other failures.
+}

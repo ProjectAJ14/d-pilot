@@ -50,7 +50,18 @@ import {
   tableCatalog,
   type FullSchema,
 } from "../services/schema-introspector.js";
-import type { ColumnInfo, TableInfo } from "../types/index.js";
+import type {
+  ColumnInfo,
+  DbObjectDefinition,
+  DbObjectInfo,
+  TableInfo,
+} from "../types/index.js";
+
+const OBJECT_KIND = z.enum(["procedure", "function", "view", "trigger"]);
+
+/** `schema.name(args)` — how an agent sees one object, overloads told apart. */
+const objectLabel = (o: DbObjectInfo) =>
+  `${o.schema}.${o.name}${o.args != null ? `(${o.args})` : ""}${o.parent ? ` on ${o.parent}` : ""}`;
 
 const router = Router();
 
@@ -157,7 +168,9 @@ function logToolCall(tool: string, result: ToolResult, ms: number): void {
 }
 
 const qs = (params: Record<string, string | undefined>): string => {
-  const entries = Object.entries(params).filter(([, v]) => v);
+  // An empty string is kept only where it means something (`args=`, a
+  // zero-argument overload); elsewhere the routes read it as absent anyway.
+  const entries = Object.entries(params).filter(([, v]) => v != null);
   return entries.length
     ? `?${entries.map(([k, v]) => `${k}=${encodeURIComponent(v!)}`).join("&")}`
     : "";
@@ -408,6 +421,67 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
           },
         );
         return text(described.join("\n\n"));
+      }),
+  );
+
+  tool(
+    "list_objects",
+    {
+      title: "List procedures, functions, views and triggers",
+      description:
+        "Programmable objects in a schema (Postgres/SQL Server), one line per kind: `procedure: schema.name, …`. Postgres overloads appear once per signature, `name(arg types)`; triggers say which table they fire on. Read the code with get_object_definition instead of querying the system catalog.",
+      inputSchema: {
+        connectionId: z.string(),
+        schema: z
+          .string()
+          .optional()
+          .describe("Defaults to the connection's schema."),
+        kind: OBJECT_KIND.optional(),
+      },
+      annotations: readOnly,
+    },
+    ({ connectionId, schema, kind }) =>
+      guard(async () => {
+        const objects = await client.get<DbObjectInfo[]>(
+          `/schema/${encodeURIComponent(connectionId)}/objects${qs({ schema, kind })}`,
+        );
+        if (!objects.length) return text("No objects.");
+        const byKind = new Map<string, string[]>();
+        for (const o of objects)
+          byKind.set(o.kind, [...(byKind.get(o.kind) ?? []), objectLabel(o)]);
+        return text(
+          [...byKind].map(([k, list]) => `${k}: ${list.join(", ")}`).join("\n"),
+        );
+      }),
+  );
+
+  tool(
+    "get_object_definition",
+    {
+      title: "Read an object's definition",
+      description:
+        'The full source of a procedure, function, view or trigger, read live. For an overloaded Postgres function pass `args` exactly as list_objects shows it (`""` for no arguments); for a Postgres trigger pass `parent`, its table. To compare environments, call it once per connection.',
+      inputSchema: {
+        connectionId: z.string(),
+        kind: OBJECT_KIND,
+        name: z.string(),
+        schema: z.string().optional(),
+        args: z.string().optional(),
+        parent: z.string().optional(),
+      },
+      annotations: readOnly,
+    },
+    ({ connectionId, kind, name, schema, args, parent }) =>
+      guard(async () => {
+        const o = await client.get<DbObjectDefinition>(
+          `/schema/${encodeURIComponent(connectionId)}/objects/${kind}/${encodeURIComponent(name)}/definition${qs({ schema, args, parent })}`,
+        );
+        return text(
+          `${o.kind} ${objectLabel(o)}\n\n${
+            o.definition ??
+            "Definition not available: the object is encrypted, or this connection's login lacks VIEW DEFINITION."
+          }`,
+        );
       }),
   );
 

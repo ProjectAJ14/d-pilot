@@ -1,4 +1,4 @@
-import type { QueryTab, ResultViewMode } from "../types";
+import type { DbObjectInfo, QueryTab, ResultViewMode } from "../types";
 
 const STORAGE_KEY = "dbpilot_tabs";
 // 2: artifact tabs (kind/artifactId). A version bump discards older payloads,
@@ -8,9 +8,11 @@ const CURRENT_VERSION = 2;
 interface PersistedTab {
   id: string;
   title: string;
-  kind?: "sql" | "artifact";
+  kind?: "sql" | "artifact" | "object";
   /** Pointer only — the document itself is re-fetched, like results are. */
   artifactId?: string;
+  /** Pointer only — the definition is re-read from the database. */
+  object?: DbObjectInfo;
   sql: string;
   connectionId: string | null;
   schema?: string;
@@ -38,6 +40,7 @@ function sanitizeTab(tab: QueryTab): PersistedTab {
     title: tab.title,
     kind: tab.kind,
     artifactId: tab.artifactId,
+    object: tab.object,
     sql: tab.sql,
     connectionId: tab.connectionId,
     schema: tab.schema,

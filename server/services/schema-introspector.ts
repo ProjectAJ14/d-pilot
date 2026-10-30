@@ -89,7 +89,7 @@ export async function getSchemas(
 
 // Short-lived pools, one per introspection call. Each logs a connection that
 // drops (the VPN going down) instead of letting the unheard 'error' crash the server.
-const introspectPgPool = (conn: ConnectionConfig) =>
+export const introspectPgPool = (conn: ConnectionConfig) =>
   logDroppedConnections(
     conn,
     new pg.Pool({
@@ -103,7 +103,7 @@ const introspectPgPool = (conn: ConnectionConfig) =>
     }),
   );
 
-const introspectMssqlPool = (conn: ConnectionConfig) =>
+export const introspectMssqlPool = (conn: ConnectionConfig) =>
   logDroppedConnections(
     conn,
     new mssql.ConnectionPool({
