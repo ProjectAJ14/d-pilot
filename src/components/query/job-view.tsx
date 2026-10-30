@@ -72,6 +72,13 @@ const Mono = ({ children }: { children: string }) => (
   </pre>
 );
 
+/**
+ * Whether the job also runs steps on another database — then only this
+ * database's own step commands can change (the server refuses the rest).
+ */
+const runsElsewhere = (job: JobDetail) =>
+  job.steps.some((s) => s.database && s.database !== job.database);
+
 /** SQL steps on this database: the ones a job_change may rewrite. */
 const stepEditable = (job: JobDetail, s: JobDetail["steps"][number]) =>
   ["TSQL", "SQL"].includes(s.subsystem.toUpperCase()) &&
@@ -136,7 +143,7 @@ export function JobView({ tab }: { tab: QueryTab }) {
             {job.category}
           </Text>
         )}
-        {canChange && (
+        {canChange && !runsElsewhere(job) && (
           <Menu position="bottom-end" withinPortal>
             <Menu.Target>
               <Button
@@ -242,6 +249,7 @@ export function JobView({ tab }: { tab: QueryTab }) {
                 </Button>
               )}
               {canChange &&
+                !runsElsewhere(job) &&
                 job.engine === "agent" &&
                 job.steps.length > 1 &&
                 (!s.database || s.database === job.database) && (
@@ -280,18 +288,21 @@ export function JobView({ tab }: { tab: QueryTab }) {
         {job.schedules.map((s) => (
           <Text key={s.id} size="sm" component="div">
             {s.description}
-            {canChange && s.editable && (
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                ml={6}
-                onClick={() =>
-                  setIntent({ type: "set_schedule", scheduleId: s.id })
-                }
-              >
-                Change
-              </Button>
-            )}
+            {canChange &&
+              s.editable &&
+              s.sharedWith === 0 &&
+              !runsElsewhere(job) && (
+                <Button
+                  size="compact-xs"
+                  variant="subtle"
+                  ml={6}
+                  onClick={() =>
+                    setIntent({ type: "set_schedule", scheduleId: s.id })
+                  }
+                >
+                  Change
+                </Button>
+              )}
             {!s.enabled && (
               <Text span c="dimmed">
                 {" "}
@@ -302,7 +313,7 @@ export function JobView({ tab }: { tab: QueryTab }) {
               <Text span c="orange" size="xs">
                 {" "}
                 — also used by {s.sharedWith} other job
-                {s.sharedWith > 1 ? "s" : ""}; editing it changes them too
+                {s.sharedWith > 1 ? "s" : ""}; so it can't be changed here
               </Text>
             )}
           </Text>

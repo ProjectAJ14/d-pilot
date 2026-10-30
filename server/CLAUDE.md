@@ -255,8 +255,9 @@ on one SQL Server Agent / pg_cron job. The author sends `jobChange: { jobId, act
 text is what is reviewed and what runs, as a transactional migration. Raising one needs the
 `jobEnvironments` capability (so does submitting a drafted one). `validateJobChange` refuses
 a step command that would not pass as a direct write (`checkJobCommand`: EXEC/CALL, or
-scoped DML separated by semicolons — no DDL, no dynamic SQL), any non-SQL step, and a step
-on another database; every refusal is audited as `JOB_CHANGE_REFUSED` (`refuseJobChange`).
+scoped DML separated by semicolons — no DDL, no dynamic SQL), any non-SQL step, a step
+on another database, a schedule shared with other jobs, and every action but an own-step
+edit on a job that also runs on another database (that part is another database's work); every refusal is audited as `JOB_CHANGE_REFUSED` (`refuseJobChange`).
 The whole job is snapshotted (`jobSnapshot`) and checked like an object change's
 definition; a job change can't be revised — raise a new one.
 

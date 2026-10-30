@@ -49,7 +49,7 @@ const job = (): JobDetail => ({
       name: "s",
       enabled: true,
       description: "",
-      sharedWith: 1,
+      sharedWith: 0,
       editable: true,
       msdb: {},
     },
@@ -227,7 +227,7 @@ describe("job_change", () => {
     );
   });
 
-  it("warns about a shared schedule, can't be revised, and a draft needs the capability to submit", async () => {
+  it("can't be revised, and a draft needs the capability to submit", async () => {
     const sched = await raise(
       {
         type: "set_schedule",
@@ -246,7 +246,6 @@ describe("job_change", () => {
       { draft: true },
     );
     expect(sched.body.status).toBe("DRAFT");
-    expect(sched.body.warnings[0]).toContain("shared with 1 other job");
     expect(
       (await call("ops", `/${sched.body.id}/revise`, { writeSql: "EXEC x" }))
         .status,

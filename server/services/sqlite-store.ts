@@ -11,7 +11,7 @@ import {
 import { decryptSecret, encryptSecret } from "../config/secrets.js";
 import { currentSource } from "./request-source.js";
 import { credentialWarnings, toIdempotent } from "./object-change.js";
-import { describeJobAction, jobChangeWarnings } from "./job-action.js";
+import { describeJobAction } from "./job-action.js";
 import type {
   ConnectionConfig,
   Artifact,
@@ -1852,17 +1852,13 @@ export function getWriteRequestEvents(requestId: string): WriteRequestEvent[] {
   }));
 }
 
-/** A job_change's action, the job as reviewed, and what it reaches beyond the job. */
+/** A job_change's action and the job as reviewed. */
 function jobChangeFields(r: any): Partial<WriteRequest> {
   const jobChange = JSON.parse(r.target_json);
-  const snapshot = r.snapshot ?? null;
   return {
     jobChange,
     summary: describeJobAction(jobChange.action),
-    snapshot,
-    warnings: snapshot
-      ? jobChangeWarnings(jobChange.action, JSON.parse(snapshot))
-      : [],
+    snapshot: r.snapshot ?? null,
   };
 }
 

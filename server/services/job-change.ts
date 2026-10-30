@@ -9,7 +9,7 @@
 import { scanSql } from "./sql-scan.js";
 import { validateWriteQuery } from "./write-executor.js";
 import { isEditableSchedule } from "./job-schedule.js";
-export { describeJobAction, jobChangeWarnings } from "./job-action.js";
+export { describeJobAction } from "./job-action.js";
 import type {
   DatabaseType,
   JobChangeAction,
@@ -139,6 +139,15 @@ export function validateJobChange(
     agent
       ? null
       : "pg_cron jobs can't be renamed or described, and have exactly one command.";
+  // A job that also runs steps on another database is partly that database's
+  // work: disabling, renaming, rescheduling or re-ordering it changes what
+  // runs there, which this connection's readers and approvers can't see.
+  // Only this database's own step commands may change.
+  const foreign = job.steps.some(
+    (s) => s.database && s.database !== job.database,
+  );
+  if (foreign && action.type !== "edit_step")
+    return "This job also runs steps against another database, so only this database's own step commands can be changed here.";
   switch (action.type) {
     case "set_enabled":
       return typeof action.enabled === "boolean"
@@ -186,6 +195,10 @@ export function validateJobChange(
       const sch = job.schedules.find((s) => s.id === String(action.scheduleId));
       if (!sch)
         return `Schedule ${action.scheduleId} is not attached to this job.`;
+      // The other jobs may belong to other databases; moving their run time
+      // is not this request's to decide.
+      if (sch.sharedWith > 0)
+        return `This schedule is shared with ${sch.sharedWith} other job${sch.sharedWith > 1 ? "s" : ""}, so it can't be changed here — give this job its own schedule first.`;
       if (agent) {
         if (!sch.editable)
           return "This schedule (one-time, monthly-relative, or on Agent start/idle) is read-only here.";

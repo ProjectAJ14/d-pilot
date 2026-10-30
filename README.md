@@ -353,7 +353,7 @@ Without the job grant, the explorer says which grant is missing rather than fail
 Keep job steps thin: put the logic in a procedure and have the step only `EXEC`/`CALL` it.
 Then most fixes are object changes, with a diff and a rollback, and the job itself rarely
 changes. A job change D-Pilot writes is one action (enable/disable, rename, description,
-edit/add/delete a step, change a schedule), checked like a direct write — a step command
+edit/add/delete a step, change a schedule — not a schedule shared with other jobs, and on a job that also runs steps on another database only this database's own step commands), checked like a direct write — a step command
 with an unscoped UPDATE/DELETE, DDL or dynamic SQL is refused, CmdExec/PowerShell/SSIS steps
 can't be changed, and every refusal is audited as `JOB_CHANGE_REFUSED`.
 

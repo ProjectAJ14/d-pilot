@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   buildJobChangeSql,
   checkJobCommand,
-  jobChangeWarnings,
   jobSnapshot,
   validateJobChange,
 } from "./job-change.js";
@@ -24,18 +23,19 @@ const agentJob: JobDetail = {
       database: "app_core",
     },
     { id: 2, name: "cleanup", subsystem: "CmdExec", command: "del C:\\tmp\\*" },
-    {
-      id: 3,
-      name: "elsewhere",
-      subsystem: "TSQL",
-      command: "-- hidden",
-      database: "billing",
-    },
   ],
   schedules: [
     {
       id: "8",
       name: "s",
+      enabled: true,
+      description: "",
+      sharedWith: 0,
+      editable: true,
+    },
+    {
+      id: "10",
+      name: "shared",
       enabled: true,
       description: "",
       sharedWith: 2,
@@ -51,6 +51,20 @@ const agentJob: JobDetail = {
     },
   ],
   history: [],
+};
+/** The same job with a step that runs against another database. */
+const foreignJob: JobDetail = {
+  ...agentJob,
+  steps: [
+    ...agentJob.steps,
+    {
+      id: 3,
+      name: "elsewhere",
+      subsystem: "TSQL",
+      command: "-- hidden",
+      database: "billing",
+    },
+  ],
 };
 const cronJob: JobDetail = {
   ...agentJob,
@@ -140,15 +154,15 @@ describe("checkJobCommand", () => {
 describe("validateJobChange", () => {
   it.each([
     [{ type: "edit_step", stepId: 2, command: "EXEC p" }, "CmdExec step"],
-    [{ type: "edit_step", stepId: 3, command: "EXEC p" }, "another database"],
     [
       { type: "edit_step", stepId: 1, command: "DELETE FROM app_core.orders" },
       "without a WHERE",
     ],
-    [{ type: "delete_step", stepId: 3 }, "another database"],
     [{ type: "set_enabled", enabled: true }, "already enabled"],
     [{ type: "set_schedule", scheduleId: "9", msdb: {} }, "read-only"],
     [{ type: "set_schedule", scheduleId: "7", msdb: {} }, "not attached"],
+    // Its other jobs may be another database's; their run time is not ours.
+    [{ type: "set_schedule", scheduleId: "10", msdb: {} }, "shared with 2"],
     [
       {
         type: "set_schedule",
@@ -183,6 +197,27 @@ describe("validateJobChange", () => {
     ],
   ])("refuses %j", (action, why) => {
     expect(validateJobChange(action as any, agentJob, "mssql")).toContain(why);
+  });
+
+  it("on a job that also runs on another database, allows only this database's own step edits", () => {
+    for (const action of [
+      { type: "set_enabled", enabled: false },
+      { type: "rename", name: "x" },
+      { type: "set_description", description: "x" },
+      { type: "add_step", name: "n", command: "EXEC p" },
+      { type: "delete_step", stepId: 1 },
+      { type: "edit_step", stepId: 3, command: "EXEC p" },
+    ])
+      expect(validateJobChange(action as any, foreignJob, "mssql")).toContain(
+        "another database",
+      );
+    expect(
+      validateJobChange(
+        { type: "edit_step", stepId: 1, command: "EXEC app_core.p" },
+        foreignJob,
+        "mssql",
+      ),
+    ).toBeNull();
   });
 
   it("keeps pg_cron to what cron.alter_job can do", () => {
@@ -258,7 +293,7 @@ describe("buildJobChangeSql", () => {
   });
 });
 
-describe("snapshot and warnings", () => {
+describe("jobSnapshot", () => {
   it("changes when anything a change could collide with changes", () => {
     const a = jobSnapshot(agentJob);
     expect(
@@ -274,14 +309,5 @@ describe("snapshot and warnings", () => {
         steps: agentJob.steps.map((s) => ({ ...s, command: s.command + " " })),
       }),
     ).not.toBe(a);
-  });
-
-  it("warns that a shared schedule moves other jobs too", () => {
-    expect(
-      jobChangeWarnings({ type: "set_schedule", scheduleId: "8" }, agentJob)[0],
-    ).toContain("2 other jobs");
-    expect(
-      jobChangeWarnings({ type: "set_enabled", enabled: false }, agentJob),
-    ).toEqual([]);
   });
 });

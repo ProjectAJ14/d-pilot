@@ -332,13 +332,6 @@ export function JobChangeModal({
         ) : (
           msdb && <AgentScheduleFields value={msdb} onChange={setMsdb} />
         ))}
-      {schedule && schedule.sharedWith > 0 && (
-        <Text size="xs" c="orange" mb="sm">
-          This schedule is shared with {schedule.sharedWith} other job
-          {schedule.sharedWith > 1 ? "s" : ""} — changing it changes when they
-          run too.
-        </Text>
-      )}
       <Group justify="flex-end" mt="md">
         <Button variant="subtle" color="gray" onClick={onClose}>
           Cancel
