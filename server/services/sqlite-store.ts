@@ -230,11 +230,11 @@ export function initDatabase(): void {
   }
   // object_change / job_change requests: what they change, and (objects) the
   // definition deployed when submitted.
-  if (!wrColNames.has("kind")) {
-    db.exec("ALTER TABLE write_requests ADD COLUMN kind TEXT");
-    db.exec("ALTER TABLE write_requests ADD COLUMN target_json TEXT");
-    db.exec("ALTER TABLE write_requests ADD COLUMN snapshot TEXT");
-  }
+  // Each column on its own, so a start interrupted between them still ends up
+  // with all three.
+  for (const col of ["kind", "target_json", "snapshot"])
+    if (!wrColNames.has(col))
+      db.exec(`ALTER TABLE write_requests ADD COLUMN ${col} TEXT`);
   if (!wrColNames.has("no_transaction")) {
     db.exec(
       "ALTER TABLE write_requests ADD COLUMN no_transaction INTEGER NOT NULL DEFAULT 0",

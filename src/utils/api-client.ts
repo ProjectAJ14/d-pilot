@@ -52,6 +52,7 @@ const BASE_URL = `${BASE_PATH}/api`;
 function objectPath(connectionId: string, o: DbObjectInfo, what: string) {
   const q = new URLSearchParams({ schema: o.schema });
   if (o.args != null) q.set("args", o.args);
+  if (o.argTypes != null) q.set("argTypes", o.argTypes);
   if (o.parent != null) q.set("parent", o.parent);
   return `/schema/${connectionId}/objects/${o.kind}/${encodeURIComponent(o.name)}/${what}?${q}`;
 }

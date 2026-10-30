@@ -2735,6 +2735,9 @@ const ACTION_COLORS: Record<string, string> = {
   WRITE_AI_REVIEW: "violet",
   WRITE_PREVIEW: "blue",
   WRITE_DELETE: "red",
+  OBJECT_VIEW: "blue",
+  JOB_VIEW: "blue",
+  JOB_CHANGE_REFUSED: "red",
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -2760,6 +2763,9 @@ const ACTION_LABELS: Record<string, string> = {
   WRITE_AI_REVIEW: "Write AI Review",
   WRITE_PREVIEW: "Write Preview",
   WRITE_DELETE: "Write Deleted",
+  OBJECT_VIEW: "Object Viewed",
+  JOB_VIEW: "Job Viewed",
+  JOB_CHANGE_REFUSED: "Job Change Refused",
 };
 
 interface AuditEntry {

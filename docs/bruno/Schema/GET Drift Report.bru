@@ -20,5 +20,5 @@ docs {
 
   Requires a valid Bearer JWT ({{token}}) plus **read** capability on **both** connections' environments — 403 otherwise.
 
-  Errors: 400 when `against` is missing or the engines differ / have no objects; 503 { error, code: "CONNECTION_FAILED" }; 500 { error }.
+  Errors: 400 when `against` is missing or the two connections are different engines; 503 { error, code: "CONNECTION_FAILED" }; 500 { error }.
 }

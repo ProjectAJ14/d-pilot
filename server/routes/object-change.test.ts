@@ -27,6 +27,7 @@ vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "");
 const h = vi.hoisted(() => ({
   executeMigration: vi.fn(),
   deployed: null as string | null | undefined,
+  readError: null as Error | null,
 }));
 vi.mock("../services/write-executor.js", async (orig) => ({
   ...(await orig<typeof import("../services/write-executor.js")>()),
@@ -40,13 +41,15 @@ vi.mock("../services/query-executor.js", async (orig) => ({
 // null = present but hidden.
 vi.mock("../services/schema-objects.js", async (orig) => ({
   ...(await orig<typeof import("../services/schema-objects.js")>()),
-  getObjectDefinition: vi.fn(async (_c: unknown, o: any) =>
-    h.deployed === undefined ? null : { ...o, definition: h.deployed },
-  ),
+  getObjectDefinition: vi.fn(async (_c: unknown, o: any) => {
+    if (h.readError) throw h.readError;
+    return h.deployed === undefined ? null : { ...o, definition: h.deployed };
+  }),
 }));
 
 const store = await import("../services/sqlite-store.js");
 const { default: writes } = await import("./write-requests.js");
+const { AmbiguousObjectError } = await import("../services/schema-objects.js");
 
 store.initDatabase();
 store.saveDbConnection({
@@ -71,8 +74,9 @@ beforeAll(async () => {
     req.user = {
       sub,
       email: `${sub}@example.com`,
-      isAdmin: false,
-      allowedEnvironments: ["QA"],
+      isAdmin: sub === "admin",
+      // "blind" may write to QA but not read it.
+      allowedEnvironments: sub === "blind" ? [] : ["QA"],
       unmaskEnvironments: [],
       writeEnvironments: ["QA"],
       approveEnvironments: ["QA"],
@@ -104,6 +108,7 @@ const object = {
 
 beforeEach(() => {
   h.deployed = V1;
+  h.readError = null;
   h.executeMigration.mockReset();
   h.executeMigration.mockResolvedValue({
     rowsAffected: 0,
@@ -181,6 +186,95 @@ describe("object_change", () => {
     expect(body.events[0].notes).toMatch(/^Creates/);
     h.deployed = "CREATE PROCEDURE app_core.refresh_order_totals AS SELECT 0";
     expect((await call("approver", `/${body.id}/approve`)).status).toBe(409);
+  });
+
+  it("guards an object that now exists but can't be read", async () => {
+    h.deployed = undefined;
+    const { body } = await create();
+    h.deployed = null; // created WITH ENCRYPTION, or VIEW DEFINITION revoked
+    const res = await call("approver", `/${body.id}/approve`);
+    expect(res.status).toBe(409);
+    expect(h.executeMigration).not.toHaveBeenCalled();
+  });
+
+  it("answers, rather than crashing, when the target can't be read on approve", async () => {
+    const { body } = await create();
+    h.readError = Object.assign(new Error("connect ECONNREFUSED"), {
+      name: "ConnectionError",
+      code: "ESOCKET",
+      preConnect: true,
+    });
+    const down = await call("approver", `/${body.id}/approve`);
+    expect(down.status).toBe(503);
+    expect(down.body.code).toBe("CONNECTION_FAILED");
+
+    // A second overload appeared since submit: the target is ambiguous.
+    h.readError = new AmbiguousObjectError(
+      "refresh_order_totals has 2 overloads",
+    );
+    const ambiguous = await call("approver", `/${body.id}/approve`);
+    expect(ambiguous.status).toBe(409);
+    expect(ambiguous.body.code).toBe("OBJECT_CHANGED");
+
+    h.readError = new Error("boom");
+    expect((await call("approver", `/${body.id}/approve`)).status).toBe(500);
+    expect(store.getWriteRequest(body.id)!.status).toBe("PENDING");
+    expect(h.executeMigration).not.toHaveBeenCalled();
+  });
+
+  it("refuses an author who can't read the environment's objects", async () => {
+    const res = await call("blind", "", {
+      title: "Fix",
+      connectionId: "qa-ms",
+      writeSql: V2,
+      object,
+    });
+    expect(res.status).toBe(403);
+    expect(res.body).not.toHaveProperty("snapshot");
+  });
+
+  it("shows the deployed version only to those who can read the environment", async () => {
+    const draft = await call("author", "", {
+      title: "Fix",
+      connectionId: "qa-ms",
+      writeSql: V2,
+      object,
+      draft: true,
+    });
+    const view = await fetch(`${base}/${draft.body.id}`, {
+      headers: { "x-user": "blind" },
+    });
+    const seen = (await view.json()) as any;
+    expect(view.status).toBe(200);
+    expect(seen.snapshot).toBeUndefined();
+    expect(seen.restoreSql).toBeUndefined();
+    // Nor can they take the draft over by submitting it.
+    expect((await call("blind", `/${draft.body.id}/submit`)).status).toBe(403);
+    expect(store.getWriteRequest(draft.body.id)!.status).toBe("DRAFT");
+  });
+
+  it("checks drift when a draft is submitted and on admin override", async () => {
+    const draft = await call("author", "", {
+      title: "Fix",
+      connectionId: "qa-ms",
+      writeSql: V2,
+      object,
+      draft: true,
+    });
+    h.deployed = V1.replace("SELECT 1", "SELECT 7");
+    const submit = await call("author", `/${draft.body.id}/submit`);
+    expect(submit.status).toBe(409);
+    expect(submit.body.code).toBe("OBJECT_CHANGED");
+    expect(store.getWriteRequest(draft.body.id)!.status).toBe("DRAFT");
+
+    h.deployed = V1;
+    const { body } = await create();
+    h.deployed = V1.replace("SELECT 1", "SELECT 7");
+    const override = await call("admin", `/${body.id}/override`, {
+      notes: "urgent",
+    });
+    expect(override.status).toBe(409);
+    expect(h.executeMigration).not.toHaveBeenCalled();
   });
 
   it("re-bases on what is deployed when revised", async () => {

@@ -39,7 +39,11 @@ vi.mock("mssql", async () => {
             },
             query: async (sql: string) => {
               h.msSql = sql;
-              if (h.msRecordsets) return { recordsets: h.msRecordsets };
+              if (h.msRecordsets)
+                return {
+                  recordsets: h.msRecordsets,
+                  recordset: h.msRecordsets[0],
+                };
               throw h.msError;
             },
           };
@@ -52,6 +56,8 @@ vi.mock("mssql", async () => {
 const {
   getJobs,
   getJobDetail,
+  getJobsCalling,
+  callsObject,
   validJobId,
   AGENT_GRANT,
   PG_CRON_GRANT,
@@ -143,5 +149,71 @@ describe("getJobDetail", () => {
       "CASE WHEN (s.database_name IS NULL OR s.database_name = DB_NAME()) THEN s.command END",
     );
     h.msRecordsets = null;
+  });
+});
+
+describe("getJobDetail access", () => {
+  it("names the grant instead of passing the driver error on", async () => {
+    h.msRecordsets = null;
+    h.msError = Object.assign(new Error("SELECT permission denied"), {
+      number: 229,
+    });
+    await expect(
+      getJobDetail(ms, "28741445-2c81-4de3-8fe9-bb30b243dd28"),
+    ).rejects.toThrow(AGENT_GRANT);
+    h.pgError = Object.assign(new Error("permission denied"), {
+      code: "42501",
+    });
+    await expect(getJobDetail(pg, "7")).rejects.toThrow(PG_CRON_GRANT);
+  });
+});
+
+describe("getJobsCalling", () => {
+  it("matches whole identifiers, bare, qualified or quoted", () => {
+    for (const cmd of [
+      "EXEC refresh_order_totals",
+      "EXEC app_core.refresh_order_totals @days = 7",
+      "EXEC [app_core].[refresh_order_totals]",
+      'CALL "app_core"."refresh_order_totals"()',
+      "exec APP_CORE.REFRESH_ORDER_TOTALS",
+    ])
+      expect(callsObject(cmd, "refresh_order_totals")).toBe(true);
+    for (const cmd of [
+      "EXEC app_core.refresh_order_totals_v2",
+      "EXEC app_core.old_refresh_order_totals",
+      "EXEC refreshXorder_totals",
+    ])
+      expect(callsObject(cmd, "refresh_order_totals")).toBe(false);
+  });
+
+  it("looks only at this database's T-SQL steps, and keeps whole-name matches", async () => {
+    h.msRecordsets = [
+      [
+        {
+          id: "28741445-2C81-4DE3-8FE9-BB30B243DD28",
+          name: "recalc",
+          command: "EXEC app_core.refresh_order_totals",
+        },
+        {
+          id: "38741445-2C81-4DE3-8FE9-BB30B243DD28",
+          name: "v2",
+          command: "EXEC app_core.refresh_order_totals_v2",
+        },
+      ],
+    ];
+    expect(await getJobsCalling(ms, "refresh_order_totals")).toEqual([
+      { id: "28741445-2c81-4de3-8fe9-bb30b243dd28", name: "recalc" },
+    ]);
+    expect(h.msSql).toContain(
+      "s.database_name = DB_NAME() AND s.subsystem = 'TSQL'",
+    );
+    h.msRecordsets = null;
+  });
+
+  it("is empty, not an error, when jobs can't be read", async () => {
+    h.msError = Object.assign(new Error("denied"), { number: 229 });
+    expect(await getJobsCalling(ms, "x")).toEqual([]);
+    h.pgError = Object.assign(new Error("denied"), { code: "42501" });
+    expect(await getJobsCalling(pg, "x")).toEqual([]);
   });
 });

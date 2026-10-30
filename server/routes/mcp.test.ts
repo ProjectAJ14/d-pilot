@@ -495,7 +495,7 @@ describe("schema and listing tools", () => {
     await client.close();
   });
 
-  it("get_object_dependencies marks unresolved references and best effort", async () => {
+  it("get_object_dependencies marks unresolved references, best effort, and the jobs that run it", async () => {
     const api = answering({
       "/schema/qa-pg/objects/view/open_orders/dependencies": {
         uses: [
@@ -509,6 +509,7 @@ describe("schema and listing tools", () => {
         ],
         usedBy: [],
         bestEffort: true,
+        jobs: [{ id: "7", name: "recalc due dates" }],
       },
     });
     const { client, call } = await connect({ get: api.get });
@@ -518,7 +519,7 @@ describe("schema and listing tools", () => {
       name: "open_orders",
     });
     expect(text).toBe(
-      "uses: app_core.orders (table), archive.dbo.orders_2019 (?)\nused by: nothing found\n(best effort: found by name in function bodies)",
+      "uses: app_core.orders (table), archive.dbo.orders_2019 (?)\nused by: nothing found\n(best effort: found by name in function bodies)\nrun by jobs (found by name in their steps): recalc due dates [7]",
     );
     await client.close();
   });

@@ -46,6 +46,8 @@ export function ObjectChangeReview({
         connectionId: wr.connectionId,
         writeSql: wr.restoreSql!,
         object: o,
+        // A draft, like every new request: run or submit it from its page.
+        draft: true,
       });
       navigate(`/write-requests/${created.id}`);
     } catch (err) {

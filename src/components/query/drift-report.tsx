@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Badge, Loader, Modal, Select, Table, Text } from "@mantine/core";
 import type { DriftItem, DriftReport } from "../../types";
 import { api } from "../../utils/api-client";
+import { pressable } from "../../utils/pressable";
 import { useStore } from "../../store";
 
 const STATUS_COLOR: Record<DriftItem["status"], string> = {
@@ -89,46 +90,57 @@ export function DriftReportModal({
           {report.items.length > 0 && (
             <Table highlightOnHover verticalSpacing={4} fz="xs">
               <Table.Tbody>
-                {report.items.map((item) => (
-                  <Table.Tr
-                    key={`${item.kind}:${item.name}(${item.args ?? ""})@${item.parent ?? ""}`}
-                    style={{ cursor: "pointer" }}
-                    onClick={() => {
-                      // Open it where it exists; a one-sided object diffs
-                      // against an empty other side.
-                      const [here, there] =
-                        item.status === "only_right"
-                          ? [against, connId]
-                          : [connId, against];
-                      const { status: _s, ...object } = item;
-                      openObjectTab(here, object, there);
-                      onClose();
-                    }}
-                  >
-                    <Table.Td c="dimmed">{item.kind}</Table.Td>
-                    <Table.Td ff="monospace">
-                      {item.name}
-                      {item.args != null && `(${item.args})`}
-                      {item.parent && (
-                        <Text span c="dimmed" inherit>
-                          {" "}
-                          on {item.parent}
-                        </Text>
-                      )}
-                    </Table.Td>
-                    <Table.Td>
-                      <Badge
-                        size="xs"
-                        variant="light"
-                        color={STATUS_COLOR[item.status]}
-                      >
-                        {item.status === "different"
-                          ? "differs"
-                          : `only on ${(item.status === "only_left" ? conn : other)?.name}`}
-                      </Badge>
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
+                {report.items.map((item) => {
+                  // Open it where it exists; a one-sided object diffs
+                  // against an empty other side.
+                  const open = () => {
+                    const [here, there] =
+                      item.status === "only_right"
+                        ? [against, connId]
+                        : [connId, against];
+                    const { status: _s, ...object } = item;
+                    openObjectTab(here, object, there);
+                    onClose();
+                  };
+                  return (
+                    <Table.Tr
+                      key={`${item.kind}:${item.name}(${item.args ?? ""})@${item.parent ?? ""}`}
+                      style={{ cursor: "pointer" }}
+                      // The row stays a row; the name is the keyboard control.
+                      onClick={open}
+                    >
+                      <Table.Td c="dimmed">{item.kind}</Table.Td>
+                      <Table.Td ff="monospace">
+                        <span
+                          {...pressable(open)}
+                          // A click reaches the row's handler.
+                          onClick={undefined}
+                          aria-label={`Compare ${item.name}`}
+                        >
+                          {item.name}
+                        </span>
+                        {item.args != null && `(${item.args})`}
+                        {item.parent && (
+                          <Text span c="dimmed" inherit>
+                            {" "}
+                            on {item.parent}
+                          </Text>
+                        )}
+                      </Table.Td>
+                      <Table.Td>
+                        <Badge
+                          size="xs"
+                          variant="light"
+                          color={STATUS_COLOR[item.status]}
+                        >
+                          {item.status === "different"
+                            ? "differs"
+                            : `only on ${(item.status === "only_left" ? conn : other)?.name}`}
+                        </Badge>
+                      </Table.Td>
+                    </Table.Tr>
+                  );
+                })}
               </Table.Tbody>
             </Table>
           )}

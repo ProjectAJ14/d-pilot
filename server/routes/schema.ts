@@ -18,8 +18,15 @@ import {
   getObjects,
   type ObjectRef,
   objectKindsFor,
+  supportsObjects,
 } from "../services/schema-objects.js";
-import { getJobDetail, getJobs, validJobId } from "../services/jobs.js";
+import {
+  getJobDetail,
+  getJobs,
+  getJobsCalling,
+  JobAccessError,
+  validJobId,
+} from "../services/jobs.js";
 import { toIdempotent } from "../services/object-change.js";
 import { logAudit } from "../services/sqlite-store.js";
 import type { ConnectionConfig, DbObjectKind } from "../types/index.js";
@@ -173,6 +180,7 @@ function objectTarget(
       name: req.params.name as string,
       schema: q("schema") || undefined,
       args: q("args"),
+      argTypes: q("argTypes"),
       parent: q("parent") || undefined,
     },
   };
@@ -218,8 +226,10 @@ router.get(
       });
       res.json({
         ...obj,
+        // Only SQL has a re-runnable form; a MongoDB/Elasticsearch definition
+        // is JSON that may merely mention "CREATE VIEW".
         migration:
-          obj.definition == null
+          obj.definition == null || !supportsObjects(conn)
             ? null
             : toIdempotent(obj.definition, conn.type),
       });
@@ -229,14 +239,19 @@ router.get(
   },
 );
 
-// What an object reads and what reads it — shown before anyone changes it.
+// What an object reads and what reads it (objects, and jobs whose steps name
+// it) — shown before anyone changes it.
 router.get(
   "/:connectionId/objects/:kind/:name/dependencies",
   async (req: Request, res: Response) => {
     const target = objectTarget(req, res);
     if (!target) return;
     try {
-      res.json(await getObjectDependencies(target.conn, target.ref));
+      const [deps, jobs] = await Promise.all([
+        getObjectDependencies(target.conn, target.ref),
+        getJobsCalling(target.conn, target.ref.name),
+      ]);
+      res.json({ ...deps, jobs });
     } catch (err: any) {
       sendObjectError(res, target.conn, err, "Failed to fetch dependencies");
     }
@@ -327,6 +342,10 @@ router.get(
       });
       res.json(job);
     } catch (err: any) {
+      if (err instanceof JobAccessError) {
+        res.status(403).json({ error: err.message });
+        return;
+      }
       sendSchemaError(res, conn, err, "Failed to fetch job");
     }
   },

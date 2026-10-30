@@ -184,9 +184,9 @@ const TITLES: Record<JobChangeIntent["type"], string> = {
 };
 
 /**
- * Proposes one change to a job as a job_change write request. Nothing runs
- * here: the server writes the SQL, checks it like a direct write, and the
- * request is reviewed and approved like any other — refused if the job
+ * Proposes one change to a job as a draft job_change write request. Nothing
+ * runs here: the server writes the SQL and checks it like a direct write, and
+ * the request page runs or submits it like any other — refused if the job
  * changes before then.
  */
 export function JobChangeModal({
@@ -224,7 +224,7 @@ export function JobChangeModal({
   const [msdb, setMsdb] = useState<MsdbScheduleFields | null>(
     (schedule?.msdb as unknown as MsdbScheduleFields) ?? null,
   );
-  const [busy, setBusy] = useState<"draft" | "submit" | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const action = (): JobChangeAction => {
     switch (intent.type) {
@@ -251,21 +251,23 @@ export function JobChangeModal({
     }
   };
 
-  const save = async (draft: boolean) => {
-    setBusy(draft ? "draft" : "submit");
+  // Always a draft, like any write request: the request page then offers
+  // "Run now" or "Submit for approval", whichever this environment allows.
+  const save = async () => {
+    setBusy(true);
     try {
       const wr = await api.createWriteRequest({
         title: title.trim() || TITLES[intent.type],
         connectionId: connId,
         writeSql: "",
         jobChange: { jobId: job.id, action: action() },
-        draft,
+        draft: true,
       });
       navigate(`/write-requests/${wr.id}`);
     } catch (err) {
       notifyError(err, "Job change");
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   };
 
@@ -336,20 +338,8 @@ export function JobChangeModal({
         <Button variant="subtle" color="gray" onClick={onClose}>
           Cancel
         </Button>
-        <Button
-          variant="default"
-          loading={busy === "draft"}
-          disabled={!!busy}
-          onClick={() => save(true)}
-        >
+        <Button loading={busy} onClick={save}>
           Save draft
-        </Button>
-        <Button
-          loading={busy === "submit"}
-          disabled={!!busy}
-          onClick={() => save(false)}
-        >
-          Submit for review
         </Button>
       </Group>
     </Modal>

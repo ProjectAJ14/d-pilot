@@ -16,7 +16,7 @@ ever leaving the building in the clear.
 - **Monaco editor** — syntax highlighting and schema-aware autocomplete (tables, columns, PK and 🔐 PHI markers; Mongo `db.collection.find()` style; ES `/_search` paths). Language adapts to the connection type.
 - **Multi-tab workspace** — independent tabs, inline rename, per-tab schema selection, and run-selection-or-whole-query (Cmd/Ctrl+Enter).
 - **Schema browser** — connections grouped by environment; lazy table/column tree with PK/type/PHI flags; double-click a table to open a `SELECT * … LIMIT 100` tab; copy table metadata as **JSON / DDL / text**.
-- **Database objects** — procedures, functions, views and triggers (Postgres/SQL Server), MongoDB views, indexes and validation rules, and Elasticsearch index templates, ingest pipelines, aliases and ILM policies, with their full definitions, "Uses / Used by", "Compare with…" any other connection, and a drift report listing every object that differs between two environments.
+- **Database objects** — procedures, functions, views and triggers (Postgres/SQL Server), MongoDB views, indexes and validation rules, and Elasticsearch index templates, ingest pipelines, aliases and ILM policies, with their full definitions, "Uses / Used by" (including the jobs that run them), "Compare with…" any other connection or a pasted version, and a drift report listing every object that differs between two environments.
 - **Scheduled jobs** — SQL Server Agent and pg_cron jobs that run against the database: step commands, plain-language schedules, last outcome, next run and recent history. Propose a change (enable/disable, step command, schedule, …) as a governed job-change request.
 - **Results grid** (AG Grid) — sort/filter/resize, type-aware cell coloring, table ↔ **JSON view** toggle, row count / exec time / truncation badges.
 - **Cell inspector drawer** — click a long cell to open a docked read-only inspector (auto-detects JSON vs text); double-click to copy; hover for a peek.
@@ -40,7 +40,7 @@ ever leaving the building in the clear.
 - **Admin override** — an admin can run a pending write request without any approver (their own included), on any environment including production. A written reason is mandatory and the run is audited as `OVERRIDDEN` / `WRITE_OVERRIDE`. Non-admins cannot; there is no capability list for it.
 - **Bound to its connection** — a request is bound to where its connection points when it is submitted (environment, type, host, port, database, username, default schema, URI, and the stored connection itself). If an admin edits any of those, or deletes and re-creates the connection under the same id, approving it is refused with a 409 until it is cancelled or rejected and resubmitted. Renaming the connection or rotating its password does not unbind it. Existing pending requests and drafts are bound to their connection as of the upgrade.
 - **Paired verify SELECT** — every write request carries a read-only SELECT to preview affected rows before execution.
-- **Object changes** — "Edit" a procedure, function, view or trigger and submit it as a write request: reviewers see a diff against the deployed version, approval refuses to run if that version changed meanwhile (409 — revise to re-base), and an executed change offers "Restore previous version" and "Copy as migration" for your migrations repo.
+- **Object changes** — "Edit" a procedure, function, view or trigger and save it as a draft write request, then run it (direct-write environments) or submit it for approval from the request page; "Changing this … affects N objects and M jobs" shows first. Reviewers see a diff against the deployed version, approval refuses to run if that version changed meanwhile (409 — revise to re-base), and an executed change offers "Restore previous version" and "Copy as migration" for your migrations repo.
 - **AI safety review** — verdict (Safe / Caution / Dangerous), blast-radius estimate, SELECT-matches-write check, and one-click suggested corrections.
 - **Single-statement, scoped writes only** — one INSERT/UPDATE/DELETE (or Mongo/ES equivalent); UPDATE/DELETE must be scoped (WHERE required); transactional where the engine supports it.
 - **Save without running** — "Save request" stores a request as a draft that executes nothing until someone submits or runs it, on any environment. This is also what the MCP endpoint creates, so an AI agent can propose a change but never make one.
@@ -103,6 +103,20 @@ npm start
 ```
 
 By default, the dev client runs at `http://localhost:3100` and the server at `http://localhost:3101`.
+
+### Local databases to try it against
+
+```bash
+npm run dev:db        # needs Docker; re-run any time to reset the data
+npm run dev:db:down   # stop them
+```
+
+This starts three Postgres servers — DEV on `localhost:5433`, QA on `5434`, PROD on
+`5435` (user and password `dpilot`) — seeds each with sample data from
+`scripts/seed-local.sql`, and adds them as connections. The environments differ on
+purpose: more rows in QA and PROD, an unreleased function version and an audit trigger
+that PROD doesn't have yet (so the drift report has something to show), and pg_cron
+jobs, one of them paused in PROD. Restart a running server to pick up the connections.
 
 ### Changing ports
 
@@ -363,13 +377,13 @@ Access is **capability-based and scoped per environment** (typically `DEV`, `QA`
 `STG`, `PROD` — whatever envs your connections use; see [Custom environments](#custom-environments)).
 Each user has an `isAdmin` flag plus five capability lists, managed from **Settings → User Management**:
 
-| Capability                            | Grants                                                |
-| ------------------------------------- | ----------------------------------------------------- |
-| **Read** (`allowedEnvironments`)      | Query connections in those environments               |
-| **Unmask PHI** (`unmaskEnvironments`) | De-tokenize PHI (still audited) in those environments |
-| **Write** (`writeEnvironments`)       | Author write requests for those environments          |
-| **Approve** (`approveEnvironments`)   | Approve others' write requests in those environments  |
-| **Change jobs** (`jobEnvironments`)   | Raise requests that change scheduled jobs there       |
+| Capability                            | Grants                                                                |
+| ------------------------------------- | --------------------------------------------------------------------- |
+| **Read** (`allowedEnvironments`)      | Query connections in those environments                               |
+| **Unmask PHI** (`unmaskEnvironments`) | De-tokenize PHI (still audited) in those environments                 |
+| **Write** (`writeEnvironments`)       | Author write requests for those environments                          |
+| **Approve** (`approveEnvironments`)   | Approve others' write requests in those environments                  |
+| **Change jobs** (`jobEnvironments`)   | Raise requests that change scheduled jobs there (with write and read) |
 
 Admin implies every capability on every environment. Production safety rails (mandatory
 PHI tokenization and two-person write approval) always apply regardless of capabilities — except that an admin can override approval on a single request (see Write workflow) —
@@ -413,28 +427,28 @@ cannot be bypassed. Every agent query lands in the audit log under its service a
 marked _via MCP_ (the audit drawer's **Via** field, and the `source` column of both CSV
 exports), so agent traffic can be told apart from people using the UI.
 
-| Tool                      | Does                                                                                 |
-| ------------------------- | ------------------------------------------------------------------------------------ |
-| `whoami`                  | Which account is connected and which environments it may read                        |
-| `list_connections`        | Databases available, one CSV line each (optional `env` filter)                       |
-| `list_schemas`            | Schemas on a connection (Postgres/SQL Server)                                        |
-| `list_tables`             | Tables, collections or indices; `withColumns` adds every table's columns in one call |
-| `describe_table`          | Columns, types, keys and FK targets of one table or several (`tables`)               |
-| `list_objects`            | Procedures, functions, views and triggers in a schema; overloads listed separately   |
-| `get_object_definition`   | Full source of one of those objects, read live                                       |
-| `get_object_dependencies` | What an object uses and what uses it                                                 |
-| `compare_objects`         | Drift report: objects that differ between two connections                            |
-| `list_jobs`               | SQL Server Agent / pg_cron jobs on the database: schedule, last outcome, next run    |
-| `get_job`                 | One job's step commands, schedules and recent runs                                   |
-| `run_query`               | Runs a read-only query on one connection or several (`connectionIds`); compact CSV   |
-| `create_artifact`         | Publishes a shareable document (rich page + runnable read queries), returns its link |
-| `update_artifact`         | Edits an artifact the service account created                                        |
-| `get_artifact`            | Reads one artifact's full body                                                       |
-| `list_artifacts`          | Artifacts visible to the account (optional `search`)                                 |
-| `archive_artifact`        | Archives (or restores) an artifact the service account created                       |
-| `create_write_request`    | Saves a **draft** change request for a human to review — it never runs               |
-| `get_write_request`       | Reads one request back, including the AI safety review a human ran on it             |
-| `update_write_request`    | Edits a draft the service account saved — drafts only, and it stays a draft          |
+| Tool                      | Does                                                                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `whoami`                  | Which account is connected and which environments it may read                                                                                          |
+| `list_connections`        | Databases available, one CSV line each (optional `env` filter)                                                                                         |
+| `list_schemas`            | Schemas on a connection (Postgres/SQL Server)                                                                                                          |
+| `list_tables`             | Tables, collections or indices; `withColumns` adds every table's columns in one call                                                                   |
+| `describe_table`          | Columns, types, keys and FK targets of one table or several (`tables`)                                                                                 |
+| `list_objects`            | Procedures, functions, views and triggers (overloads separately); MongoDB views, indexes, validators; Elasticsearch templates, pipelines, aliases, ILM |
+| `get_object_definition`   | Full source of one of those objects, read live                                                                                                         |
+| `get_object_dependencies` | What an object uses and what uses it                                                                                                                   |
+| `compare_objects`         | Drift report: objects that differ between two connections                                                                                              |
+| `list_jobs`               | SQL Server Agent / pg_cron jobs on the database: schedule, last outcome, next run                                                                      |
+| `get_job`                 | One job's step commands, schedules and recent runs                                                                                                     |
+| `run_query`               | Runs a read-only query on one connection or several (`connectionIds`); compact CSV                                                                     |
+| `create_artifact`         | Publishes a shareable document (rich page + runnable read queries), returns its link                                                                   |
+| `update_artifact`         | Edits an artifact the service account created                                                                                                          |
+| `get_artifact`            | Reads one artifact's full body                                                                                                                         |
+| `list_artifacts`          | Artifacts visible to the account (optional `search`)                                                                                                   |
+| `archive_artifact`        | Archives (or restores) an artifact the service account created                                                                                         |
+| `create_write_request`    | Saves a **draft** change request for a human to review — it never runs                                                                                 |
+| `get_write_request`       | Reads one request back, including the AI safety review a human ran on it                                                                               |
+| `update_write_request`    | Edits a draft the service account saved — drafts only, and it stays a draft                                                                            |
 
 **Token cost:** an agent pays for every character a tool returns, for as long as it stays in
 its context, so tool output is kept compact. `run_query` returns rows as CSV under a one-line

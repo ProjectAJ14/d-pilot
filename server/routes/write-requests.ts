@@ -29,14 +29,21 @@ import {
   definitionHash,
   getObjectDefinition,
   getObjectDependencies,
+  isUserRoutine,
+  pgArgTypes,
   SQL_OBJECT_KINDS,
   supportsObjects,
 } from "../services/schema-objects.js";
-import { validateObjectChange } from "../services/object-change.js";
-import { getJobDetail, validJobId } from "../services/jobs.js";
+import {
+  proposedArgList,
+  splitPgArgs,
+  validateObjectChange,
+} from "../services/object-change.js";
+import { getJobDetail, JobAccessError, validJobId } from "../services/jobs.js";
 import {
   buildJobChangeSql,
   describeJobAction,
+  jobCommandRoutines,
   jobSnapshot,
   validateJobChange,
 } from "../services/job-change.js";
@@ -80,6 +87,7 @@ import type {
   DbObjectInfo,
   JobChange,
   JobChangeAction,
+  JobDetail,
   QueryResult,
   SqlObjectKind,
   WriteAiReview,
@@ -98,6 +106,20 @@ function canAuthorEnv(user: AuthUser, env: string): boolean {
 // read allowlist — approve rights alone do NOT confer blanket read access.
 function canReadEnv(user: AuthUser, env: string): boolean {
   return user.isAdmin || user.allowedEnvironments.includes(env);
+}
+
+/**
+ * The request as `user` may see it: the deployed definition (or job steps) an
+ * object or job change snapshotted is the environment's code, so it is left
+ * out for anyone who can't read that environment — write or approve alone
+ * does not show it.
+ */
+function visible<T extends WriteRequest | null | undefined>(
+  user: AuthUser,
+  wr: T,
+): T {
+  if (!wr || canReadEnv(user, wr.env) || wr.snapshot == null) return wr;
+  return { ...wr, snapshot: undefined, restoreSql: undefined };
 }
 function canApproveEnv(user: AuthUser, env: string): boolean {
   return user.isAdmin || user.approveEnvironments.includes(env);
@@ -377,35 +399,96 @@ function objectRef(o: unknown): DbObjectInfo | null {
   };
 }
 
+/** A request the route answers with an error instead of going on. */
+interface Refusal {
+  status: number;
+  error: string;
+  code?: string;
+}
+
+const sendRefusal = (res: Response, r: Refusal) =>
+  void res
+    .status(r.status)
+    .json({ error: r.error, ...(r.code && { code: r.code }) });
+
+/**
+ * Why reading the target database for a check failed, as an answer: these
+ * reads run in async handlers Express 4 does not guard, where a throw would
+ * take the whole server down.
+ */
+function readFailure(
+  conn: ConnectionConfig,
+  err: any,
+  ambiguous: Pick<Refusal, "status" | "code">,
+): Refusal {
+  if (err instanceof AmbiguousObjectError)
+    return { ...ambiguous, error: err.message };
+  if (err instanceof JobAccessError) return { status: 403, error: err.message };
+  if (isPreConnectError(err))
+    return {
+      status: 503,
+      error: connectionFailedMessage(conn),
+      code: "CONNECTION_FAILED",
+    };
+  return { status: 500, error: err?.message || "Could not read the target" };
+}
+
 /**
  * Checks a new definition for `object` and reads what is deployed now — the
  * snapshot the review diffs against and approval re-checks. A definition the
  * engine hides can't be diffed or guarded, so it can't be changed here.
  */
 async function prepareObjectChange(
+  user: AuthUser,
   conn: ConnectionConfig,
   object: DbObjectInfo,
   writeSql: string,
-): Promise<{ snapshot: string | null } | { error: string }> {
+): Promise<{ snapshot: string | null } | Refusal> {
+  // The snapshot is the deployed definition, returned with the request: only
+  // for someone who may read this environment's objects anyway.
+  if (!canReadEnv(user, conn.env))
+    return {
+      status: 403,
+      error: `You are not allowed to read objects in ${conn.env}`,
+    };
   if (!supportsObjects(conn))
-    return { error: `${conn.type} connections have no ${object.kind}s.` };
+    return {
+      status: 400,
+      error: `${conn.type} connections have no ${object.kind}s.`,
+    };
   const invalid = validateObjectChange(
     writeSql,
     conn.type,
     object,
     defaultSchema(conn),
   );
-  if (invalid) return { error: invalid };
+  if (invalid) return { status: 400, error: invalid };
   try {
+    // The same overload: the database resolves both argument lists' types.
+    if (
+      conn.type === "postgres" &&
+      (object.kind === "function" || object.kind === "procedure")
+    ) {
+      const fn = object.kind === "function";
+      const [proposed, current] = await Promise.all([
+        pgArgTypes(conn, splitPgArgs(proposedArgList(writeSql) ?? "", fn)),
+        pgArgTypes(conn, splitPgArgs(object.args ?? "", fn)),
+      ]);
+      if (proposed.includes(null) || proposed.join(", ") !== current.join(", "))
+        return {
+          status: 400,
+          error: `The definition must keep the argument types (${object.args}). To change the arguments, create the new version with a migration.`,
+        };
+    }
     const deployed = await getObjectDefinition(conn, object);
     if (deployed && deployed.definition == null)
       return {
+        status: 400,
         error: `The deployed definition of ${object.schema}.${object.name} is hidden (encrypted, or this connection lacks VIEW DEFINITION) — it can't be diffed or protected from concurrent change, so it can't be changed here.`,
       };
     return { snapshot: deployed?.definition ?? null };
   } catch (err: any) {
-    if (err instanceof AmbiguousObjectError) return { error: err.message };
-    throw err;
+    return readFailure(conn, err, { status: 400 });
   }
 }
 
@@ -422,7 +505,9 @@ function pickJobAction(raw: any): JobChangeAction | null {
   const num = (v: unknown) => (Number.isInteger(v) ? (v as number) : NaN);
   switch (raw?.type) {
     case "set_enabled":
-      return { type: raw.type, enabled: raw.enabled === true };
+      // Passed through as sent: validateJobChange refuses a non-boolean,
+      // rather than "true" (a string) silently becoming a disable.
+      return { type: raw.type, enabled: raw.enabled };
     case "rename":
       return { type: raw.type, name: str(raw.name) ?? "" };
     case "set_description":
@@ -507,8 +592,12 @@ async function createJobChange(
   const refuse = (status: number, error: string) =>
     refuseJobChange(res, user, conn, status, error, attempt);
 
-  if (!canChangeJobsEnv(user, conn.env))
+  // The job capability adds to write and read, as on submit: the request
+  // carries the job's step commands back in its snapshot.
+  if (!canAuthorEnv(user, conn.env) || !canChangeJobsEnv(user, conn.env))
     return refuse(403, `You are not allowed to change jobs in ${conn.env}`);
+  if (!canReadEnv(user, conn.env))
+    return refuse(403, `You are not allowed to read jobs in ${conn.env}`);
   if (conn.type !== "mssql" && conn.type !== "postgres")
     return refuse(400, `${conn.type} connections have no scheduled jobs`);
   if (!validJobId(conn, req.jobId))
@@ -521,10 +610,30 @@ async function createJobChange(
   if (!req.action) return refuse(400, "Unknown job change");
 
   const target = connectionTarget(conn);
-  const job = await getJobDetail(conn, req.jobId);
+  let job: JobDetail | null;
+  try {
+    job = await getJobDetail(conn, req.jobId);
+  } catch (err) {
+    return sendRefusal(res, readFailure(conn, err, { status: 400 }));
+  }
   if (!job) return refuse(404, `No job ${req.jobId} on this connection`);
   const invalid = validateJobChange(req.action, job, conn.type);
   if (invalid) return refuse(400, invalid);
+  // A step may call only this database's own routines: a built-in or an
+  // extension's (query_to_xml, dblink, cron.schedule…) can run SQL it is
+  // handed as a string, out of the command checker's sight.
+  if (req.action.type === "edit_step" || req.action.type === "add_step") {
+    try {
+      for (const name of jobCommandRoutines(req.action.command, conn.type))
+        if (!(await isUserRoutine(conn, name)))
+          return refuse(
+            400,
+            `${name} is not a procedure or function of this database — a job step can only call the database's own routines, never a built-in, an extension's or another database's.`,
+          );
+    } catch (err) {
+      return sendRefusal(res, readFailure(conn, err, { status: 400 }));
+    }
+  }
   if (!connectionIfUnchanged(conn.id, target)) {
     res.status(409).json({ error: changedWhileChecking(conn.id) });
     return;
@@ -578,7 +687,7 @@ async function createJobChange(
     if (outcome !== "ran")
       return sendDirectNotRun(res, outcome, wr.id, conn, user);
   }
-  res.status(201).json(getWriteRequest(wr.id));
+  res.status(201).json(visible(user, getWriteRequest(wr.id)));
 }
 
 /** The drift guard for jobs: the job must still be the one that was reviewed. */
@@ -586,6 +695,7 @@ async function jobChangedSince(
   conn: ConnectionConfig,
   wr: WriteRequest,
 ): Promise<string | null> {
+  // (A read error propagates to targetChangedSince, which answers it.)
   const job = wr.jobChange
     ? await getJobDetail(conn, wr.jobChange.jobId)
     : null;
@@ -604,16 +714,36 @@ async function jobChangedSince(
 async function targetChangedSince(
   conn: ConnectionConfig,
   wr: WriteRequest,
-): Promise<string | null> {
-  if (wr.kind === "job_change") return jobChangedSince(conn, wr);
-  if (wr.kind !== "object_change" || !wr.object) return null;
-  const now = await getObjectDefinition(conn, wr.object);
-  if (
-    definitionHash(now?.definition ?? null) ===
-    definitionHash(wr.snapshot ?? null)
-  )
-    return null;
-  return `${wr.object.kind} ${wr.object.schema}.${wr.object.name} was changed by someone else since this request was submitted — nothing ran. Revise the request against the version deployed now.`;
+): Promise<Refusal | null> {
+  const changed = (error: string): Refusal => ({
+    status: 409,
+    error,
+    code: "OBJECT_CHANGED",
+  });
+  try {
+    if (wr.kind === "job_change") {
+      const why = await jobChangedSince(conn, wr);
+      return why ? changed(why) : null;
+    }
+    if (wr.kind !== "object_change" || !wr.object) return null;
+    const now = await getObjectDefinition(conn, wr.object);
+    // One that exists but can't be read (encrypted, or VIEW DEFINITION
+    // revoked) is not "still absent": nobody reviewed what it holds.
+    const unreadable = !!now && now.definition == null;
+    if (
+      !unreadable &&
+      definitionHash(now?.definition ?? null) ===
+        definitionHash(wr.snapshot ?? null)
+    )
+      return null;
+    return changed(
+      `${wr.object.kind} ${wr.object.schema}.${wr.object.name} was changed by someone else since this request was submitted — nothing ran. Revise the request against the version deployed now.`,
+    );
+  } catch (err) {
+    // A second overload appearing since submit makes the target ambiguous:
+    // that is a change too.
+    return readFailure(conn, err, { status: 409, code: "OBJECT_CHANGED" });
+  }
 }
 
 /**
@@ -714,7 +844,7 @@ function sendNotReached(
   res: Response,
   id: string,
   conn: { name: string; env: string },
-  user: { sub: string; email: string },
+  user: AuthUser,
 ): void {
   const error = connectionFailedMessage(conn);
   // Without this the timeline would end on APPROVED/SUBMITTED for a write
@@ -723,7 +853,7 @@ function sendNotReached(
   res.status(503).json({
     error,
     code: "CONNECTION_FAILED",
-    request: getWriteRequest(id),
+    request: visible(user, getWriteRequest(id)),
   });
 }
 
@@ -733,7 +863,7 @@ function sendDirectNotRun(
   outcome: "not-reached" | "taken" | "moved",
   id: string,
   conn: { name: string; env: string },
-  user: { sub: string; email: string },
+  user: AuthUser,
 ): void {
   if (outcome === "not-reached") return sendNotReached(res, id, conn, user);
   if (outcome === "moved") {
@@ -750,7 +880,7 @@ function sendDirectNotRun(
       outcome === "taken"
         ? "This request was already actioned by someone else."
         : "This request was changed by someone else while it was running — nothing ran; check its current status.",
-    request: getWriteRequest(id),
+    request: visible(user, getWriteRequest(id)),
   });
 }
 
@@ -893,11 +1023,13 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
   }
   let snapshot: string | null = null;
   if (object) {
-    const prepared = await prepareObjectChange(conn, object, writeSql.trim());
-    if ("error" in prepared) {
-      res.status(400).json({ error: prepared.error });
-      return;
-    }
+    const prepared = await prepareObjectChange(
+      user,
+      conn,
+      object,
+      writeSql.trim(),
+    );
+    if ("error" in prepared) return sendRefusal(res, prepared);
     snapshot = prepared.snapshot;
   }
   if (!connectionIfUnchanged(connectionId, target)) {
@@ -960,7 +1092,7 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
       return sendDirectNotRun(res, outcome, wr.id, conn, user);
   }
 
-  res.status(201).json(getWriteRequest(wr.id));
+  res.status(201).json(visible(user, getWriteRequest(wr.id)));
 });
 
 router.get("/", (req: Request, res: Response) => {
@@ -977,7 +1109,7 @@ router.get("/", (req: Request, res: Response) => {
   });
   res.json(
     requests.map((wr) => ({
-      ...wr,
+      ...visible(user, wr),
       viewerCanApprove:
         canApproveEnv(user, wr.env) && wr.requestedBy !== user.sub,
       viewerIsRequester: wr.requestedBy === user.sub,
@@ -1189,7 +1321,7 @@ router.get("/:id", (req: Request, res: Response) => {
     return;
   }
   res.json({
-    ...wr,
+    ...visible(user, wr),
     viewerCanApprove:
       canApproveEnv(user, wr.env) && wr.requestedBy !== user.sub,
     viewerIsRequester: wr.requestedBy === user.sub,
@@ -1409,7 +1541,7 @@ function decideAndRun(override: boolean) {
     // An object change runs only over the version it was reviewed against.
     const drift = await targetChangedSince(conn, wr);
     if (drift) {
-      res.status(409).json({ error: drift, code: "OBJECT_CHANGED" });
+      sendRefusal(res, drift);
       return;
     }
     if (!connectionIfUnchanged(wr.connectionId, target)) {
@@ -1492,7 +1624,7 @@ function decideAndRun(override: boolean) {
         executionMs: result.executionMs,
         phiAccessed: false,
       });
-      res.json(getWriteRequest(updated!.id));
+      res.json(visible(user, getWriteRequest(updated!.id)));
     } catch (err: any) {
       if (isPreConnectError(err)) {
         // Nothing reached the database: release the claim, so the request is
@@ -1527,7 +1659,7 @@ function decideAndRun(override: boolean) {
       });
       res.status(500).json({
         error: err?.message || "Write execution failed",
-        request: getWriteRequest(wr.id),
+        request: visible(user, getWriteRequest(wr.id)),
       });
     }
   };
@@ -1591,7 +1723,7 @@ router.post("/:id/reject", requireWriteMode, (req: Request, res: Response) => {
     connectionId: wr.connectionId,
     phiAccessed: false,
   });
-  res.json(getWriteRequest(wr.id));
+  res.json(visible(user, getWriteRequest(wr.id)));
 });
 
 // Turn a saved DRAFT into a live request: it enters the approval queue, or —
@@ -1631,8 +1763,19 @@ router.post(
       res.status(plan.status).json({ error: plan.error });
       return;
     }
-    // Submitting a job change makes it the submitter's, so it needs their
-    // job capability too — a drafted job change is no side door.
+    // Submitting makes the request the submitter's, so it needs what raising
+    // it would: read for an object or job change (the snapshot is the
+    // environment's code), and the job capability for a job change — a draft
+    // is no side door.
+    if (
+      (wr.kind === "object_change" || wr.kind === "job_change") &&
+      !canReadEnv(user, conn.env)
+    ) {
+      res
+        .status(403)
+        .json({ error: `You are not allowed to read objects in ${conn.env}` });
+      return;
+    }
     if (wr.kind === "job_change" && !canChangeJobsEnv(user, conn.env)) {
       return refuseJobChange(
         res,
@@ -1657,7 +1800,7 @@ router.post(
     }
     const drift = await targetChangedSince(conn, wr);
     if (drift) {
-      res.status(409).json({ error: drift, code: "OBJECT_CHANGED" });
+      sendRefusal(res, drift);
       return;
     }
     if (!connectionIfUnchanged(wr.connectionId, target)) {
@@ -1706,7 +1849,7 @@ router.post(
         return sendDirectNotRun(res, outcome, wr.id, conn, user);
     }
 
-    res.json(getWriteRequest(wr.id));
+    res.json(visible(user, getWriteRequest(wr.id)));
   },
 );
 
@@ -1735,7 +1878,7 @@ router.post("/:id/cancel", (req: Request, res: Response) => {
     return;
   }
   addWriteRequestEvent(wr.id, user.sub, user.email, "CANCELLED");
-  res.json(getWriteRequest(wr.id));
+  res.json(visible(user, getWriteRequest(wr.id)));
 });
 
 // Remove a request from the queue entirely. Only the requester or an admin can,
@@ -1872,11 +2015,13 @@ router.post(
     // has seen the drift guard's 409 and is resubmitting knowingly.
     let snapshot: string | null | undefined;
     if (isObject) {
-      const prepared = await prepareObjectChange(conn, wr.object!, newWrite);
-      if ("error" in prepared) {
-        res.status(400).json({ error: prepared.error });
-        return;
-      }
+      const prepared = await prepareObjectChange(
+        user,
+        conn,
+        wr.object!,
+        newWrite,
+      );
+      if ("error" in prepared) return sendRefusal(res, prepared);
       snapshot = prepared.snapshot;
     }
     if (!connectionIfUnchanged(wr.connectionId, target)) {
@@ -1937,7 +2082,7 @@ router.post(
         return sendDirectNotRun(res, outcome, wr.id, conn, user);
     }
 
-    res.json(getWriteRequest(wr.id));
+    res.json(visible(user, getWriteRequest(wr.id)));
   },
 );
 
@@ -2082,9 +2227,10 @@ async function computeWriteAiReview(
   wr?: WriteRequest,
 ): Promise<WriteAiReview> {
   // A migration (multi-statement or DDL) is reviewed as a whole script — there
-  // is no verify SELECT to compare against.
+  // is no verify SELECT to compare against. So is anything stored as one: a
+  // job change is a single EXEC of an msdb procedure that classifies as DML.
   const cls = classifyWrite(writeSql, conn.type);
-  if (cls.isMigration) {
+  if (cls.isMigration || wr?.isMigration) {
     return computeMigrationAiReview(config, conn, writeSql, cls.hasDdl, wr);
   }
 

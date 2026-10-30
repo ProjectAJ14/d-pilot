@@ -17,7 +17,7 @@ params:query {
 }
 
 docs {
-  What an object reads and what reads it: { uses, usedBy, bestEffort }. Each reference is { schema?, name, kind, database? }; `kind` is procedure | function | view | trigger | table, or null for a reference SQL Server could not resolve (dropped, late-bound, cross-database — `database` is set for the last). `bestEffort` is true when part of the answer came from matching names in Postgres function bodies.
+  What an object reads and what reads it: { uses, usedBy, bestEffort, jobs }. Each reference is { schema?, name, kind, database? }; `kind` is procedure | function | view | trigger | table, or null for a reference SQL Server could not resolve (dropped, late-bound, cross-database — `database` is set for the last). `bestEffort` is true when part of the answer came from matching names in Postgres function bodies. `jobs` lists { id, name } of the Agent or pg_cron jobs on this database whose step names the object — also matched by name, and empty when the connection can't read jobs.
 
   Same `objectKind` / `args` / `parent` rules as Object Definition.
 

@@ -511,7 +511,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
     {
       title: "What an object uses and what uses it",
       description:
-        "Before changing a procedure, function, view or trigger: what it reads (`uses`) and what reads it (`used by`), one line each. `(?)` marks a reference the database could not resolve (dropped, late-bound or in another database). Postgres function bodies are matched by name, so their answer is best-effort and says so.",
+        "Before changing a procedure, function, view or trigger: what it reads (`uses`) and what reads it (`used by`), one line each. `(?)` marks a reference the database could not resolve (dropped, late-bound or in another database). Postgres function bodies are matched by name, so their answer is best-effort and says so. Also lists the scheduled jobs whose steps name it.",
       inputSchema: {
         connectionId: z.string(),
         kind: SQL_OBJECT_KIND,
@@ -540,6 +540,9 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
             `used by: ${line(d.usedBy)}`,
             d.bestEffort
               ? "(best effort: found by name in function bodies)"
+              : "",
+            d.jobs?.length
+              ? `run by jobs (found by name in their steps): ${d.jobs.map((j) => `${j.name} [${j.id}]`).join(", ")}`
               : "",
           ]
             .filter(Boolean)

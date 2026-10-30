@@ -509,7 +509,17 @@ export const useStore = create<AppState>((set, get) => ({
         same(t.object),
     );
     if (existing) {
-      set({ activeTabId: existing.id });
+      // From a drift report: show the comparison even if the tab was open.
+      set((s) => ({
+        activeTabId: existing.id,
+        tabs: compareWith
+          ? s.tabs.map((t) =>
+              t.id === existing.id
+                ? { ...t, compareWith, compareSeq: (t.compareSeq ?? 0) + 1 }
+                : t,
+            )
+          : s.tabs,
+      }));
     } else {
       const tab: QueryTab = {
         ...createTab(connectionId),

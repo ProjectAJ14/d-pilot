@@ -214,6 +214,11 @@ export interface DbObjectInfo {
    */
   args?: string;
   /**
+   * Postgres routines: argument types alone (`integer, text`), which identify
+   * the same overload in another environment even if a parameter was renamed.
+   */
+  argTypes?: string;
+  /**
    * Triggers: the table it fires on (Postgres trigger names are per table).
    * MongoDB indexes: their collection.
    */
@@ -242,6 +247,10 @@ export interface DbObjectReference {
   kind: DbObjectKind | "table" | null;
   /** Set on a cross-database reference (SQL Server). */
   database?: string;
+  /** A Postgres routine's identity arguments, to open that overload. */
+  args?: string;
+  /** A trigger's table, to open that trigger. */
+  parent?: string;
 }
 
 export interface DbObjectDependencies {
@@ -249,6 +258,8 @@ export interface DbObjectDependencies {
   usedBy: DbObjectReference[];
   /** True when part of the answer came from scanning bodies for names (Postgres functions). */
   bestEffort: boolean;
+  /** Jobs on this database whose step names the object — found by name, best effort. */
+  jobs?: { id: string; name: string }[];
 }
 
 /** One object whose definition differs between two connections, or exists on one only. */
@@ -404,6 +415,8 @@ export interface QueryTab {
   object?: DbObjectInfo;
   /** Object tabs: a connection to diff against when the tab first opens. */
   compareWith?: string;
+  /** Bumped each time a drift report asks to compare, so the view re-reads it. */
+  compareSeq?: number;
   /** Set on job tabs (with `connectionId`) — the job is read live, never persisted. */
   job?: { id: string; name: string };
   sql: string;

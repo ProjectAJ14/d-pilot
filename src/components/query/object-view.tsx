@@ -38,6 +38,7 @@ import { copyToClipboard } from "../../utils/clipboard";
 import { runEnvStyle } from "../../utils/environments";
 import { monacoLanguageForDb } from "./query-editor";
 import { notifyError } from "../../utils/notify-error";
+import { pressable } from "../../utils/pressable";
 
 /** One side of the view: loading, the object, or why there is none. */
 type Side =
@@ -46,18 +47,27 @@ type Side =
   | { state: "missing" }
   | { state: "error"; message: string };
 
+/**
+ * Reads one side into `set`; the returned cleanup drops a late answer, so a
+ * slow read for an earlier pick never lands on a newer one.
+ */
 function load(connectionId: string, o: DbObjectInfo, set: (s: Side) => void) {
-  set({ state: "loading" });
+  let live = true;
+  const put = (side: Side) => live && set(side);
+  put({ state: "loading" });
   api
     .getObjectDefinition(connectionId, o)
-    .then((obj) => set({ state: "ok", obj }))
+    .then((obj) => put({ state: "ok", obj }))
     .catch((err) =>
-      set(
+      put(
         err instanceof ApiError && err.code === "OBJECT_NOT_FOUND"
           ? { state: "missing" }
           : { state: "error", message: err.message },
       ),
     );
+  return () => {
+    live = false;
+  };
 }
 
 const HIDDEN =
@@ -66,6 +76,9 @@ const HIDDEN =
 /** The text a side contributes to a diff; a missing object diffs as empty. */
 const sideText = (s: Side) =>
   s.state === "ok" ? (s.obj.definition ?? `-- ${HIDDEN}`) : "";
+
+/** The "compare with" choice that diffs against text the user pastes. */
+const PASTE = "__paste__";
 
 const label = (o: DbObjectInfo) =>
   `${o.schema ? `${o.schema}.` : ""}${o.name}${o.args != null ? `(${o.args})` : ""}`;
@@ -88,6 +101,8 @@ export function ObjectView({ tab }: { tab: QueryTab }) {
   const [otherSide, setOther] = useState<Side | null>(null);
   const [reload, setReload] = useState(0);
   const [editing, setEditing] = useState(false);
+  const [deps, setDeps] = useState<DbObjectDependencies | null>(null);
+  const [depsError, setDepsError] = useState<string | null>(null);
   // MongoDB/Elasticsearch objects are JSON documents, read-only here, with
   // no dependency graph to show.
   const isSql = conn?.type === "postgres" || conn?.type === "mssql";
@@ -99,23 +114,44 @@ export function ObjectView({ tab }: { tab: QueryTab }) {
   );
 
   useEffect(() => {
-    if (tab.connectionId) load(tab.connectionId, object, setMine);
+    if (tab.connectionId) return load(tab.connectionId, object, setMine);
     // `object` is a fresh reference per render of the store; key on the tab.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.id, tab.connectionId, reload]);
 
   useEffect(() => {
-    if (otherId) load(otherId, object, setOther);
+    if (otherId && otherId !== PASTE) return load(otherId, object, setOther);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.id, otherId, reload]);
 
+  useEffect(() => {
+    if (!tab.connectionId || !isSql) return;
+    let live = true;
+    api
+      .getObjectDependencies(tab.connectionId, object)
+      .then((d) => {
+        if (!live) return;
+        setDeps(d);
+        setDepsError(null);
+      })
+      .catch((err) => live && setDepsError(err.message));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab.id, tab.connectionId, reload, isSql]);
+
   // Only connections of the same engine hold a comparable definition.
-  const compareOptions = connections
-    .filter((c) => c.id !== tab.connectionId && c.type === conn?.type)
-    .map((c) => ({ value: c.id, label: `${c.env} · ${c.name}` }));
+  const compareOptions = [
+    { value: PASTE, label: "Pasted text…" },
+    ...connections
+      .filter((c) => c.id !== tab.connectionId && c.type === conn?.type)
+      .map((c) => ({ value: c.id, label: `${c.env} · ${c.name}` })),
+  ];
   const otherConn = connections.find((c) => c.id === otherId);
   // A cleared picker leaves the last side in state; it just stops counting.
-  const other = otherId ? otherSide : null;
+  const pasting = otherId === PASTE;
+  const other = otherId && !pasting ? otherSide : null;
   const env = conn ? runEnvStyle(conn.env) : null;
 
   const sideNote = (s: Side | null, name?: string) =>
@@ -172,13 +208,12 @@ export function ObjectView({ tab }: { tab: QueryTab }) {
           size="xs"
           w={220}
           placeholder="Compare with…"
-          aria-label="Compare with another connection"
+          aria-label="Compare with another connection or pasted text"
           data={compareOptions}
           value={otherId}
           onChange={setOtherId}
           clearable
           searchable
-          nothingFoundMessage="No other connection of this type"
         />
         <Tooltip label="Re-read from the database" openDelay={400}>
           <ActionIcon
@@ -237,11 +272,17 @@ export function ObjectView({ tab }: { tab: QueryTab }) {
       </Group>
 
       {conn && isSql && (
-        <DependencyStrip
-          key={`${tab.id}-${reload}`}
-          connId={conn.id}
-          object={object}
-        />
+        <DependencyStrip connId={conn.id} deps={deps} error={depsError} />
+      )}
+
+      {pasting && !editing && (
+        <Text
+          size="xs"
+          c="dimmed"
+          style={{ padding: "6px 14px", flexShrink: 0 }}
+        >
+          Paste a version on the right to compare it with {conn?.name}.
+        </Text>
       )}
 
       {(notes.length > 0 || same) && (
@@ -263,7 +304,21 @@ export function ObjectView({ tab }: { tab: QueryTab }) {
             object={object}
             start={mine.obj.migration!}
             dbType={conn.type}
+            impact={impact(object, deps)}
             onCancel={() => setEditing(false)}
+          />
+        ) : pasting && mine.state === "ok" ? (
+          <DiffEditor
+            original={sideText(mine)}
+            modified=""
+            language={language}
+            theme={theme}
+            options={{
+              ...baseSqlEditorOptions,
+              readOnly: false,
+              originalEditable: false,
+              renderSideBySide: true,
+            }}
           />
         ) : mine.state === "loading" || other?.state === "loading" ? (
           <Group justify="center" p="xl">
@@ -313,29 +368,30 @@ const OPENABLE = ["procedure", "function", "view", "trigger"];
  */
 function DependencyStrip({
   connId,
-  object,
+  deps,
+  error,
 }: {
   connId: string;
-  object: DbObjectInfo;
+  deps: DbObjectDependencies | null;
+  error: string | null;
 }) {
   const openObjectTab = useStore((s) => s.openObjectTab);
-  const [deps, setDeps] = useState<DbObjectDependencies | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    api
-      .getObjectDependencies(connId, object)
-      .then(setDeps)
-      .catch((err) => setError(err.message));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connId]);
+  const openJobTab = useStore((s) => s.openJobTab);
 
   const ref = (r: DbObjectReference) => {
     const name = `${r.database ? `${r.database}.` : ""}${r.schema ? `${r.schema}.` : ""}${r.name}`;
     const openable = !r.database && r.schema && OPENABLE.includes(r.kind ?? "");
+    const open = () =>
+      openObjectTab(connId, {
+        schema: r.schema!,
+        name: r.name,
+        kind: r.kind as DbObjectInfo["kind"],
+        ...(r.args != null && { args: r.args }),
+        ...(r.parent != null && { parent: r.parent }),
+      });
     return (
       <Text
-        key={`${name}:${r.kind}`}
+        key={`${name}:${r.kind}(${r.args ?? ""})@${r.parent ?? ""}`}
         span
         size="xs"
         ff="monospace"
@@ -344,18 +400,10 @@ function DependencyStrip({
           r.kind ?? "unresolved — dropped, late-bound or in another database"
         }
         style={{ cursor: openable ? "pointer" : undefined, marginRight: 8 }}
-        onClick={
-          openable
-            ? () =>
-                openObjectTab(connId, {
-                  schema: r.schema!,
-                  name: r.name,
-                  kind: r.kind as DbObjectInfo["kind"],
-                })
-            : undefined
-        }
+        {...(openable && pressable(open))}
       >
         {name}
+        {r.args != null && `(${r.args})`}
         {r.kind == null ? " (?)" : r.kind === "table" ? "" : ` (${r.kind})`}
       </Text>
     );
@@ -410,51 +458,91 @@ function DependencyStrip({
           </Text>
         )}
       </div>
+      {!!deps.jobs?.length && (
+        <>
+          <Text size="xs" c="dimmed">
+            Run by
+          </Text>
+          <div>
+            {deps.jobs.map((j) => (
+              <Text
+                key={j.id}
+                span
+                size="xs"
+                c="var(--accent)"
+                title="job — found by name in its steps"
+                style={{ cursor: "pointer", marginRight: 8 }}
+                {...pressable(() => openJobTab(connId, j))}
+              >
+                {j.name} (job)
+              </Text>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
+}
+
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+
+/** "Changing this view affects 3 objects and 1 job." — null when nothing is known to. */
+function impact(o: DbObjectInfo, deps: DbObjectDependencies | null) {
+  const objects = deps?.usedBy.length ?? 0;
+  const jobs = deps?.jobs?.length ?? 0;
+  if (!objects && !jobs) return null;
+  const parts = [
+    objects && plural(objects, "object"),
+    jobs && plural(jobs, "job"),
+  ].filter(Boolean);
+  return `Changing this ${o.kind} affects ${parts.join(" and ")}${deps?.bestEffort ? " (found by name, best effort)" : ""}.`;
 }
 
 /**
  * Proposes a new definition as an object_change write request: the deployed
  * version on the left, the editable re-runnable one on the right. Nothing runs
- * here — the request goes through review and approval like any other write,
- * and approval refuses it if the deployed version changes meanwhile.
+ * here — it is saved as a draft, run or submitted from the request page like
+ * any other write, and refused if the deployed version changes meanwhile.
  */
 function ObjectEditor({
   connId,
   object,
   start,
   dbType,
+  impact,
   onCancel,
 }: {
   connId: string;
   object: DbObjectInfo;
   start: string;
   dbType: Parameters<typeof monacoLanguageForDb>[0];
+  impact: string | null;
   onCancel: () => void;
 }) {
   const theme = useEditorTheme();
   const navigate = useNavigate();
   const editorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(null);
   const [title, setTitle] = useState(`Update ${object.kind} ${object.name}`);
-  const [busy, setBusy] = useState<"draft" | "submit" | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const save = async (draft: boolean) => {
+  // Always a draft, like any write request: the request page then offers
+  // "Run now" or "Submit for approval", whichever this environment allows.
+  const save = async () => {
     const writeSql = editorRef.current?.getModifiedEditor().getValue() ?? start;
-    setBusy(draft ? "draft" : "submit");
+    setBusy(true);
     try {
       const wr = await api.createWriteRequest({
         title: title.trim() || `Update ${object.kind} ${object.name}`,
         connectionId: connId,
         writeSql,
         object,
-        draft,
+        draft: true,
       });
       navigate(`/write-requests/${wr.id}`);
     } catch (err) {
       notifyError(err, "Object change");
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   };
 
@@ -482,27 +570,18 @@ function ObjectEditor({
         <Button size="xs" variant="default" onClick={onCancel}>
           Cancel
         </Button>
-        <Button
-          size="xs"
-          variant="default"
-          loading={busy === "draft"}
-          disabled={!!busy}
-          onClick={() => save(true)}
-        >
+        <Button size="xs" loading={busy} onClick={save}>
           Save draft
         </Button>
-        <Button
-          size="xs"
-          loading={busy === "submit"}
-          disabled={!!busy}
-          onClick={() => save(false)}
-        >
-          Submit for review
-        </Button>
       </Group>
+      {impact && (
+        <Alert color="orange" variant="light" py={6} px="md" radius={0}>
+          <Text size="xs">{impact}</Text>
+        </Alert>
+      )}
       <Text size="xs" c="dimmed" style={{ padding: "4px 14px" }}>
-        Left: deployed now. Right: your version — it becomes a write request,
-        reviewed and approved before it runs.
+        Left: deployed now. Right: your version — it is saved as a draft write
+        request, and nothing runs until you run or submit it from there.
       </Text>
       <div style={{ flex: 1, minHeight: 0 }}>
         <DiffEditor

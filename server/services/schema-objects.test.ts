@@ -56,6 +56,7 @@ const {
   getObjectDependencies,
   AmbiguousObjectError,
   compareDefinitions,
+  pgArgTypes,
   normalizeDefinition,
 } = await import("./schema-objects.js");
 
@@ -159,8 +160,30 @@ describe("getObjectDefinition", () => {
       "app_core",
       "refresh_order_totals",
       "integer",
+      null,
     ]);
     expect(h.calls[0].sql).toContain("prokind = 'f'");
+  });
+
+  it("finds the same overload by argument types when its parameter was renamed", async () => {
+    h.rows.push([
+      { args: "p_new integer", arg_types: "integer", definition: "CREATE …" },
+    ]);
+    const def = await getObjectDefinition(pg, {
+      kind: "function",
+      name: "open_order_count",
+      schema: "app_core",
+      args: "p_old integer",
+      argTypes: "integer",
+    });
+    expect(def).toMatchObject({ args: "p_new integer", argTypes: "integer" });
+    expect(h.calls[0].params).toEqual([
+      "app_core",
+      "open_order_count",
+      "p_old integer",
+      "integer",
+    ]);
+    expect(h.calls[0].sql).toContain("oidvectortypes(p.proargtypes) = $4");
   });
 
   it("refuses to guess between overloads when no arguments are given", async () => {
@@ -174,7 +197,12 @@ describe("getObjectDefinition", () => {
     });
     await expect(lookup).rejects.toBeInstanceOf(AmbiguousObjectError);
     await expect(lookup).rejects.toThrow("() | (integer)");
-    expect(h.calls[0].params).toEqual(["public", "refresh_order_totals", null]);
+    expect(h.calls[0].params).toEqual([
+      "public",
+      "refresh_order_totals",
+      null,
+      null,
+    ]);
   });
 
   it("keys a Postgres trigger by its table, and ignores args on a view", async () => {
@@ -277,6 +305,59 @@ describe("drift", () => {
     ]);
     expect(report.items[0]).not.toHaveProperty("definition");
   });
+
+  it("matches a Postgres overload by argument types, so a renamed parameter is a difference", () => {
+    const f = (args: string, definition: string) => ({
+      schema: "app_core",
+      name: "open_order_count",
+      kind: "function" as const,
+      args,
+      argTypes: "integer",
+      definition,
+    });
+    const report = compareDefinitions(
+      "app_core",
+      [f("p_customer_id integer", "a")],
+      [f("customer integer", "b")],
+    );
+    expect(report.items).toEqual([
+      {
+        schema: "app_core",
+        name: "open_order_count",
+        kind: "function",
+        args: "p_customer_id integer",
+        argTypes: "integer",
+        status: "different",
+      },
+    ]);
+  });
+
+  it("leaves out triggers cloned onto partitions, and reads argument types for drift", async () => {
+    h.rows = [[]];
+    await getObjects(pg, "app_core");
+    expect(h.calls[0].sql).toMatch(/pd\.deptype = 'P'/);
+    expect(h.calls[0].sql).toContain("oidvectortypes(p.proargtypes)");
+  });
+});
+
+describe("pgArgTypes", () => {
+  it("asks the database for each type, trying past a parameter name first", async () => {
+    // "p_ts timestamp": the tail resolves. "double precision": the tail
+    // ("precision") does not, the whole does.
+    h.rows = [
+      [{ t: "timestamp without time zone" }],
+      [{ t: null }],
+      [{ t: "double precision" }],
+    ];
+    expect(
+      await pgArgTypes(pg, ["p_ts timestamp", "double precision"]),
+    ).toEqual(["timestamp without time zone", "double precision"]);
+    expect(h.calls.map((c) => c.params)).toEqual([
+      ["timestamp"],
+      ["precision"],
+      ["double precision"],
+    ]);
+  });
 });
 
 describe("getObjectDependencies", () => {
@@ -338,6 +419,16 @@ describe("getObjectDependencies", () => {
           sch: "app_core",
           name: "nightly_close",
           kind: "procedure",
+          args: "IN p_days integer",
+          parent: null,
+        },
+        {
+          dir: "usedBy",
+          sch: "app_core",
+          name: "orders_audit",
+          kind: "trigger",
+          args: null,
+          parent: "orders",
         },
       ],
     );
@@ -348,8 +439,20 @@ describe("getObjectDependencies", () => {
       args: "integer",
     });
     expect(deps.bestEffort).toBe(true);
+    // Each carries what opening it needs: the overload, or the trigger's table.
     expect(deps.usedBy).toEqual([
-      { schema: "app_core", name: "nightly_close", kind: "procedure" },
+      {
+        schema: "app_core",
+        name: "nightly_close",
+        kind: "procedure",
+        args: "IN p_days integer",
+      },
+      {
+        schema: "app_core",
+        name: "orders_audit",
+        kind: "trigger",
+        parent: "orders",
+      },
     ]);
     expect(h.calls[0].params).toEqual([
       "app_core",

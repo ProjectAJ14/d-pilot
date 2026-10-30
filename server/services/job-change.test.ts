@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildJobChangeSql,
   checkJobCommand,
+  jobCommandRoutines,
   jobSnapshot,
   validateJobChange,
 } from "./job-change.js";
@@ -115,6 +116,55 @@ describe("checkJobCommand", () => {
     expect(checkJobCommand("CALL app_core.recalc()", "postgres")).toBeNull();
   });
 
+  it("accepts one call with literal, variable, named and output arguments", () => {
+    for (const cmd of [
+      "EXEC [app_core].[refresh_order_totals] @days = 7, @note = N'it''s; -- fine', @out = @x OUTPUT",
+      "EXECUTE @rc = app_core.refresh_order_totals 7, NULL, DEFAULT;",
+      "SELECT app_core.recalc(1, 'a)b')",
+    ])
+      expect(checkJobCommand(cmd, "mssql")).toBeNull();
+    expect(
+      checkJobCommand("CALL app_core.recalc($$x$$, 2);", "postgres"),
+    ).toBeNull();
+  });
+
+  it("refuses Postgres administration functions, nested calls and expressions", () => {
+    const why = (cmd: string) => checkJobCommand(cmd, "postgres");
+    expect(why("SELECT pg_terminate_backend(123)")).toContain("system");
+    expect(why("SELECT pg_catalog.pg_read_file('/etc/passwd')")).toContain(
+      "system",
+    );
+    expect(why("SELECT set_config('role', 'postgres', false)")).toContain(
+      "system",
+    );
+    // Only literal arguments: nothing else can run inside the call.
+    for (const cmd of [
+      "SELECT app_core.f(pg_cancel_backend(1))",
+      'SELECT app_core.f("pg_terminate_backend"(1))',
+      "SELECT app_core.f(E'\\''||pg_terminate_backend(1)::text||E'\\'')",
+      "SELECT app_core.f((SELECT 1))",
+      "SELECT app_core.f(1 + 1)",
+    ])
+      expect(why(cmd)).toContain("literal arguments");
+    // A Postgres job runs with its own search_path.
+    expect(why("CALL recalc()")).toContain("Qualify");
+    expect(
+      why("CALL app_core.recalc('2026-01-01'::date, p_days => 7)"),
+    ).toBeNull();
+  });
+
+  it("names the routines a command calls, for the catalog check", () => {
+    expect(
+      jobCommandRoutines(
+        "EXEC [app_core].[refresh_order_totals] 7; EXEC dbo.sp_ProcessOrders",
+        "mssql",
+      ),
+    ).toEqual(["[app_core].[refresh_order_totals]", "dbo.sp_ProcessOrders"]);
+    expect(
+      jobCommandRoutines("SELECT query_to_xml.x('q', true)", "postgres"),
+    ).toEqual(["query_to_xml.x"]);
+  });
+
   it("refuses SQL handed to a function as a string", () => {
     expect(
       checkJobCommand(
@@ -130,7 +180,7 @@ describe("checkJobCommand", () => {
     ["TRUNCATE TABLE app_core.orders", "DDL"],
     ["EXEC app_core.p; DROP TABLE app_core.orders", "DDL"],
     [
-      "SELECT 1; UPDATE app_core.orders SET status = 'x' WHERE id = 1 UPDATE app_core.orders SET status = 'y'",
+      "EXEC app_core.p; UPDATE app_core.orders SET status = 'x' WHERE id = 1 UPDATE app_core.orders SET status = 'y'",
       "semicolon",
     ],
     [
@@ -146,6 +196,29 @@ describe("checkJobCommand", () => {
       "Only INSERT, UPDATE and DELETE",
     ],
     ["", "empty"],
+    // A routine call is exactly one call: no trailing T-SQL statements, no
+    // system or administration routines.
+    ["EXEC master..xp_cmdshell 'whoami'", "system and administration"],
+    ["EXECUTE AS LOGIN = 'sa'", "one routine with literal arguments"],
+    [
+      "EXEC dbo.refresh SHUTDOWN WITH NOWAIT",
+      "one routine with literal arguments",
+    ],
+    ["EXEC app_core.p 'x' SHUTDOWN", "one routine with literal arguments"],
+    ["SELECT 1 KILL 52", "one routine with literal arguments"],
+    ["SELECT 1 DBCC SHRINKDATABASE(0)", "one routine with literal arguments"],
+    [
+      "EXEC dbo.p1 BACKUP DATABASE app_core TO DISK = 'x'",
+      "one routine with literal arguments",
+    ],
+    [
+      "SELECT * INTO dbo.copy FROM dbo.orders",
+      "one routine with literal arguments",
+    ],
+    [
+      "SELECT app_core.f(1) FROM app_core.orders",
+      "one routine with literal arguments",
+    ],
   ])("refuses %s", (cmd, why) => {
     expect(checkJobCommand(cmd, "mssql")).toContain(why);
   });
@@ -217,6 +290,19 @@ describe("validateJobChange", () => {
         foreignJob,
         "mssql",
       ),
+    ).toBeNull();
+  });
+
+  it("treats a step database that differs only in case as this one", () => {
+    const job = {
+      ...agentJob,
+      database: "AppCore",
+      steps: agentJob.steps.map((st) =>
+        st.database ? { ...st, database: "appcore" } : st,
+      ),
+    };
+    expect(
+      validateJobChange({ type: "rename", name: "x" }, job, "mssql"),
     ).toBeNull();
   });
 

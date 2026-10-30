@@ -13,6 +13,7 @@ import type {
   JobList,
 } from "@src/types";
 import { api } from "@src/utils/api-client";
+import { pressable } from "@src/utils/pressable";
 import { nameMatches } from "@src/utils/explorer-search";
 import { useStore } from "@src/store";
 import { DriftReportModal } from "@src/components/query/drift-report";
@@ -82,9 +83,8 @@ export function ObjectTree({
   return (
     <div style={{ paddingLeft: 14, paddingBottom: 4 }}>
       <div
-        onClick={toggle}
+        {...pressable(toggle)}
         className="dp-row"
-        role="button"
         aria-expanded={open}
         style={{
           display: "flex",
@@ -154,9 +154,8 @@ export function ObjectTree({
               {list.map((o) => (
                 <div
                   key={`${o.name}(${o.args ?? ""})${o.parent ?? ""}`}
-                  onClick={() => openObjectTab(connId, o)}
+                  {...pressable(() => openObjectTab(connId, o))}
                   className="dp-row"
-                  role="button"
                   title={o.parent ? `on ${o.parent}` : undefined}
                   style={{
                     display: "flex",
@@ -221,6 +220,7 @@ export function JobTree({ connId, query }: { connId: string; query: string }) {
     setOpen(!open);
     if (open || list || loading) return;
     setLoading(true);
+    setError(null);
     api
       .getJobs(connId)
       .then(setList)
@@ -237,9 +237,8 @@ export function JobTree({ connId, query }: { connId: string; query: string }) {
   return (
     <div style={{ paddingLeft: 14, paddingBottom: 4 }}>
       <div
-        onClick={toggle}
+        {...pressable(toggle)}
         className="dp-row"
-        role="button"
         aria-expanded={open}
         style={{
           display: "flex",
@@ -278,9 +277,8 @@ export function JobTree({ connId, query }: { connId: string; query: string }) {
         jobs.map((j) => (
           <div
             key={j.id}
-            onClick={() => openJobTab(connId, { id: j.id, name: j.name })}
+            {...pressable(() => openJobTab(connId, { id: j.id, name: j.name }))}
             className="dp-row"
-            role="button"
             title={j.schedule}
             style={{
               display: "flex",

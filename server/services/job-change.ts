@@ -30,12 +30,96 @@ const DML_ALL = /\b(INSERT|UPDATE|DELETE|MERGE)\b/gi;
 const DYNAMIC_SQL = /\bEXEC(UTE)?\s*\(|\bsp_executesql\b/i;
 const DDL = /\b(CREATE|ALTER|DROP|TRUNCATE|RENAME|GRANT|REVOKE|DENY)\b/i;
 
+// The shape of exactly one routine call, over `callTokens` text: a string
+// literal is the single token S, comments are gone. Arguments are literal
+// values only — no nested calls, operators or subqueries — so the routine
+// named is the only code that runs, and the server then checks in the
+// catalog that it is one of the database's own (see isUserRoutine). Anything
+// after the call fails: T-SQL needs no semicolon, so "EXEC p 1 SHUTDOWN" is
+// two statements.
+const IDENT = String.raw`(?:\[[^\]]+\]|"[^"]+"|[A-Za-z_#][\w$#@]*)`;
+const NAME = String.raw`${IDENT}(?:\s*\.\s*${IDENT}?){0,3}`;
+const VALUE = String.raw`(?:S|[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?|0x[0-9a-f]+|@\w+|NULL|DEFAULT|TRUE|FALSE)`;
+const TSQL_ARG = String.raw`(?:@\w+\s*=\s*)?${VALUE}(?:\s+OUT(?:PUT)?)?`;
+const TSQL_EXEC = new RegExp(
+  String.raw`^EXEC(?:UTE)?\s+(?:@\w+\s*=\s*)?(${NAME})(?:\s+${TSQL_ARG}(?:\s*,\s*${TSQL_ARG})*)?\s*;?\s*$`,
+  "i",
+);
+const CAST = String.raw`(?:\s*::\s*[A-Za-z_][\w ]*(?:\(\d+(?:\s*,\s*\d+)?\))?(?:\[\])?)?`;
+const CALL_ARG = String.raw`(?:[A-Za-z_]\w*\s*=>\s*)?${VALUE}${CAST}`;
+const CALL = new RegExp(
+  String.raw`^(?:CALL|SELECT)\s+(${NAME})\s*\(\s*(?:${CALL_ARG}(?:\s*,\s*${CALL_ARG})*)?\s*\)\s*;?\s*$`,
+  "i",
+);
+// Never a job step, whatever the catalog says.
+const SYSTEM_ROUTINE = /^(xp_|pg_|lo_|dblink)|^set_config$/i;
+
+/** `stmt` with each string literal as the token S and comments removed. */
+function callTokens(stmt: string): string {
+  return stmt
+    .replace(
+      // E'…' first: in it a backslash escapes the quote.
+      /(?<![\w$])[eE]'(?:[^'\\]|\\.|'')*'|N?'(?:[^']|'')*'|\$(\w*)\$[\s\S]*?\$\1\$|--[^\n]*|\/\*[\s\S]*?\*\//g,
+      (t) => (t.startsWith("--") || t.startsWith("/*") ? " " : " S "),
+    )
+    .trim();
+}
+
+const parts = (name: string) =>
+  name.split(/\s*\.\s*/).map((p) => p.trim().replace(/^[["]|[\]"]$/g, ""));
+
+/** The routine a call statement runs, or why it is not exactly one call. */
+function parseRoutineCall(
+  stmt: string,
+  dbType: DatabaseType,
+): { name: string } | { error: string } {
+  const t = callTokens(stmt);
+  const name = (TSQL_EXEC.exec(t) ?? CALL.exec(t))?.[1];
+  if (!name)
+    return {
+      error: `A job step calls one routine with literal arguments and nothing else — "EXEC name args", "CALL name(args)" or "SELECT name(args)". ${PATTERN_HINT}`,
+    };
+  const p = parts(name);
+  if (SYSTEM_ROUTINE.test(p[p.length - 1]))
+    return {
+      error: `${p[p.length - 1]}: system and administration routines can't run as a job step. ${PATTERN_HINT}`,
+    };
+  if (p.length > 2)
+    return {
+      error: `${name}: a job step calls a routine in this database — name it schema.routine.`,
+    };
+  // A Postgres job runs with its own search_path: say which routine.
+  if (dbType === "postgres" && p.length < 2)
+    return { error: `Qualify ${name} with its schema (schema.${name}).` };
+  return { name: name.replace(/\s+/g, "") };
+}
+
+/**
+ * The routines `command` calls, for the catalog check that each is one of
+ * this database's own — not built in, not an extension's (dblink, pg_cron…),
+ * not another database's. Only meaningful once checkJobCommand passed.
+ */
+export function jobCommandRoutines(
+  command: string,
+  dbType: DatabaseType,
+): string[] {
+  const names: string[] = [];
+  for (const raw of scanSql(command).statements) {
+    const stmt = raw.trim();
+    if (!stmt || !ROUTINE_CALL.test(scanSql(stmt).masked)) continue;
+    const call = parseRoutineCall(stmt, dbType);
+    if ("name" in call) names.push(call.name);
+  }
+  return names;
+}
+
 const PATTERN_HINT =
   "Keep the logic in a procedure (changed through an object change) and have the step only EXEC/CALL it.";
 
 /**
  * Why `command` may not become a job step, or null. A step D-Pilot writes is
- * either a routine call (EXEC/CALL, or SELECT of a function), Postgres
+ * either exactly one call of a user routine (EXEC/CALL, or SELECT of a
+ * function — never a system or administration routine), Postgres
  * maintenance (VACUUM, ANALYZE, REFRESH MATERIALIZED VIEW), or INSERT/UPDATE/
  * DELETE statements that would each pass as a direct write — so an UPDATE
  * with no WHERE is refused here exactly as it is there. DDL and anything
@@ -54,16 +138,16 @@ export function checkJobCommand(
     const stmt = raw.trim();
     if (!stmt) continue;
     const m = scanSql(stmt).masked;
-    if (
-      ROUTINE_CALL.test(m) ||
-      (dbType === "postgres" && PG_MAINTENANCE.test(m))
-    ) {
+    if (dbType === "postgres" && PG_MAINTENANCE.test(m)) continue;
+    if (ROUTINE_CALL.test(m)) {
       if (DYNAMIC_SQL.test(m))
         return `Dynamic SQL (EXEC('…'), sp_executesql) can't be checked as a job step. ${PATTERN_HINT}`;
       // The raw text, strings included: a function such as dblink_exec runs
       // the SQL it is handed as a string.
       if (DML.test(stmt) || DDL.test(stmt))
         return `Write the INSERT/UPDATE/DELETE as its own statement, not inside a call or a string, so it can be checked. ${PATTERN_HINT}`;
+      const call = parseRoutineCall(stmt, dbType);
+      if ("error" in call) return call.error;
       continue;
     }
     if (DML.test(m.slice(0, 7))) {
@@ -81,6 +165,14 @@ export function checkJobCommand(
   }
   return null;
 }
+
+/**
+ * Whether a step's database is not the connection's. SQL Server compares
+ * database names case-insensitively, and a Postgres connection only works
+ * when its name matches, so case never makes it another database.
+ */
+const otherDb = (step: string | undefined, own: string | undefined) =>
+  !!step && step.toLowerCase() !== (own ?? "").toLowerCase();
 
 const SQL_SUBSYSTEMS = ["TSQL", "SQL"];
 const validTime = (t: number) =>
@@ -143,9 +235,7 @@ export function validateJobChange(
   // work: disabling, renaming, rescheduling or re-ordering it changes what
   // runs there, which this connection's readers and approvers can't see.
   // Only this database's own step commands may change.
-  const foreign = job.steps.some(
-    (s) => s.database && s.database !== job.database,
-  );
+  const foreign = job.steps.some((s) => otherDb(s.database, job.database));
   if (foreign && action.type !== "edit_step")
     return "This job also runs steps against another database, so only this database's own step commands can be changed here.";
   switch (action.type) {
@@ -170,7 +260,7 @@ export function validateJobChange(
       const s = step(action.stepId);
       if (agentOnly()) return agentOnly();
       if (!s) return `Step ${action.stepId} does not exist.`;
-      if (s.database && s.database !== job.database)
+      if (otherDb(s.database, job.database))
         return "That step runs against another database.";
       return job.steps.length === 1 ? "A job needs at least one step." : null;
     }
@@ -186,7 +276,7 @@ export function validateJobChange(
         // checker can't see; they are not changed through D-Pilot.
         if (!SQL_SUBSYSTEMS.includes(s.subsystem.toUpperCase()))
           return `Step ${s.id} is a ${s.subsystem} step — it runs an operating-system command D-Pilot can't check, so it can't be changed here.`;
-        if (s.database && s.database !== job.database)
+        if (otherDb(s.database, job.database))
           return "That step runs against another database.";
       }
       return checkJobCommand(action.command ?? "", dbType);

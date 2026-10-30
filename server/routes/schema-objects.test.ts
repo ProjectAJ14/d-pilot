@@ -39,6 +39,11 @@ vi.mock("../config/settings.js", () => ({
 }));
 const getObjects = vi.fn();
 const getObjectDefinition = vi.fn();
+const getObjectDependencies = vi.fn(async () => ({
+  uses: [],
+  usedBy: [],
+  bestEffort: false,
+}));
 const getDrift = vi.fn(async () => ({
   schema: "app_core",
   identical: 0,
@@ -48,6 +53,7 @@ vi.mock("../services/schema-objects.js", async (orig) => ({
   ...(await orig<typeof import("../services/schema-objects.js")>()),
   getObjects,
   getObjectDefinition,
+  getObjectDependencies,
   getDrift,
 }));
 vi.mock("../services/schema-introspector.js", () => ({}));
@@ -56,6 +62,7 @@ vi.mock("../services/jobs.js", async (orig) => ({
   ...(await orig<typeof import("../services/jobs.js")>()),
   getJobs: vi.fn(async () => ({ available: true, jobs: [] })),
   getJobDetail,
+  getJobsCalling: vi.fn(async () => [{ id: "7", name: "recalc due dates" }]),
 }));
 
 const { default: router } = await import("./schema.js");
@@ -141,6 +148,18 @@ describe("object routes", () => {
     );
   });
 
+  it("gives no migration form for a MongoDB definition", async () => {
+    getObjectDefinition.mockResolvedValue({
+      schema: "app_core",
+      name: "order_summary",
+      kind: "view",
+      definition: '{ "pipeline": "CREATE VIEW x" }',
+    });
+    const res = await get("/qa-mongo/objects/view/order_summary/definition");
+    expect(res.status).toBe(200);
+    expect((await res.json()).migration).toBeNull();
+  });
+
   it("answers 404 for a missing object and 400 for an ambiguous one, auditing neither", async () => {
     getObjectDefinition.mockResolvedValueOnce(null);
     const missing = await get("/qa-core/objects/view/nope/definition");
@@ -199,5 +218,22 @@ describe("object routes", () => {
         sql: "job recalc due dates (7)",
       }),
     );
+  });
+
+  it("lists the jobs that run an object alongside its dependencies", async () => {
+    const res = await get(
+      "/qa-core/objects/procedure/refresh_order_totals/dependencies?schema=app_core",
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      uses: [],
+      usedBy: [],
+      bestEffort: false,
+      jobs: [{ id: "7", name: "recalc due dates" }],
+    });
+    expect(
+      (await get("/prod-core/objects/procedure/x/dependencies?schema=app_core"))
+        .status,
+    ).toBe(403);
   });
 });

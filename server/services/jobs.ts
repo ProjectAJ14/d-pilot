@@ -59,18 +59,80 @@ export async function getJobs(conn: ConnectionConfig): Promise<JobList> {
   return { available: false, jobs: [] };
 }
 
-/** One job with its steps, schedules and recent runs; null when not found. */
+/** The connection's login lacks the grant to read jobs; the message names it. */
+export class JobAccessError extends Error {}
+
+/**
+ * One job with its steps, schedules and recent runs; null when not found.
+ * Throws JobAccessError, naming the grant, when jobs can't be read.
+ */
 export async function getJobDetail(
   conn: ConnectionConfig,
   id: string,
 ): Promise<JobDetail | null> {
-  const job =
-    conn.type === "mssql"
-      ? await getAgentJobDetail(conn, id)
-      : conn.type === "postgres"
-        ? await getCronJobDetail(conn, id)
-        : null;
-  return job && { ...job, database: conn.database };
+  try {
+    const job =
+      conn.type === "mssql"
+        ? await getAgentJobDetail(conn, id)
+        : conn.type === "postgres"
+          ? await getCronJobDetail(conn, id)
+          : null;
+    return job && { ...job, database: conn.database };
+  } catch (err) {
+    if (conn.type === "mssql" && isAgentAccessError(err))
+      throw new JobAccessError(AGENT_GRANT);
+    if (conn.type === "postgres" && isPgAccessError(err))
+      throw new JobAccessError(PG_CRON_GRANT);
+    throw err;
+  }
+}
+
+/** Whether a step command names an object (bare, schema-qualified or quoted). */
+export function callsObject(command: string, name: string): boolean {
+  const id = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^\\w$#@])[["]?${id}[\\]"]?(?![\\w$#@])`, "i").test(
+    command,
+  );
+}
+
+/**
+ * Jobs on this database with a step that names the object — its impact on the
+ * schedule, shown before anyone changes it. Best effort (found by name in step
+ * commands), and empty when jobs can't be read: it informs, it never blocks.
+ */
+export async function getJobsCalling(
+  conn: ConnectionConfig,
+  name: string,
+): Promise<{ id: string; name: string }[]> {
+  try {
+    let rows: { id: string; name: string; command: string }[] = [];
+    if (conn.type === "mssql") {
+      // Narrow by LIKE on the server, then match whole identifiers here.
+      const like = `%${name.replace(/[[\]%_]/g, "[$&]")}%`;
+      rows = await withAgent(conn, async (pool) => {
+        const r = await pool.request().input("like", mssql.NVarChar, like)
+          .query(`SELECT DISTINCT CONVERT(varchar(36), j.job_id) AS id, j.name, s.command
+FROM msdb.dbo.sysjobs j JOIN msdb.dbo.sysjobsteps s ON s.job_id = j.job_id
+WHERE s.database_name = DB_NAME() AND s.subsystem = 'TSQL' AND s.command LIKE @like`);
+        return r.recordset;
+      });
+    } else if (conn.type === "postgres") {
+      const r = await withCron(conn, (pool) =>
+        pool.query(
+          `SELECT jobid::text AS id, coalesce(jobname, 'job ' || jobid) AS name, command
+FROM cron.job WHERE database = current_database() AND strpos(lower(command), lower($1)) > 0`,
+          [name],
+        ),
+      );
+      rows = r === "absent" ? [] : r.rows;
+    }
+    const jobs = new Map<string, string>();
+    for (const r of rows)
+      if (callsObject(r.command, name)) jobs.set(r.id.toLowerCase(), r.name);
+    return [...jobs].map(([id, n]) => ({ id, name: n }));
+  } catch {
+    return [];
+  }
 }
 
 // --- SQL Server Agent ---

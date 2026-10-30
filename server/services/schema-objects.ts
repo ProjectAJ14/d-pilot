@@ -58,6 +58,7 @@ export interface ObjectRef {
   kind: DbObjectKind;
   schema?: string;
   args?: string;
+  argTypes?: string;
   parent?: string;
 }
 
@@ -86,7 +87,7 @@ function listObjects(
 
 /** The key that identifies "the same object" on two connections. */
 export const objectKey = (o: DbObjectInfo) =>
-  `${o.kind}:${o.name}(${o.args ?? ""})@${o.parent ?? ""}`;
+  `${o.kind}:${o.name}(${o.argTypes ?? o.args ?? ""})@${o.parent ?? ""}`;
 
 /**
  * A definition with the noise two deployments of the same code differ by
@@ -187,25 +188,33 @@ function single<T>(rows: T[], ref: ObjectRef, key: (r: T) => string): T | null {
 const PG_NOT_EXTENSION = `NOT EXISTS (SELECT 1 FROM pg_depend d
   WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')`;
 
+// A trigger on a partitioned table is cloned onto every partition. The clones
+// (a partition dependency on the parent trigger; tgparentid needs PG 13) are
+// that one trigger, not objects of their own.
+const PG_NOT_CLONE = `NOT EXISTS (SELECT 1 FROM pg_depend pd
+  WHERE pd.classid = 'pg_trigger'::regclass AND pd.objid = t.oid
+    AND pd.refclassid = 'pg_trigger'::regclass AND pd.deptype = 'P')`;
+
 // The bodies (the last column) are only fetched for a drift report.
 const pgObjectsSql = (defs: boolean) => `
 SELECT p.proname AS name,
        CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END AS kind,
        pg_get_function_identity_arguments(p.oid) AS args, NULL AS parent,
-       ${defs ? "pg_get_functiondef(p.oid)" : "NULL"} AS definition
+       ${defs ? "pg_get_functiondef(p.oid)" : "NULL"} AS definition,
+       oidvectortypes(p.proargtypes) AS arg_types
 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = $1 AND p.prokind IN ('f', 'p') AND ${PG_NOT_EXTENSION}
 UNION ALL
 SELECT c.relname, 'view', NULL, NULL,
-       ${defs ? "pg_get_viewdef(c.oid, true)" : "NULL"}
+       ${defs ? "pg_get_viewdef(c.oid, true)" : "NULL"}, NULL
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = $1 AND c.relkind IN ('v', 'm')
 UNION ALL
 SELECT t.tgname, 'trigger', NULL, c.relname,
-       ${defs ? "pg_get_triggerdef(t.oid, true)" : "NULL"}
+       ${defs ? "pg_get_triggerdef(t.oid, true)" : "NULL"}, NULL
 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = $1 AND NOT t.tgisinternal
+WHERE n.nspname = $1 AND NOT t.tgisinternal AND ${PG_NOT_CLONE}
 ORDER BY 1, 3`;
 
 async function getPostgresObjects(
@@ -221,6 +230,9 @@ async function getPostgresObjects(
       name: r.name,
       kind: r.kind,
       ...(r.args != null && { args: r.args }),
+      // Drift and "Compare with…" match overloads by argument types, so a
+      // renamed parameter reads as "different", not as missing.
+      ...(r.arg_types != null && { argTypes: r.arg_types }),
       ...(r.parent != null && { parent: r.parent }),
       ...(withDefinitions && { definition: r.definition ?? null }),
     })) as DbObjectDefinition[];
@@ -248,17 +260,19 @@ SELECT NULL AS args, c.relname AS parent,
 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = $1 AND t.tgname = $2 AND NOT t.tgisinternal
-  AND ($3::text IS NULL OR c.relname = $3)
+  AND ${PG_NOT_CLONE} AND ($3::text IS NULL OR c.relname = $3)
 ORDER BY c.relname`,
 };
 
 function pgRoutineSql(prokind: string): string {
   return `
 SELECT pg_get_function_identity_arguments(p.oid) AS args, NULL AS parent,
-       pg_get_functiondef(p.oid) AS definition
+       pg_get_functiondef(p.oid) AS definition,
+       oidvectortypes(p.proargtypes) AS arg_types
 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = $1 AND p.proname = $2 AND p.prokind = ${prokind}
-  AND ($3::text IS NULL OR pg_get_function_identity_arguments(p.oid) = $3)
+  AND ($3::text IS NULL OR pg_get_function_identity_arguments(p.oid) = $3
+       OR oidvectortypes(p.proargtypes) = $4)
 ORDER BY 1`;
 }
 
@@ -274,10 +288,14 @@ async function getPostgresDefinition(
         : ref.kind === "view"
           ? undefined
           : ref.args;
+    const routine = ref.kind === "function" || ref.kind === "procedure";
     const res = await pool.query(PG_DEFINITION_SQL[ref.kind as SqlObjectKind], [
       ref.schema,
       ref.name,
       key ?? null,
+      // The same overload in another environment may name its parameters
+      // differently: its argument types still match.
+      ...(routine ? [ref.argTypes ?? null] : []),
     ]);
     const row = single(res.rows, ref, (r) =>
       ref.kind === "trigger" ? r.parent : `(${r.args})`,
@@ -288,6 +306,7 @@ async function getPostgresDefinition(
       name: ref.name,
       kind: ref.kind,
       ...(row.args != null && { args: row.args }),
+      ...(row.arg_types != null && { argTypes: row.arg_types }),
       ...(row.parent != null && { parent: row.parent }),
       definition: row.definition ?? null,
     };
@@ -465,17 +484,20 @@ const pgWordMatch = (body: string, name: string) =>
 
 /** Relations a view's rewrite rule depends on, or that depend on a relation. */
 const PG_VIEW_DEPS = `
-SELECT 'uses' AS dir, rn.nspname AS sch, c.relname AS name, ${PG_RELKIND} AS kind
+SELECT 'uses' AS dir, rn.nspname AS sch, c.relname AS name, ${PG_RELKIND} AS kind,
+       NULL::text AS args, NULL::text AS parent
 FROM pg_class v JOIN pg_namespace vn ON vn.oid = v.relnamespace
 JOIN pg_rewrite r ON r.ev_class = v.oid
 JOIN pg_depend d ON d.classid = 'pg_rewrite'::regclass AND d.objid = r.oid
+  AND d.refclassid = 'pg_class'::regclass
 JOIN pg_class c ON c.oid = d.refobjid AND c.oid <> v.oid
 JOIN pg_namespace rn ON rn.oid = c.relnamespace
 WHERE vn.nspname = $1 AND v.relname = $2 AND $3::text = 'view'
 UNION
-SELECT 'usedBy', vn.nspname, v.relname, 'view'
+SELECT 'usedBy', vn.nspname, v.relname, 'view', NULL, NULL
 FROM pg_class t JOIN pg_namespace tn ON tn.oid = t.relnamespace
 JOIN pg_depend d ON d.refobjid = t.oid AND d.classid = 'pg_rewrite'::regclass
+  AND d.refclassid = 'pg_class'::regclass
 JOIN pg_rewrite r ON r.oid = d.objid
 JOIN pg_class v ON v.oid = r.ev_class AND v.oid <> t.oid
 JOIN pg_namespace vn ON vn.oid = v.relnamespace
@@ -483,16 +505,20 @@ WHERE tn.nspname = $1 AND t.relname = $2 AND $3::text = 'view'`;
 
 /** A trigger uses its table and the function it executes. */
 const PG_TRIGGER_DEPS = `
-SELECT 'uses' AS dir, n.nspname AS sch, c.relname AS name, 'table' AS kind
+SELECT 'uses' AS dir, n.nspname AS sch, c.relname AS name, 'table' AS kind,
+       NULL::text AS args, NULL::text AS parent
 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = $1 AND t.tgname = $2 AND ($3::text IS NULL OR c.relname = $3)
+WHERE n.nspname = $1 AND t.tgname = $2 AND ${PG_NOT_CLONE}
+  AND ($3::text IS NULL OR c.relname = $3)
 UNION
-SELECT 'uses', fn.nspname, p.proname, 'function'
+SELECT 'uses', fn.nspname, p.proname, 'function',
+       pg_get_function_identity_arguments(p.oid), NULL
 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
 JOIN pg_proc p ON p.oid = t.tgfoid JOIN pg_namespace fn ON fn.oid = p.pronamespace
-WHERE n.nspname = $1 AND t.tgname = $2 AND ($3::text IS NULL OR c.relname = $3)`;
+WHERE n.nspname = $1 AND t.tgname = $2 AND ${PG_NOT_CLONE}
+  AND ($3::text IS NULL OR c.relname = $3)`;
 
 /** Relations named in a routine's body, and the triggers that run it. */
 const PG_ROUTINE_DEPS = `
@@ -501,21 +527,23 @@ WITH f AS (
   WHERE n.nspname = $1 AND p.proname = $2
     AND ($3::text IS NULL OR pg_get_function_identity_arguments(p.oid) = $3)
 )
-SELECT DISTINCT 'uses' AS dir, n.nspname AS sch, c.relname AS name, ${PG_RELKIND} AS kind
+SELECT DISTINCT 'uses' AS dir, n.nspname AS sch, c.relname AS name, ${PG_RELKIND} AS kind,
+       NULL::text AS args, NULL::text AS parent
 FROM f, pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE c.relkind IN ('r', 'v', 'm', 'p', 'f')
   AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\\_%'
   AND ${pgWordMatch("f.prosrc", "c.relname")}
 UNION
-SELECT 'usedBy', n.nspname, t.tgname, 'trigger'
+SELECT 'usedBy', n.nspname, t.tgname, 'trigger', NULL, c.relname
 FROM f JOIN pg_trigger t ON t.tgfoid = f.oid
 JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE NOT t.tgisinternal`;
+WHERE NOT t.tgisinternal AND ${PG_NOT_CLONE}`;
 
 /** Routines whose body names this object — Postgres keeps no record of it. */
 const PG_BODY_USED_BY = `
 SELECT DISTINCT 'usedBy' AS dir, n.nspname AS sch, p.proname AS name,
-       CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END AS kind
+       CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END AS kind,
+       pg_get_function_identity_arguments(p.oid) AS args, NULL::text AS parent
 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.prokind IN ('f', 'p') AND ${PG_NOT_EXTENSION}
   AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\\_%'
@@ -551,6 +579,9 @@ async function getPostgresDependencies(
         schema: r.sch,
         name: r.name,
         kind: r.kind,
+        // Enough to open the exact overload, or the trigger on its table.
+        ...(r.args != null && { args: r.args }),
+        ...(r.parent != null && { parent: r.parent }),
       });
     return dedupe(out);
   } finally {
@@ -561,8 +592,95 @@ async function getPostgresDependencies(
 function dedupe(d: DbObjectDependencies): DbObjectDependencies {
   const uniq = (list: DbObjectReference[]) => [
     ...new Map(
-      list.map((r) => [`${r.database}.${r.schema}.${r.name}.${r.kind}`, r]),
+      list.map((r) => [
+        `${r.database}.${r.schema}.${r.name}.${r.kind}(${r.args})@${r.parent}`,
+        r,
+      ]),
     ).values(),
   ];
   return { ...d, uses: uniq(d.uses), usedBy: uniq(d.usedBy) };
+}
+
+/**
+ * Whether `name` (schema.routine, or routine on SQL Server) is a procedure or
+ * function this database's team wrote: not built in, not owned by an
+ * extension (dblink, pg_cron, …), not in a system schema. A job step may only
+ * call one of those — a built-in can run SQL handed to it as a string.
+ */
+export async function isUserRoutine(
+  conn: ConnectionConfig,
+  name: string,
+): Promise<boolean> {
+  if (conn.type === "postgres") {
+    // Resolved as Postgres would: unquoted folds to lower case.
+    const [schema, routine] = (name.match(/"[^"]+"|[^.]+/g) ?? []).map((p) =>
+      p.startsWith('"') ? p.slice(1, -1) : p.trim().toLowerCase(),
+    );
+    if (!routine) return false;
+    const pool = introspectPgPool(conn);
+    try {
+      const res = await pool.query(
+        `SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = $1 AND p.proname = $2 AND p.prokind IN ('f', 'p')
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\\_%'
+  AND ${PG_NOT_EXTENSION} LIMIT 1`,
+        [schema, routine],
+      );
+      return res.rows.length > 0;
+    } finally {
+      await pool.end();
+    }
+  }
+  if (conn.type === "mssql") {
+    const pool = introspectMssqlPool(conn);
+    try {
+      await pool.connect();
+      // sys.objects holds only this database's objects, and not the system
+      // ones (sp_*, xp_* live in sys.system_objects / master).
+      const res = await pool
+        .request()
+        .input("name", mssql.NVarChar, name)
+        .query(
+          `SELECT 1 AS ok FROM sys.objects
+WHERE object_id = OBJECT_ID(@name) AND is_ms_shipped = 0
+  AND type IN ('P', 'PC', 'FN', 'IF', 'TF', 'FS', 'FT')`,
+        );
+      return res.recordset.length > 0;
+    } finally {
+      await pool.close();
+    }
+  }
+  return false;
+}
+
+/**
+ * The canonical type of each Postgres argument (from splitPgArgs), resolved
+ * by the database so int / int4 / integer, varchar(50) / character varying
+ * and public.my_type / my_type compare equal; null for one it can't resolve.
+ * An entry may begin with the parameter name, so the part after the first
+ * word is tried before the whole ("p_ts timestamp", "double precision").
+ */
+export async function pgArgTypes(
+  conn: ConnectionConfig,
+  args: string[],
+): Promise<(string | null)[]> {
+  const pool = introspectPgPool(conn);
+  const resolve = async (t: string) => {
+    try {
+      const r = await pool.query("SELECT to_regtype($1)::text AS t", [t]);
+      return (r.rows[0]?.t as string | null) ?? null;
+    } catch {
+      return null; // not a type name at all
+    }
+  };
+  try {
+    const out: (string | null)[] = [];
+    for (const a of args) {
+      const tail = a.includes(" ") ? a.slice(a.indexOf(" ") + 1) : null;
+      out.push((tail && (await resolve(tail))) || (await resolve(a)));
+    }
+    return out;
+  } finally {
+    await pool.end();
+  }
 }

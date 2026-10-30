@@ -88,8 +88,16 @@ export function QueryWorkspace() {
     >
       <QueryTabs onSaveTab={() => setSaveSignal((n) => n + 1)} />
       {activeTab?.kind === "artifact" && <ArtifactView tab={activeTab} />}
-      {activeTab?.kind === "object" && <ObjectView tab={activeTab} />}
-      {activeTab?.kind === "job" && <JobView tab={activeTab} />}
+      {/* Keyed so a tab's compare/edit state never carries into another. */}
+      {activeTab?.kind === "object" && (
+        <ObjectView
+          key={`${activeTab.id}:${activeTab.compareSeq ?? 0}`}
+          tab={activeTab}
+        />
+      )}
+      {activeTab?.kind === "job" && (
+        <JobView key={activeTab.id} tab={activeTab} />
+      )}
       {activeTab && (activeTab.kind ?? "sql") === "sql" && (
         <>
           <QueryEditor

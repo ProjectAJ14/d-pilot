@@ -60,6 +60,15 @@ const job = (): JobDetail => ({
 const h = vi.hoisted(() => ({
   executeMigration: vi.fn(),
   job: null as JobDetail | null,
+  readError: null as Error | null,
+  // Routines the catalog knows as this database's own.
+  userRoutines: ["app_core.refresh_order_totals"] as string[],
+}));
+vi.mock("../services/schema-objects.js", async (orig) => ({
+  ...(await orig<typeof import("../services/schema-objects.js")>()),
+  isUserRoutine: vi.fn(async (_c: unknown, name: string) =>
+    h.userRoutines.includes(name),
+  ),
 }));
 vi.mock("../services/write-executor.js", async (orig) => ({
   ...(await orig<typeof import("../services/write-executor.js")>()),
@@ -71,7 +80,10 @@ vi.mock("../services/query-executor.js", async (orig) => ({
 }));
 vi.mock("../services/jobs.js", async (orig) => ({
   ...(await orig<typeof import("../services/jobs.js")>()),
-  getJobDetail: vi.fn(async () => h.job),
+  getJobDetail: vi.fn(async () => {
+    if (h.readError) throw h.readError;
+    return h.job;
+  }),
 }));
 
 const store = await import("../services/sqlite-store.js");
@@ -101,12 +113,15 @@ beforeAll(async () => {
       sub,
       email: `${sub}@example.com`,
       isAdmin: false,
-      allowedEnvironments: ["QA"],
+      allowedEnvironments: sub === "blindops" ? [] : ["QA"],
       unmaskEnvironments: [],
-      writeEnvironments: ["QA"],
+      // "jobsonly" has the job capability but not write.
+      writeEnvironments: sub === "jobsonly" ? [] : ["QA"],
       approveEnvironments: ["QA"],
       // Only "ops" may change jobs; "dev" can write data but not jobs.
-      jobEnvironments: sub === "ops" ? ["QA"] : [],
+      jobEnvironments: ["ops", "jobsonly", "blindops"].includes(sub)
+        ? ["QA"]
+        : [],
     } as any;
     next();
   });
@@ -124,6 +139,7 @@ afterAll(() => {
 
 beforeEach(() => {
   h.job = job();
+  h.readError = null;
   h.executeMigration.mockReset();
   h.executeMigration.mockResolvedValue({
     rowsAffected: 0,
@@ -254,5 +270,108 @@ describe("job_change", () => {
     expect((await call("ops", `/${sched.body.id}/submit`)).body.status).toBe(
       "PENDING",
     );
+  });
+
+  it("needs write as well as the job capability, as submitting does", async () => {
+    const res = await raise(
+      { type: "set_enabled", enabled: false },
+      "jobsonly",
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("refuses an enabled flag that is not a boolean, instead of disabling", async () => {
+    const res = await raise({ type: "set_enabled", enabled: "true" });
+    expect(res.status).toBe(400);
+  });
+
+  it("answers, rather than crashing, when the job can't be read", async () => {
+    h.readError = Object.assign(new Error("connect ECONNREFUSED"), {
+      name: "ConnectionError",
+      code: "ESOCKET",
+      preConnect: true,
+    });
+    const res = await raise({ type: "set_enabled", enabled: false });
+    expect(res.status).toBe(503);
+
+    h.readError = null;
+    const { body } = await raise({ type: "set_enabled", enabled: false });
+    h.readError = new Error("boom");
+    expect((await call("approver", `/${body.id}/approve`)).status).toBe(500);
+    expect(h.executeMigration).not.toHaveBeenCalled();
+  });
+
+  it("refuses, and audits, changes that would reach another database's work", async () => {
+    const before = refusals().length;
+    h.job = {
+      ...job(),
+      steps: [
+        ...job().steps,
+        {
+          id: 3,
+          name: "elsewhere",
+          subsystem: "TSQL",
+          command: "-- hidden",
+          database: "billing",
+        },
+      ],
+    };
+    const rename = await raise({ type: "rename", name: "x" });
+    expect(rename.status).toBe(400);
+    expect(rename.body.error).toContain("another database");
+
+    h.job = {
+      ...job(),
+      schedules: [{ ...job().schedules[0], sharedWith: 2 }],
+    };
+    const shared = await raise({
+      type: "set_schedule",
+      scheduleId: "8",
+      msdb: {
+        freq_type: 4,
+        freq_interval: 1,
+        freq_subday_type: 1,
+        freq_subday_interval: 0,
+        freq_recurrence_factor: 0,
+        active_start_time: 60000,
+        active_end_time: 235959,
+      },
+    });
+    expect(shared.status).toBe(400);
+    expect(shared.body.error).toContain("shared with 2");
+    expect(refusals()).toHaveLength(before + 2);
+  });
+
+  it("calls only the database's own routines, never a built-in or system one", async () => {
+    const before = refusals().length;
+    for (const command of [
+      "EXEC sp_addrolemember 'db_owner', 'app_user'",
+      "EXEC dbo.sp_rename 'dbo.orders', 'orders_old'",
+      "EXEC app_core.not_ours",
+    ]) {
+      const res = await raise({ type: "edit_step", stepId: 1, command });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain(
+        "not a procedure or function of this database",
+      );
+    }
+    expect(refusals()).toHaveLength(before + 3);
+    expect(
+      (
+        await raise({
+          type: "edit_step",
+          stepId: 1,
+          command: "EXEC app_core.refresh_order_totals 7",
+        })
+      ).status,
+    ).toBe(201);
+  });
+
+  it("needs read on the environment, since the request returns the job's steps", async () => {
+    const res = await raise(
+      { type: "set_enabled", enabled: false },
+      "blindops",
+    );
+    expect(res.status).toBe(403);
   });
 });

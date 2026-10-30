@@ -72,17 +72,21 @@ const Mono = ({ children }: { children: string }) => (
   </pre>
 );
 
+/** Database names compare without case, as the server does. */
+const otherDb = (step: string | undefined, own: string | undefined) =>
+  !!step && step.toLowerCase() !== (own ?? "").toLowerCase();
+
 /**
  * Whether the job also runs steps on another database — then only this
  * database's own step commands can change (the server refuses the rest).
  */
 const runsElsewhere = (job: JobDetail) =>
-  job.steps.some((s) => s.database && s.database !== job.database);
+  job.steps.some((s) => otherDb(s.database, job.database));
 
 /** SQL steps on this database: the ones a job_change may rewrite. */
 const stepEditable = (job: JobDetail, s: JobDetail["steps"][number]) =>
   ["TSQL", "SQL"].includes(s.subsystem.toUpperCase()) &&
-  (!s.database || s.database === job.database);
+  !otherDb(s.database, job.database);
 
 /**
  * A scheduled job (SQL Server Agent or pg_cron), read live: what it runs, when,
@@ -97,10 +101,15 @@ export function JobView({ tab }: { tab: QueryTab }) {
   const env = useStore(
     (s) => s.connections.find((c) => c.id === tab.connectionId)?.env,
   );
-  // Changing a job is its own capability, not write access.
+  // Changing a job is its own capability, on top of write access.
   const canChange = useStore(
     (s) =>
-      !!s.user?.isAdmin || !!(env && s.user?.jobEnvironments?.includes(env)),
+      !!s.user?.isAdmin ||
+      !!(
+        env &&
+        s.user?.jobEnvironments?.includes(env) &&
+        s.user?.writeEnvironments?.includes(env)
+      ),
   );
 
   useEffect(() => {
@@ -119,6 +128,16 @@ export function JobView({ tab }: { tab: QueryTab }) {
     return (
       <Alert m="md" color="red" variant="light" title="Could not load job">
         {error}
+        <Button
+          size="xs"
+          variant="light"
+          color="red"
+          mt="sm"
+          display="block"
+          onClick={() => setReload((n) => n + 1)}
+        >
+          Try again
+        </Button>
       </Alert>
     );
   if (!job)

@@ -40,6 +40,22 @@ describe("bound tabs", () => {
     expect(useStore.getState().activeConnectionId).toBe("qa-pg");
   });
 
+  it("applies a drift report's comparison to an object tab that is already open", () => {
+    const o = {
+      schema: "app_core",
+      name: "open_orders",
+      kind: "view" as const,
+    };
+    useStore.getState().openObjectTab("qa-pg", o);
+    const id = useStore.getState().activeTabId;
+    useStore.getState().addTab("qa-pg");
+    useStore.getState().openObjectTab("qa-pg", o, "prod-pg");
+    const tab = useStore.getState().tabs.find((t) => t.id === id)!;
+    expect(useStore.getState().activeTabId).toBe(id);
+    expect(tab.compareWith).toBe("prod-pg");
+    expect(tab.compareSeq).toBe(1);
+  });
+
   it("still re-points an active SQL tab", () => {
     useStore.getState().addTab("qa-pg");
     useStore.getState().setActiveConnection("qa-ms");
