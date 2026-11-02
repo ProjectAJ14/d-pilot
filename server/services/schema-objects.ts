@@ -157,11 +157,11 @@ export function compareJobs(
   left: JobDefinition[],
   right: JobDefinition[],
 ): JobDriftReport {
-  const r = new Map(right.map((j) => [j.name, j]));
+  const r = new Map(right.map((j) => [j.key, j]));
   const items: JobDriftReport["items"] = [];
   let identical = 0;
   for (const j of left) {
-    const other = r.get(j.name);
+    const other = r.get(j.key);
     if (!other) items.push({ name: j.name, status: "only_left", leftId: j.id });
     else if (definitionHash(j.definition) === definitionHash(other.definition))
       identical++;
@@ -173,9 +173,9 @@ export function compareJobs(
         rightId: other.id,
       });
   }
-  const l = new Set(left.map((j) => j.name));
+  const l = new Set(left.map((j) => j.key));
   for (const j of right)
-    if (!l.has(j.name))
+    if (!l.has(j.key))
       items.push({ name: j.name, status: "only_right", rightId: j.id });
   items.sort((a, b) => a.name.localeCompare(b.name));
   return { identical, items };

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import mssql from "mssql";
 import type {
   ConnectionConfig,
@@ -436,6 +437,8 @@ async function getCronJobDetail(
 export interface JobDefinition {
   id: string;
   name: string;
+  /** What the job is matched on across servers: its name, or for an unnamed job a hash of its command. */
+  key: string;
   definition: string;
 }
 
@@ -494,6 +497,7 @@ async function getAgentDefinitions(conn: ConnectionConfig) {
       const job = jobs.get(id) ?? {
         id,
         name: s.name,
+        key: s.name,
         definition: `schedule: ${(when.get(id) ?? []).sort().join("; ")}`,
       };
       job.definition += `\n\nstep ${s.step_id} ${s.step_name} [${s.subsystem}]\n${
@@ -522,8 +526,12 @@ async function getCronDefinitions(conn: ConnectionConfig) {
     available: true,
     jobs: rows.map((r: any) => ({
       id: String(r.jobid),
-      // An unnamed job's id differs per server; its command is what matches.
-      name: r.jobname ?? `(unnamed) ${r.command}`,
+      // An unnamed job's id differs per server, so it matches on its command
+      // — by hash: the report carries names only, a command is a JOB_VIEW.
+      name: r.jobname ?? `(unnamed job ${r.jobid})`,
+      key:
+        r.jobname ??
+        `unnamed:${createHash("sha256").update(r.command.trim()).digest("hex")}`,
       definition: `schedule: ${r.schedule}\n\n${r.command}`,
     })),
   };

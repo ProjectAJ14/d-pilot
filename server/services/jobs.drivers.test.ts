@@ -558,11 +558,13 @@ describe("getJobDefinitions", () => {
         {
           id: GUID.toLowerCase(),
           name: "nightly",
+          key: "nightly",
           definition: `schedule: Daily, at 02:30; Daily, at 14:00\n\nstep 1 recalc [TSQL]\nEXEC app_core.refresh_order_totals\n\nstep 2 archive [TSQL]\n${OTHER_DB_STEP}`,
         },
         {
           id: "aaaaaaaa-0000-0000-0000-000000000000",
           name: "adhoc",
+          key: "adhoc",
           definition: "schedule: \n\nstep 1 run [TSQL]\nSELECT 1",
         },
       ],
@@ -617,11 +619,14 @@ describe("getJobDefinitions", () => {
         {
           id: "7",
           name: "vacuum",
+          key: "vacuum",
           definition: "schedule: 0 3 * * *\n\nVACUUM orders",
         },
         {
           id: "8",
-          name: "(unnamed) SELECT 1",
+          // Matched on the command's hash; the command itself never leaves.
+          name: "(unnamed job 8)",
+          key: "unnamed:e004ebd5b5532a4b85984a62f8ad48a81aa3460c1ca07701f386135d72cdecf5",
           definition: "schedule: */5 * * * *\n\nSELECT 1",
         },
       ],

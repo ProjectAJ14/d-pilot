@@ -634,6 +634,7 @@ describe("getDrift", () => {
           {
             id: "1",
             name: "vacuum",
+            key: "vacuum",
             definition: "schedule: 0 3 * * *\n\nVACUUM orders",
           },
         ],
@@ -653,7 +654,7 @@ describe("getDrift", () => {
     h.jobs = {
       "qa-ms": {
         available: true,
-        jobs: [{ id: "a", name: "nightly", definition: "x" }],
+        jobs: [{ id: "a", name: "nightly", key: "nightly", definition: "x" }],
       },
       "prod-ms": {
         available: false,
@@ -690,10 +691,11 @@ describe("getDrift", () => {
 });
 
 describe("compareJobs", () => {
-  it("matches jobs by name across servers and compares normalized definitions", () => {
-    const j = (id: string, name: string, definition: string) => ({
+  it("matches jobs by key across servers and compares normalized definitions", () => {
+    const j = (id: string, name: string, definition: string, key = name) => ({
       id,
       name,
+      key,
       definition,
     });
     const report = compareJobs(
@@ -701,15 +703,18 @@ describe("compareJobs", () => {
         j("1", "same", "SELECT 1  \r\n"),
         j("2", "changed", "a"),
         j("3", "qa_only", "x"),
+        // Unnamed: different ids and names on each server, same key.
+        j("4", "(unnamed job 4)", "y", "unnamed:abc"),
       ],
       [
         j("9", "same", "SELECT 1"),
         j("8", "changed", "b"),
         j("7", "prod_only", "y"),
+        j("6", "(unnamed job 6)", "y", "unnamed:abc"),
       ],
     );
     expect(report).toEqual({
-      identical: 1,
+      identical: 2,
       items: [
         { name: "changed", status: "different", leftId: "2", rightId: "8" },
         { name: "prod_only", status: "only_right", rightId: "7" },
