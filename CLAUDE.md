@@ -19,6 +19,7 @@ npm run lint             # ESLint (.ts, .tsx)
 npm run format           # Prettier
 npm run format:check     # Prettier in check mode (what CI runs)
 npm run typecheck        # tsc --noEmit over src + server
+npm test                 # vitest with coverage — fails below 100% (see "Test coverage" below)
 npm run verify           # format:check + lint + typecheck + test — the CI gate, minus the build
 npm run dev:db           # Docker: local DEV/QA/PROD Postgres (5433-5435), reseeded and registered as connections
 npm run dev:db:down      # Stop them
@@ -156,6 +157,30 @@ Settings (db > env > default):** `MAX_ROWS` (10000), `QUERY_TIMEOUT_MS` (90000),
 `APP_NAME`/`LOGO_URL`/`LIGHT_LOGO_URL`/`FAVICON_URL`/`APP_BASE_URL`/`LOGIN_TAGLINE`/`LOGIN_SUBTITLE`/`NETWORK_HINT` (branding),
 `EMAIL_DOMAIN`. **Settings only (no env var):** connections and `AZURE_OPENAI_*`. Full
 reference in `README.md`.
+
+## Test coverage — 100%, enforced
+
+Coverage is held at **100% statements, branches, functions and lines** across `src/`,
+`server/`, `public/*.mjs` and `vite.pwa.config.ts`. `npm test` runs with coverage and
+`vite.config.ts` sets `thresholds: { 100: true }`, so CI and `pre-push` fail on any uncovered
+line or branch. Rules for every change:
+
+- **Ship tests with the code.** New or changed code comes with tests in the same change that
+  cover every line and branch. Check with `npx vitest run <files> --coverage
+--coverage.include='<source file>' --coverage.reporter=text`, then `npm test`.
+- **Tests assert behaviour** (what renders, which API was called with what, status codes,
+  audit rows), not just that the code ran.
+- **Never `v8 ignore` / `istanbul ignore` / `c8 ignore`**, and never narrow `coverage.include`
+  or lower the thresholds to get green.
+- **An unreachable branch is a code smell, not a coverage exception.** First force it in a
+  test (mock the collaborator, or call a disabled control's handler with
+  `fireReactHandler`, `src/utils/react-handler.testing.ts`). If it is truly dead, delete it —
+  but never a validation, capability, masking or production-rail check: those are defence
+  in depth and get a test instead.
+- **Component tests** start with `// @vitest-environment jsdom` and render through
+  `renderUi` (`src/utils/dom.testing.tsx`: Mantine + router + jsdom stubs). Mock Monaco and
+  AG Grid with fakes that capture their props. Test-only helpers are named `*.testing.ts(x)`
+  and are excluded from coverage.
 
 ## Conventions
 
