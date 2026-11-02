@@ -5,6 +5,15 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+## [2.7.1](https://github.com/ProjectAJ14/d-pilot/compare/v2.7.0...v2.7.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **ai:** match schema-qualified quoted tables in few-shot examples ([49245ac](https://github.com/ProjectAJ14/d-pilot/commit/49245ac44a3cdc2f4fbe09d79901d358f5a8ccde))
+* **query:** don't skip the default LIMIT for limit words in a string ([b817e12](https://github.com/ProjectAJ14/d-pilot/commit/b817e1247d80cfa0d58bbb4fe0edf24ff67fa8be))
+* **settings:** drop the "Jan undefined" peak on an empty analytics chart ([7a2f4c0](https://github.com/ProjectAJ14/d-pilot/commit/7a2f4c09f446508d85b1e41e97e957ae72847621))
+
 # [2.7.0](https://github.com/ProjectAJ14/d-pilot/compare/v2.6.0...v2.7.0) (2026-10-30)
 
 
