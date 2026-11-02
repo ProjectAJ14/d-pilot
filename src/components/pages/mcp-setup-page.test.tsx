@@ -46,7 +46,7 @@ describe("McpSetupPage", () => {
     vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
       "Mozilla/5.0 (Macintosh)",
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     mount();
     expect(screen.getByLabelText("Username")).toHaveProperty("value", "alice");
     expect(within(panel()).getByText(/Run these in a terminal/)).toBeTruthy();
@@ -85,7 +85,7 @@ describe("McpSetupPage", () => {
   });
 
   it("says what is missing when both username and password are blank", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     useStore.setState({ user: null });
     mount();
     expect(screen.getByLabelText("Username")).toHaveProperty("value", "");
@@ -107,7 +107,7 @@ describe("McpSetupPage", () => {
       value: { platform: "Windows" },
       configurable: true,
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     mount();
     expect(within(panel()).getByText(/Run these in PowerShell/)).toBeTruthy();
     expect(codeBlocks()[0]).toMatch(/Invoke-WebRequest|\$env|iwr/i);

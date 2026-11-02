@@ -61,7 +61,7 @@ describe("QueryTabs", () => {
   });
 
   it("renames on double-click: Enter commits trimmed, blanks are ignored, Escape cancels", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderUi(<QueryTabs />);
     await user.dblClick(screen.getByText("Tab 1"));
     const input = screen.getByDisplayValue("Tab 1");
@@ -92,7 +92,7 @@ describe("QueryTabs", () => {
 
   it("context menu: rename, save (sql only) and close", async () => {
     const onSaveTab = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderUi(<QueryTabs onSaveTab={onSaveTab} />);
 
     fireEvent.contextMenu(screen.getByText("Tab 4"), {
@@ -115,7 +115,7 @@ describe("QueryTabs", () => {
   });
 
   it("context menu tolerates its tab vanishing and a missing save handler", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderUi(<QueryTabs />);
     fireEvent.contextMenu(screen.getByText("Tab 1"));
     await user.click(await screen.findByText("Save query"));

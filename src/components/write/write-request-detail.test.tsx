@@ -120,7 +120,7 @@ function render(wr: WriteRequest | Error) {
   );
 }
 
-const user = userEvent.setup();
+const user = userEvent.setup({ delay: null });
 
 beforeEach(() => {
   vi.clearAllMocks();

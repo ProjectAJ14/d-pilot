@@ -26,7 +26,7 @@ beforeEach(() => {
 });
 
 async function openAndPickReason() {
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   renderUi(<PhiUnmaskModal />);
   act(() => PhiUnmaskModal.open());
   await user.click(await screen.findByPlaceholderText("Select a reason..."));

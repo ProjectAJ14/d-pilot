@@ -30,7 +30,7 @@ export function renderSettings(tab?: string) {
   });
 }
 
-export const user = () => userEvent.setup();
+export const user = () => userEvent.setup({ delay: null });
 
 /** The open Mantine modal; it mounts a frame after its trigger, hence async. */
 export const dialog = async () => within(await screen.findByRole("dialog"));

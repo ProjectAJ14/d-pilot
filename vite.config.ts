@@ -64,6 +64,9 @@ export default defineConfig(({ mode }) => {
       },
     },
     test: {
+      // Component tests render real Mantine trees; CI runners are several
+      // times slower than a laptop, so the 5 s default flakes there.
+      testTimeout: 20000,
       coverage: {
         provider: "v8",
         include: [
