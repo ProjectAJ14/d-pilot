@@ -10,7 +10,9 @@ import type {
   SqlObjectKind,
   DriftItem,
   DriftReport,
+  JobDriftReport,
 } from "../types/index.js";
+import { getJobDefinitions, type JobDefinition } from "./jobs.js";
 import {
   introspectMssqlPool,
   introspectPgPool,
@@ -119,11 +121,55 @@ export async function getDrift(
   schema?: string,
 ): Promise<DriftReport> {
   const s = resolveSchema(left, schema);
-  const [l, r] = await Promise.all([
+  const [l, r, lj, rj] = await Promise.all([
     listObjects(left, s, true),
     listObjects(right, s, true),
+    getJobDefinitions(left),
+    getJobDefinitions(right),
   ]);
-  return compareDefinitions(s, l, r);
+  const report: DriftReport = compareDefinitions(s, l, r);
+  // Jobs belong to the database, not the schema; matched by name.
+  const unreadable = [
+    lj.reason && `${left.name}: ${lj.reason}`,
+    rj.reason && `${right.name}: ${rj.reason}`,
+  ].filter(Boolean);
+  if (unreadable.length)
+    report.jobs = {
+      identical: 0,
+      items: [],
+      unavailable: unreadable.join(" "),
+    };
+  else if (lj.jobs.length || rj.jobs.length)
+    report.jobs = compareJobs(lj.jobs, rj.jobs);
+  return report;
+}
+
+export function compareJobs(
+  left: JobDefinition[],
+  right: JobDefinition[],
+): JobDriftReport {
+  const r = new Map(right.map((j) => [j.name, j]));
+  const items: JobDriftReport["items"] = [];
+  let identical = 0;
+  for (const j of left) {
+    const other = r.get(j.name);
+    if (!other) items.push({ name: j.name, status: "only_left", leftId: j.id });
+    else if (definitionHash(j.definition) === definitionHash(other.definition))
+      identical++;
+    else
+      items.push({
+        name: j.name,
+        status: "different",
+        leftId: j.id,
+        rightId: other.id,
+      });
+  }
+  const l = new Set(left.map((j) => j.name));
+  for (const j of right)
+    if (!l.has(j.name))
+      items.push({ name: j.name, status: "only_right", rightId: j.id });
+  items.sort((a, b) => a.name.localeCompare(b.name));
+  return { identical, items };
 }
 
 export function compareDefinitions(

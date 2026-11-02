@@ -25,8 +25,16 @@ vi.mock("./schema-introspector.js", () => ({
   }),
 }));
 
-const { getJobs, getJobDetail, getJobsCalling, JobAccessError } =
-  await import("./jobs.js");
+const {
+  getJobs,
+  getJobDetail,
+  getJobsCalling,
+  getJobDefinitions,
+  JobAccessError,
+  AGENT_GRANT,
+  PG_CRON_GRANT,
+  OTHER_DB_STEP,
+} = await import("./jobs.js");
 
 const ms = {
   id: "m",
@@ -490,5 +498,147 @@ describe("getJobsCalling", () => {
     pgWithCron(() => ({ rows: [] }), false);
     expect(await getJobsCalling(pg, "recalc")).toEqual([]);
     expect(await getJobsCalling(mongo, "recalc")).toEqual([]);
+  });
+});
+
+describe("getJobDefinitions", () => {
+  it("has none on other engines", async () => {
+    expect(await getJobDefinitions(mongo)).toEqual({
+      available: false,
+      jobs: [],
+    });
+  });
+
+  it("writes each Agent job as its enabled schedules and steps, hiding another database's command", async () => {
+    let sql = "";
+    h.ms = (q) => {
+      sql = q;
+      return {
+        recordsets: [
+          [
+            {
+              job_id: GUID,
+              name: "nightly",
+              step_id: 1,
+              step_name: "recalc",
+              subsystem: "TSQL",
+              other_db: 0,
+              command: "EXEC app_core.refresh_order_totals",
+            },
+            {
+              job_id: GUID,
+              name: "nightly",
+              step_id: 2,
+              step_name: "archive",
+              subsystem: "TSQL",
+              other_db: 1,
+              command: null,
+            },
+            {
+              job_id: "AAAAAAAA-0000-0000-0000-000000000000",
+              name: "adhoc",
+              step_id: 1,
+              step_name: "run",
+              subsystem: "TSQL",
+              other_db: 0,
+              command: "SELECT 1",
+            },
+          ],
+          // Listed in either order, a job's schedules read the same.
+          [
+            { job_id: GUID, ...daily, active_start_time: 140000 },
+            { job_id: GUID.toLowerCase(), ...daily },
+          ],
+        ],
+      };
+    };
+    expect(await getJobDefinitions(ms)).toEqual({
+      available: true,
+      jobs: [
+        {
+          id: GUID.toLowerCase(),
+          name: "nightly",
+          definition: `schedule: Daily, at 02:30; Daily, at 14:00\n\nstep 1 recalc [TSQL]\nEXEC app_core.refresh_order_totals\n\nstep 2 archive [TSQL]\n${OTHER_DB_STEP}`,
+        },
+        {
+          id: "aaaaaaaa-0000-0000-0000-000000000000",
+          name: "adhoc",
+          definition: "schedule: \n\nstep 1 run [TSQL]\nSELECT 1",
+        },
+      ],
+    });
+    // Only jobs on this database, and only enabled schedules.
+    expect(sql).toContain("x.database_name = DB_NAME()");
+    expect(sql).toContain("sc.enabled = 1");
+    expect(h.log).toEqual(["connect", "close"]);
+  });
+
+  it("names the msdb grant, and rethrows anything else", async () => {
+    h.ms = () => {
+      throw Object.assign(new Error("denied"), { number: 229 });
+    };
+    expect(await getJobDefinitions(ms)).toEqual({
+      available: false,
+      reason: AGENT_GRANT,
+      jobs: [],
+    });
+    h.ms = () => {
+      throw new Error("timeout");
+    };
+    await expect(getJobDefinitions(ms)).rejects.toThrow("timeout");
+  });
+
+  it("writes each pg_cron job as its schedule and command", async () => {
+    pgWithCron((sql) => {
+      expect(sql).toContain("database = current_database()");
+      return {
+        rows: [
+          {
+            jobid: 7,
+            jobname: "vacuum",
+            schedule: "0 3 * * *",
+            command: "VACUUM orders",
+          },
+          {
+            jobid: 8,
+            jobname: null,
+            schedule: "*/5 * * * *",
+            command: "SELECT 1",
+          },
+        ],
+      };
+    });
+    expect(await getJobDefinitions(pg)).toEqual({
+      available: true,
+      jobs: [
+        {
+          id: "7",
+          name: "vacuum",
+          definition: "schedule: 0 3 * * *\n\nVACUUM orders",
+        },
+        {
+          id: "8",
+          name: "job 8",
+          definition: "schedule: */5 * * * *\n\nSELECT 1",
+        },
+      ],
+    });
+  });
+
+  it("has none without pg_cron, names its grant, and rethrows anything else", async () => {
+    pgWithCron(() => ({ rows: [] }), false);
+    expect(await getJobDefinitions(pg)).toEqual({ available: false, jobs: [] });
+    pgWithCron(() => {
+      throw Object.assign(new Error("denied"), { code: "42501" });
+    });
+    expect(await getJobDefinitions(pg)).toEqual({
+      available: false,
+      reason: PG_CRON_GRANT,
+      jobs: [],
+    });
+    pgWithCron(() => {
+      throw new Error("reset");
+    });
+    await expect(getJobDefinitions(pg)).rejects.toThrow("reset");
   });
 });

@@ -299,6 +299,24 @@ export interface DriftReport {
   /** Objects present on both sides with the same normalized definition. */
   identical: number;
   items: DriftItem[];
+  /** Scheduled jobs on each database, matched by name; absent when neither side has any. */
+  jobs?: JobDriftReport;
+}
+
+/** A job whose steps or schedules differ between two connections, or exists on one only. */
+export interface JobDriftItem {
+  name: string;
+  status: DriftItem["status"];
+  /** The job's id on each side it exists on — ids differ per server. */
+  leftId?: string;
+  rightId?: string;
+}
+
+export interface JobDriftReport {
+  identical: number;
+  items: JobDriftItem[];
+  /** Why jobs couldn't be compared: a side lacks the grant to read them. */
+  unavailable?: string;
 }
 
 /** SQL Server Agent's run_status, decoded; pg_cron's status mapped onto it. */
