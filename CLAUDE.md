@@ -160,27 +160,10 @@ reference in `README.md`.
 
 ## Test coverage — 100%, enforced
 
-Coverage is held at **100% statements, branches, functions and lines** across `src/`,
-`server/`, `public/*.mjs` and `vite.pwa.config.ts`. `npm test` runs with coverage and
-`vite.config.ts` sets `thresholds: { 100: true }`, so CI and `pre-push` fail on any uncovered
-line or branch. Rules for every change:
-
-- **Ship tests with the code.** New or changed code comes with tests in the same change that
-  cover every line and branch. Check with `npx vitest run <files> --coverage
---coverage.include='<source file>' --coverage.reporter=text`, then `npm test`.
-- **Tests assert behaviour** (what renders, which API was called with what, status codes,
-  audit rows), not just that the code ran.
-- **Never `v8 ignore` / `istanbul ignore` / `c8 ignore`**, and never narrow `coverage.include`
-  or lower the thresholds to get green.
-- **An unreachable branch is a code smell, not a coverage exception.** First force it in a
-  test (mock the collaborator, or call a disabled control's handler with
-  `fireReactHandler`, `src/utils/react-handler.testing.ts`). If it is truly dead, delete it —
-  but never a validation, capability, masking or production-rail check: those are defence
-  in depth and get a test instead.
-- **Component tests** start with `// @vitest-environment jsdom` and render through
-  `renderUi` (`src/utils/dom.testing.tsx`: Mantine + router + jsdom stubs). Mock Monaco and
-  AG Grid with fakes that capture their props. Test-only helpers are named `*.testing.ts(x)`
-  and are excluded from coverage.
+Every change keeps statements, branches, functions and lines at **100%**: `npm test` fails
+below it, in CI and `pre-push`. The full rule — ship tests with the code, no ignore
+comments, how to handle an unreachable branch, test helpers — is in
+**`.claude/rules/test-coverage.md`**. Read it before writing or changing code.
 
 ## Conventions
 
