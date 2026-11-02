@@ -103,11 +103,9 @@ function keyFor(connId: string, schema: string, table?: string) {
 
 const SCHEMA_DB_TYPES: DatabaseType[] = ["postgres", "mssql"];
 
-/** The default schema for a connection, known client-side without a round-trip. */
+/** The default schema of a Postgres or MSSQL connection, known client-side without a round-trip. */
 function defaultSchemaOf(conn: ConnectionInfo): string {
-  if (conn.type === "postgres") return conn.schema || "public";
-  if (conn.type === "mssql") return conn.schema || "dbo";
-  return "";
+  return conn.schema || (conn.type === "postgres" ? "public" : "dbo");
 }
 
 export function Sidebar() {

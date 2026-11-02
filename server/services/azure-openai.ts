@@ -299,7 +299,7 @@ export async function azureChat(
   }
 
   throw new AzureOpenAIError(
-    `Azure OpenAI returned ${lastStatus ?? "error"}: ${lastDetail}`,
+    `Azure OpenAI returned ${lastStatus}: ${lastDetail}`,
     lastStatus,
     lastFiltered,
   );

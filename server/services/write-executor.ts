@@ -259,6 +259,11 @@ export function classifyWrite(
   return { isMigration: statementCount > 1 || hasDdl, statementCount, hasDdl };
 }
 
+/** Throws a validator's rejection — one that names no reason still refuses. */
+function refuse(validation: { error?: string }, fallback: string): never {
+  throw new Error(validation.error || fallback);
+}
+
 /**
  * Executes a validated migration script, transactional unless opting out.
  * Each engine runs it under holdClient, so an edit that retires the pool
@@ -270,8 +275,7 @@ export async function executeMigration(
   opts: { noTransaction?: boolean } = {},
 ): Promise<WriteResult> {
   const validation = validateMigration(script, conn.type, opts);
-  if (!validation.valid)
-    throw new Error(validation.error || "Invalid migration script");
+  if (!validation.valid) refuse(validation, "Invalid migration script");
 
   const start = performance.now();
   let result: { rowsAffected: number; transactional: boolean };
@@ -401,8 +405,7 @@ export async function executeWrite(
   sql: string,
 ): Promise<WriteResult> {
   const validation = validateWriteQuery(sql, conn.type);
-  if (!validation.valid)
-    throw new Error(validation.error || "Invalid write statement");
+  if (!validation.valid) refuse(validation, "Invalid write statement");
 
   const start = performance.now();
   let rowsAffected = 0;

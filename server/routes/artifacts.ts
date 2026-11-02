@@ -62,10 +62,10 @@ export function parseBlocks(
   // block to fix, so it has to read like the JSON it sent.
   const where =
     "blocks" +
-    (first?.path ?? [])
+    first.path
       .map((key) => (typeof key === "number" ? `[${key}]` : `.${String(key)}`))
       .join("");
-  return { ok: false, error: `${where}: ${first?.message ?? "invalid"}` };
+  return { ok: false, error: `${where}: ${first.message}` };
 }
 
 router.get("/", (req: Request, res: Response) => {

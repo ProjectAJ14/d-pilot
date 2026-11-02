@@ -59,6 +59,20 @@ import { WriteComposer } from "./write-composer";
 
 export function WriteRequestDetail() {
   const { id } = useParams<{ id: string }>();
+  // The route always carries :id; without one there is nothing to load.
+  if (!id) return <LoadingState />;
+  return <WriteRequestView id={id} />;
+}
+
+function LoadingState() {
+  return (
+    <Group justify="center" style={{ flex: 1 }} py="xl">
+      <Loader />
+    </Group>
+  );
+}
+
+function WriteRequestView({ id }: { id: string }) {
   const navigate = useNavigate();
   const setActionRequiredCount = useStore((s) => s.setActionRequiredCount);
   const setWriteHandoff = useStore((s) => s.setWriteHandoff);
@@ -110,7 +124,6 @@ export function WriteRequestDetail() {
   }, []);
 
   const load = useCallback(() => {
-    if (!id) return;
     setLoading(true);
     api
       .getWriteRequest(id)
@@ -128,7 +141,6 @@ export function WriteRequestDetail() {
   }, [load]);
 
   const runPreview = async () => {
-    if (!id) return;
     setPreviewLoading(true);
     setPreviewError(null);
     try {
@@ -141,7 +153,6 @@ export function WriteRequestDetail() {
   };
 
   const runAiReview = async () => {
-    if (!id) return;
     setAiLoading(true);
     try {
       const r = await api.aiReviewWriteRequest(id);
@@ -155,7 +166,7 @@ export function WriteRequestDetail() {
   };
 
   const submitDecision = async () => {
-    if (!id || !decisionModal) return;
+    if (!decisionModal) return;
     setDeciding(true);
     try {
       if (decisionModal === "override") {
@@ -178,7 +189,8 @@ export function WriteRequestDetail() {
           icon: <IconCheck size={16} />,
         });
       } else {
-        await api.rejectWriteRequest(id, notes.trim() || undefined);
+        // The reject button stays disabled until a reason is typed.
+        await api.rejectWriteRequest(id, notes.trim());
         notifications.show({ message: "Request rejected", color: "orange" });
       }
       setDecisionModal(null);
@@ -206,7 +218,6 @@ export function WriteRequestDetail() {
   // server runs it as the person clicking — this is the human step an
   // agent-authored draft cannot take for itself.
   const handleSubmitDraft = async () => {
-    if (!id) return;
     setSubmittingDraft(true);
     try {
       const updated = await api.submitWriteRequest(id);
@@ -242,7 +253,6 @@ export function WriteRequestDetail() {
   };
 
   const handleCancel = async () => {
-    if (!id) return;
     try {
       await api.cancelWriteRequest(id);
       notifications.show({ message: "Request cancelled", color: "gray" });
@@ -254,7 +264,6 @@ export function WriteRequestDetail() {
   };
 
   const handleDelete = async () => {
-    if (!id) return;
     setDeleting(true);
     try {
       await api.deleteWriteRequest(id);
@@ -268,26 +277,7 @@ export function WriteRequestDetail() {
     }
   };
 
-  // Pre-fill a brand-new request from this one (e.g. re-run on another env).
-  const duplicate = () => {
-    if (!wr) return;
-    setWriteHandoff({
-      title: `Copy of ${wr.title}`,
-      description: wr.description,
-      connectionId: wr.connectionId,
-      selectSql: wr.selectSql,
-      writeSql: wr.writeSql,
-    });
-    navigate("/write");
-  };
-
-  if (loading) {
-    return (
-      <Group justify="center" style={{ flex: 1 }} py="xl">
-        <Loader />
-      </Group>
-    );
-  }
+  if (loading) return <LoadingState />;
 
   if (error || !wr) {
     return (
@@ -312,6 +302,18 @@ export function WriteRequestDetail() {
       </div>
     );
   }
+
+  // Pre-fill a brand-new request from this one (e.g. re-run on another env).
+  const duplicate = () => {
+    setWriteHandoff({
+      title: `Copy of ${wr.title}`,
+      description: wr.description,
+      connectionId: wr.connectionId,
+      selectSql: wr.selectSql,
+      writeSql: wr.writeSql,
+    });
+    navigate("/write");
+  };
 
   const canApprove = wr.viewerCanApprove && wr.status === "PENDING";
   const canCancel =
@@ -697,7 +699,10 @@ export function WriteRequestDetail() {
           {/* AI review panel — inline, above the decision bar */}
           {(aiLoading || aiReview) && (
             <div style={{ marginTop: 20 }}>
-              {aiLoading ? (
+              {/* The enclosing check guarantees a review whenever not loading. */}
+              {aiReview && !aiLoading ? (
+                <AiReviewCard review={aiReview} />
+              ) : (
                 <div
                   style={{
                     display: "flex",
@@ -714,9 +719,7 @@ export function WriteRequestDetail() {
                     Analyzing the write and verify SELECT…
                   </Text>
                 </div>
-              ) : aiReview ? (
-                <AiReviewCard review={aiReview} />
-              ) : null}
+              )}
             </div>
           )}
 

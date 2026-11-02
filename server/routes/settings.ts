@@ -173,10 +173,8 @@ const connectionTestBody = connectionUpdateBody.extend({
 });
 
 function zodError(err: z.ZodError): string {
-  const issue = err.issues[0];
-  return issue
-    ? `${issue.path.join(".") || "body"}: ${issue.message}`
-    : "Invalid body";
+  const issue = err.issues[0]; // a failed parse always has one
+  return `${issue.path.join(".") || "body"}: ${issue.message}`;
 }
 
 /**

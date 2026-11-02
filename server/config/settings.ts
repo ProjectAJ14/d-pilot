@@ -268,7 +268,7 @@ export function updateSettings(
     if (def(key).secret && value === "") continue;
     const parsed = VALIDATORS[def(key).kind].safeParse(value);
     if (!parsed.success) {
-      throw new Error(`${key} ${parsed.error.issues[0]?.message ?? "invalid"}`);
+      throw new Error(`${key} ${parsed.error.issues[0].message}`);
     }
     const maxLength = def(key).maxLength;
     if (maxLength !== undefined && value.length > maxLength) {

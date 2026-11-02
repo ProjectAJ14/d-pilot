@@ -312,14 +312,8 @@ async function getAgentJobDetail(
 // --- pg_cron ---
 
 /** pg_cron's run states, on Agent's scale: anything not finished is running. */
-const cronStatus = (s: string | null): JobRunStatus | null =>
-  s == null
-    ? null
-    : s === "succeeded"
-      ? "succeeded"
-      : s === "failed"
-        ? "failed"
-        : "running";
+const cronStatus = (s: string): JobRunStatus =>
+  s === "succeeded" ? "succeeded" : s === "failed" ? "failed" : "running";
 
 const ts = (d: Date | null) =>
   d ? d.toISOString().replace("T", " ").slice(0, 19) : null;

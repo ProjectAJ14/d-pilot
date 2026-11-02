@@ -1056,7 +1056,8 @@ router.post("/", requireWriteMode, async (req: Request, res: Response) => {
     connectionName: conn.name,
     env: conn.env,
     dbType: conn.type,
-    selectSql: isMigration ? undefined : selectSql?.trim() || undefined,
+    // validateRequestQueries refused a non-migration without a verify SELECT.
+    selectSql: isMigration ? undefined : selectSql!.trim(),
     writeSql: writeSql.trim(),
     status: isDraft ? "DRAFT" : "PENDING",
     requestedBy: user.sub,

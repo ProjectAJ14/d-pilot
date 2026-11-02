@@ -1798,22 +1798,14 @@ function buildCredentialMessage(
 }
 
 /** A single labeled credential row with an inline copy button. */
-function CredentialRow({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
+function CredentialRow({ label, value }: { label: string; value: string }) {
   return (
     <Group justify="space-between" wrap="nowrap" gap="sm">
       <div style={{ minWidth: 0 }}>
         <Text size="xs" c="dimmed" fw={600}>
           {label}
         </Text>
-        <Text size="sm" ff={mono ? "monospace" : undefined} truncate>
+        <Text size="sm" ff="monospace" truncate>
           {value}
         </Text>
       </div>
@@ -1846,10 +1838,7 @@ function CredentialsModal({
   // The origin alone points at whatever owns the domain root, which under a
   // sub-path deployment is a different app entirely — and this URL is pasted
   // into the message a new user is sent to sign in with.
-  const loginUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}${BASE_PATH}`
-      : "";
+  const loginUrl = `${window.location.origin}${BASE_PATH}`;
 
   if (!info) return null;
 
@@ -1886,11 +1875,11 @@ function CredentialsModal({
           gap: 10,
         }}
       >
-        <CredentialRow label="Login URL" value={loginUrl} mono />
+        <CredentialRow label="Login URL" value={loginUrl} />
         <Divider />
-        <CredentialRow label="Username" value={info.email} mono />
+        <CredentialRow label="Username" value={info.email} />
         <Divider />
-        <CredentialRow label="Password" value={info.password} mono />
+        <CredentialRow label="Password" value={info.password} />
       </div>
 
       <Text size="xs" c="dimmed" fw={600} mt="lg" mb={6}>
@@ -3768,7 +3757,7 @@ function RuntimeSettingsForm({ groups }: { groups: SettingGroup[] }) {
               ? `Re-enter the key when changing ${target.label}`
               : undefined
           }
-          value={draft[s.key] ?? ""}
+          value={draft[s.key]}
           onChange={(e) => set(s.key, e.currentTarget.value)}
           placeholder={s.set ? SECRET_PLACEHOLDER : "Not set"}
           autoComplete="new-password"
@@ -3802,7 +3791,7 @@ function RuntimeSettingsForm({ groups }: { groups: SettingGroup[] }) {
             description={
               s.max !== undefined ? `max ${s.max.toLocaleString()}` : undefined
             }
-            value={draft[s.key] ?? ""}
+            value={draft[s.key]}
             onChange={(e) => set(s.key, e.currentTarget.value)}
             placeholder={s.source === "default" ? "Not set" : undefined}
           />
@@ -4247,10 +4236,10 @@ function ImportConnectionsModal({
     });
   // No `id`: these are unsaved, so the server uses only the pasted values and
   // returns the driver's full error.
+  // Only reachable from a row's button or "Test all", both shown only with items.
   const testRow = async (forText: string, i: number) => {
-    if (!items) return;
     setRowTest(forText, i, { state: "running" });
-    const { id: _id, ...body } = items[i] as Record<string, unknown>;
+    const { id: _id, ...body } = items![i] as Record<string, unknown>;
     try {
       const r = await api.testConnectionDraft(
         body as Parameters<typeof api.testConnectionDraft>[0],
@@ -4270,8 +4259,7 @@ function ImportConnectionsModal({
     }
   };
   const testAll = () => {
-    if (!items) return;
-    const rows = items.map((_, i) => i).filter(testable);
+    const rows = items!.map((_, i) => i).filter(testable);
     void runLimited(rows, 4, (i) => testRow(text, i));
   };
   const testing = [...rowTests.values()].some((t) => t.state === "running");

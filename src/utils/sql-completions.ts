@@ -311,7 +311,8 @@ export function buildSqlSuggestions(opts: {
           }
         }
         pushKeywordItems(monaco, suggestions, keywords, range, "1_");
-        if (schema) pushTableItems(monaco, suggestions, schema, range, "2_");
+        // `scoped` is non-empty only when it was resolved against a schema.
+        pushTableItems(monaco, suggestions, schema!, range, "2_");
         return suggestions;
       }
       if (ctx.tables.length > 0) {

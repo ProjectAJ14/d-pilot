@@ -44,8 +44,8 @@ export function ResultsJsonView({ rows }: Props) {
 
   // Ctrl/Cmd+F to open search
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
+    // The container div always renders, so the ref is set by now.
+    const el = containerRef.current!;
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "f") {
         e.preventDefault();

@@ -969,7 +969,7 @@ async function ping(conn: ConnectionConfig, throwaway: boolean): Promise<void> {
     switch (conn.type) {
       case "postgres": {
         const pool = throwaway ? createPgPool(conn) : await getPgPool(conn);
-        if (throwaway) close = () => pool.end();
+        close = throwaway ? () => pool.end() : undefined;
         await pool.query("SELECT 1");
         return;
       }

@@ -259,7 +259,8 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
   const rowsForCopy = useCallback((): Record<string, unknown>[] => {
     const selected = (gridRef.current?.api?.getSelectedRows?.() ??
       []) as Record<string, unknown>[];
-    return selected.length ? selected : (result?.rows ?? []);
+    // Copy controls render only once there is a result.
+    return selected.length ? selected : result!.rows;
   }, [result]);
 
   /**
@@ -340,8 +341,8 @@ export function ResultsGrid({ tab, onViewModeChange }: Props) {
   useEffect(() => {
     if (!inspectorOpen) return;
     const onMouseDown = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target) return;
+      // A dispatched event always has a target.
+      const target = e.target as HTMLElement;
       // Interacting with the drawer itself keeps it open.
       if (target.closest(".mantine-Drawer-content")) return;
       // A data cell (col-id other than the row-number column) will refresh via

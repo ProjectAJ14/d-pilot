@@ -106,8 +106,9 @@ export function createDebouncedSave(delayMs = 500): DebouncedSave {
   const debouncedFn = ((state: PersistableState) => {
     pending = state;
     if (timer) clearTimeout(timer);
+    // `state` is still the pending one: a newer call would have reset this timer.
     timer = setTimeout(() => {
-      if (pending) saveTabs(pending);
+      saveTabs(state);
       pending = null;
       timer = null;
     }, delayMs);

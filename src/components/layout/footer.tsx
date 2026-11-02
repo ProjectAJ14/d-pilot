@@ -8,8 +8,7 @@ const GITHUB_REPO = "d-pilot";
 const REPO_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}`;
 const CHANGELOG_URL = `${REPO_URL}/blob/main/CHANGELOG.md`;
 
-const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "0.0.0";
+const APP_VERSION = __APP_VERSION__;
 
 const CALLOUTS = [
   { text: "Open source — issues & PRs welcome", url: `${REPO_URL}/issues` },

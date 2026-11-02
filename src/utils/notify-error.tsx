@@ -4,8 +4,7 @@ import { ApiError } from "./api-client";
 import { issueUrl, type Failure } from "./report-issue";
 import { isServerUnreachable } from "./server-reachability";
 
-const APP_VERSION =
-  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "0.0.0";
+const APP_VERSION = __APP_VERSION__;
 
 /** issueUrl with the parts every report shares filled in. Call it when the failure happens — it stamps the time. */
 export function reportUrl(
