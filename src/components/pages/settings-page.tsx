@@ -368,7 +368,7 @@ function fmtDay(iso: string): string {
     "Nov",
     "Dec",
   ];
-  return `${months[(m || 1) - 1]} ${d}`;
+  return `${months[m - 1]} ${d}`;
 }
 
 function StatCard({
@@ -438,19 +438,21 @@ function BarChart({
   label: string;
 }) {
   const max = Math.max(1, ...data.map((d) => d.value));
-  const peak = data.reduce(
-    (a, b) => (b.value > a.value ? b : a),
-    data[0] || { date: "", value: 0 },
-  );
+  // No days → no peak: a missing date would render as "Jan undefined".
+  const peak = data.length
+    ? data.reduce((a, b) => (b.value > a.value ? b : a))
+    : null;
   return (
     <div>
       <Group justify="space-between" mb={10}>
         <Text size="sm" fw={600} c="var(--text)">
           {label}
         </Text>
-        <Text size="xs" c="dimmed">
-          peak {fmtNum(peak.value)} · {fmtDay(peak.date)}
-        </Text>
+        {peak && (
+          <Text size="xs" c="dimmed">
+            peak {fmtNum(peak.value)} · {fmtDay(peak.date)}
+          </Text>
+        )}
       </Group>
       <div
         style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 120 }}
