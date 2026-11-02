@@ -276,36 +276,6 @@ export function ArtifactView({ tab }: Props) {
     });
   };
 
-  const sendToWriteComposer = (
-    label: string,
-    sql: string,
-    connectionId?: string,
-  ) => {
-    setWriteHandoff({
-      writeSql: sql,
-      connectionId: connectionFor(connectionId)?.id ?? null,
-      title: label,
-      description: artifact ? `From artifact: ${artifact.title}` : undefined,
-    });
-    navigate("/write");
-  };
-
-  const handleRestore = async () => {
-    if (!artifact) return;
-    setRestoring(true);
-    try {
-      setArtifact(await api.setArtifactArchived(artifact.id, false));
-      // The sidebar list was filtered server-side; re-fetch so the restored
-      // artifact reappears there instead of only on the next page load.
-      setArtifacts(await api.getArtifacts());
-      notifications.show({ message: "Artifact restored", color: "green" });
-    } catch (err: any) {
-      notifyError(err, "Artifact");
-    } finally {
-      setRestoring(false);
-    }
-  };
-
   if (loadError) {
     return (
       <Centered>
@@ -327,6 +297,36 @@ export function ArtifactView({ tab }: Props) {
       </Centered>
     );
   }
+
+  // Below the load guards, so these only ever see a loaded artifact.
+  const sendToWriteComposer = (
+    label: string,
+    sql: string,
+    connectionId?: string,
+  ) => {
+    setWriteHandoff({
+      writeSql: sql,
+      connectionId: connectionFor(connectionId)?.id ?? null,
+      title: label,
+      description: `From artifact: ${artifact.title}`,
+    });
+    navigate("/write");
+  };
+
+  const handleRestore = async () => {
+    setRestoring(true);
+    try {
+      setArtifact(await api.setArtifactArchived(artifact.id, false));
+      // The sidebar list was filtered server-side; re-fetch so the restored
+      // artifact reappears there instead of only on the next page load.
+      setArtifacts(await api.getArtifacts());
+      notifications.show({ message: "Artifact restored", color: "green" });
+    } catch (err: any) {
+      notifyError(err, "Artifact");
+    } finally {
+      setRestoring(false);
+    }
+  };
 
   return (
     <div style={{ flex: 1, overflowY: "auto", background: "var(--bg)" }}>

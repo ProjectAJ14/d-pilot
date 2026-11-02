@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ConnectionInfo } from "@src/types";
-import { loadLastUsed, sortByRecent, touch } from "./connection-recency";
+import {
+  loadLastUsed,
+  saveLastUsed,
+  sortByRecent,
+  touch,
+} from "./connection-recency";
 
 const c = (id: string) => ({ id }) as ConnectionInfo;
 
@@ -44,5 +49,22 @@ describe("loadLastUsed", () => {
   it("reads a valid map", () => {
     store.dbpilot_conn_last_used = '{"u1":{"x":1}}';
     expect(loadLastUsed()).toEqual({ u1: { x: 1 } });
+  });
+});
+
+describe("saveLastUsed", () => {
+  it("writes the map, and swallows a storage failure", () => {
+    const saved: Record<string, string> = {};
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      setItem: (k: string, v: string) => (saved[k] = v),
+    };
+    saveLastUsed({ u: { a: 1 } });
+    expect(saved).toEqual({ dbpilot_conn_last_used: '{"u":{"a":1}}' });
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      setItem: () => {
+        throw new Error("blocked");
+      },
+    };
+    expect(() => saveLastUsed({ u: { a: 1 } })).not.toThrow();
   });
 });

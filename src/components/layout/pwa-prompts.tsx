@@ -121,8 +121,8 @@ function useInstallPrompt() {
   }, []);
 
   const install = useCallback(async () => {
-    if (!promptEvent) return;
-    await promptEvent.prompt();
+    // Only reachable from the button, which renders only while an event is held.
+    await promptEvent?.prompt();
     // The event is single-use whether accepted or dismissed; the browser fires
     // a fresh one on a later visit if the app is still not installed.
     setPromptEvent(null);

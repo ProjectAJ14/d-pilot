@@ -3,6 +3,7 @@ import {
   parseExportRange,
   toAuditCsv,
   HISTORY_COLUMNS,
+  sendCsv,
 } from "./audit-export.js";
 import type { AuditEntry } from "../types/index.js";
 
@@ -121,5 +122,22 @@ describe("toAuditCsv", () => {
       ["executionMs", "phiAccessed", "phiFieldsUnmasked"],
     );
     expect(csv.split("\n")[1]).toBe("-1,true,email; phone");
+  });
+});
+
+describe("sendCsv", () => {
+  it("sends the CSV as a download with the given filename", () => {
+    const headers: Record<string, string> = {};
+    let sent = "";
+    const res = {
+      setHeader: (k: string, v: string) => (headers[k] = v),
+      send: (body: string) => (sent = body),
+    };
+    sendCsv(res as never, "audit.csv", "a,b\n1,2");
+    expect(headers).toEqual({
+      "Content-Type": "text/csv",
+      "Content-Disposition": "attachment; filename=audit.csv",
+    });
+    expect(sent).toBe("a,b\n1,2");
   });
 });

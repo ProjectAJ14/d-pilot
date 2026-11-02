@@ -94,7 +94,7 @@ export async function analyzePgStep(command: string): Promise<Analysis> {
     if (kind === "SelectStmt" && node.intoClause)
       return { error: "SELECT … INTO creates a table — not in a job step." };
     if (kind !== "FuncCall") continue;
-    const name: string[] = (node.funcname ?? []).map(sval);
+    const name: string[] = node.funcname.map(sval);
     const fn = name[name.length - 1];
     if (
       (name.length === 1 || name[0] === "pg_catalog") &&

@@ -19,6 +19,7 @@ npm run lint             # ESLint (.ts, .tsx)
 npm run format           # Prettier
 npm run format:check     # Prettier in check mode (what CI runs)
 npm run typecheck        # tsc --noEmit over src + server
+npm test                 # vitest with coverage — fails below 100% (see "Test coverage" below)
 npm run verify           # format:check + lint + typecheck + test — the CI gate, minus the build
 npm run dev:db           # Docker: local DEV/QA/PROD Postgres (5433-5435), reseeded and registered as connections
 npm run dev:db:down      # Stop them
@@ -156,6 +157,13 @@ Settings (db > env > default):** `MAX_ROWS` (10000), `QUERY_TIMEOUT_MS` (90000),
 `APP_NAME`/`LOGO_URL`/`LIGHT_LOGO_URL`/`FAVICON_URL`/`APP_BASE_URL`/`LOGIN_TAGLINE`/`LOGIN_SUBTITLE`/`NETWORK_HINT` (branding),
 `EMAIL_DOMAIN`. **Settings only (no env var):** connections and `AZURE_OPENAI_*`. Full
 reference in `README.md`.
+
+## Test coverage — 100%, enforced
+
+Every change keeps statements, branches, functions and lines at **100%**: `npm test` fails
+below it, in CI and `pre-push`. The full rule — ship tests with the code, no ignore
+comments, how to handle an unreachable branch, test helpers — is in
+**`.claude/rules/test-coverage.md`**. Read it before writing or changing code.
 
 ## Conventions
 

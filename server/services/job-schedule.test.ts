@@ -26,6 +26,7 @@ describe("msdb integer decoding", () => {
     expect(decodeRunDateTime(20261030, 61500)).toBe("2026-10-30 06:15:00");
     expect(decodeRunDateTime(20260101, 0)).toBe("2026-01-01 00:00:00");
     expect(decodeRunDateTime(0, 0)).toBeNull();
+    expect(decodeRunDateTime(20261030, null)).toBe("2026-10-30 00:00:00");
   });
 
   it("reads run_duration as HHMMSS, not seconds", () => {
@@ -99,6 +100,29 @@ describe("describeSchedule", () => {
     ],
     [sched({ freq_type: 64 }), "When SQL Server Agent starts"],
     [sched({ freq_type: 128 }), "When the computer is idle"],
+    [sched({ freq_type: 2 }), "Unknown schedule (freq_type 2)"],
+    [sched({ freq_type: 1, active_start_time: 93000 }), "Once, at 09:30"],
+    [
+      sched({ freq_type: 8, freq_interval: 127, freq_recurrence_factor: 1 }),
+      "Weekly on every day, at 00:00",
+    ],
+    [
+      sched({ freq_subday_type: 4, freq_subday_interval: 1 }),
+      "Daily, every minute, 00:00–23:59",
+    ],
+    [
+      sched({ freq_type: 16, freq_interval: 1, freq_recurrence_factor: 3 }),
+      "Every 3 months on day 1, at 00:00",
+    ],
+    [
+      sched({
+        freq_type: 32,
+        freq_interval: 99,
+        freq_relative_interval: 3,
+        freq_recurrence_factor: 2,
+      }),
+      "Every 2 months on the ? ?, at 00:00",
+    ],
   ])("%#: %s", (s, text) => {
     expect(describeSchedule(s)).toBe(text);
   });

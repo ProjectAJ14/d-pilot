@@ -300,3 +300,27 @@ describe("an idle pooled connection that drops", () => {
     warn.mockRestore();
   });
 });
+
+describe("a retired client's hard cap", () => {
+  it("does nothing once the client has already closed", async () => {
+    const client = await getMongoClient({ ...mongoConn, id: "mongo-capped" });
+    expect(client).toBeTruthy();
+    vi.useFakeTimers();
+    mongoClose.mockClear();
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Keep the cap timer alive past the close, as if clearing it had failed.
+    const clear = vi
+      .spyOn(globalThis, "clearTimeout")
+      .mockImplementation(() => {});
+    try {
+      closeConnectionPool("mongo-capped", 0);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(mongoClose).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(7 * 3_600_000);
+    } finally {
+      clear.mockRestore();
+    }
+    expect(mongoClose).toHaveBeenCalledOnce();
+    expect(log).not.toHaveBeenCalled();
+  });
+});

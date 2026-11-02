@@ -63,6 +63,24 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    test: {
+      // Component tests render real Mantine trees; CI runners are several
+      // times slower than a laptop, so the 5 s default flakes there.
+      testTimeout: 20000,
+      coverage: {
+        provider: "v8",
+        include: [
+          "src/**/*.{ts,tsx}",
+          "server/**/*.ts",
+          "public/**/*.mjs",
+          "vite.pwa.config.ts",
+        ],
+        exclude: ["**/*.test.*", "**/*.testing.*", "**/*.d.ts"],
+        reporter: ["text-summary", "html"],
+        // CI fails on any uncovered line or branch: coverage is held at 100%.
+        thresholds: { 100: true },
+      },
+    },
     build: {
       outDir: "dist/client",
       rollupOptions: {

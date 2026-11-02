@@ -515,6 +515,30 @@ describe("clearSchemaCache", () => {
   });
 });
 
+describe("clearSchemaCache counting", () => {
+  it("counts only entries it actually removed", async () => {
+    const conn = {
+      id: "count-pg",
+      name: "pg",
+      env: "DEV",
+      type: "postgres",
+      host: "localhost",
+      database: "app_db",
+      schema: "app_core",
+    } as ConnectionConfig;
+    await getCachedFullSchema(conn);
+    // An entry already gone by the time it is deleted is not counted.
+    const del = vi
+      .spyOn(Map.prototype, "delete")
+      .mockImplementationOnce(() => false);
+    try {
+      expect(clearSchemaCache(conn.id)).toEqual({ cleared: 0 });
+    } finally {
+      del.mockRestore();
+    }
+  });
+});
+
 // The database restarting, or the VPN dropping, while an introspection pool is
 // open: the pool reports it as an 'error' event, which unheard would crash the server.
 describe("an introspection pool whose connection drops", () => {

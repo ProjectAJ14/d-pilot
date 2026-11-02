@@ -5,8 +5,20 @@ import type { ConnectionConfig } from "../types/index.js";
 // with whatever rows the test queued.
 const h = vi.hoisted(() => ({
   calls: [] as { sql: string; params: unknown }[],
-  rows: [] as unknown[][],
+  rows: [] as (unknown[] | Error)[],
+  docs: [] as unknown[],
 }));
+// Mongo/Elasticsearch objects come from document-objects; its own tests cover
+// the drivers, so here it just answers with what the test queued.
+vi.mock("./document-objects.js", async (orig) => ({
+  ...(await orig<typeof import("./document-objects.js")>()),
+  getDocumentObjects: async () => h.docs,
+}));
+const next = () => {
+  const r = h.rows.shift();
+  if (r instanceof Error) throw r;
+  return r ?? [];
+};
 vi.mock("./sqlite-store.js", () => ({
   getAiColumnValuesEnabled: () => false,
   getSetting: () => null,
@@ -17,7 +29,7 @@ vi.mock("pg", async () => ({
     Pool: class extends (await import("node:events")).EventEmitter {
       async query(sql: string, params: unknown[]) {
         h.calls.push({ sql, params });
-        return { rows: h.rows.shift() ?? [] };
+        return { rows: next() };
       }
       async end() {}
     },
@@ -41,7 +53,7 @@ vi.mock("mssql", async () => {
             },
             async query(sql: string) {
               h.calls.push({ sql, params });
-              return { recordset: h.rows.shift() ?? [] };
+              return { recordset: next() };
             },
           };
         }
@@ -58,14 +70,26 @@ const {
   compareDefinitions,
   pgArgTypes,
   normalizeDefinition,
+  objectKindsFor,
+  supportsObjects,
+  getDrift,
+  isUserRoutine,
 } = await import("./schema-objects.js");
 
 const pg = { id: "qa-core", type: "postgres", env: "QA" } as ConnectionConfig;
 const ms = { id: "qa-ms", type: "mssql", env: "QA" } as ConnectionConfig;
 
+const mongo = { id: "qa-m", type: "mongodb", env: "QA" } as ConnectionConfig;
+const es = {
+  id: "qa-es",
+  type: "elasticsearch",
+  env: "QA",
+} as ConnectionConfig;
+
 beforeEach(() => {
   h.calls = [];
   h.rows = [];
+  h.docs = [];
 });
 
 describe("getObjects", () => {
@@ -460,5 +484,261 @@ describe("getObjectDependencies", () => {
       "integer",
     ]);
     expect(h.calls[1].params).toEqual(["app_core", "refresh_order_totals"]);
+  });
+});
+
+describe("engine capabilities", () => {
+  it("offers each engine its own object kinds", () => {
+    expect(objectKindsFor(pg)).toEqual([
+      "procedure",
+      "function",
+      "view",
+      "trigger",
+    ]);
+    expect(objectKindsFor(ms)).toEqual(objectKindsFor(pg));
+    expect(objectKindsFor(mongo)).toEqual(["view", "index", "validator"]);
+    expect(objectKindsFor(es)).toContain("ingest_pipeline");
+    expect([pg, ms, mongo, es].map(supportsObjects)).toEqual([
+      true,
+      true,
+      false,
+      false,
+    ]);
+  });
+});
+
+describe("document-store objects", () => {
+  const docs = [
+    {
+      schema: "app_core",
+      name: "status_due",
+      kind: "index",
+      parent: "orders",
+      definition: "{}",
+    },
+    {
+      schema: "app_core",
+      name: "status_due",
+      kind: "index",
+      parent: "customers",
+      definition: "{ }",
+    },
+    { schema: "app_core", name: "open_orders", kind: "view", definition: "[]" },
+  ];
+
+  it("lists them without their definitions", async () => {
+    h.docs = docs;
+    const list = await getObjects(mongo);
+    expect(list.map((o) => [o.kind, o.name, o.parent])).toEqual([
+      ["index", "status_due", "orders"],
+      ["index", "status_due", "customers"],
+      ["view", "open_orders", undefined],
+    ]);
+    expect(list[0]).not.toHaveProperty("definition");
+  });
+
+  it("finds one by kind, name and (when given) parent", async () => {
+    h.docs = docs;
+    expect(
+      await getObjectDefinition(mongo, {
+        kind: "index",
+        name: "status_due",
+        parent: "customers",
+      }),
+    ).toBe(docs[1]);
+    expect(
+      await getObjectDefinition(mongo, { kind: "view", name: "open_orders" }),
+    ).toBe(docs[2]);
+    expect(
+      await getObjectDefinition(mongo, { kind: "view", name: "status_due" }),
+    ).toBeNull();
+    expect(
+      await getObjectDefinition(es, {
+        kind: "index",
+        name: "status_due",
+        parent: "invoices",
+      }),
+    ).toBeNull();
+  });
+
+  it("has no SQL dependencies and no user routines", async () => {
+    expect(
+      await getObjectDependencies(mongo, { kind: "view", name: "open_orders" }),
+    ).toEqual({ uses: [], usedBy: [], bestEffort: false });
+    expect(await isUserRoutine(es, "refresh_order_totals")).toBe(false);
+    expect(h.calls).toEqual([]);
+  });
+});
+
+describe("getDrift", () => {
+  it("reads definitions on both sides and compares them", async () => {
+    h.rows.push(
+      [
+        {
+          name: "refresh_order_totals",
+          kind: "function",
+          args: "integer",
+          arg_types: "integer",
+          parent: null,
+          definition: "CREATE FUNCTION …",
+        },
+        { name: "open_orders", kind: "view", args: null, parent: null },
+      ],
+      [
+        { name: "refresh_order_totals", type: "FN", parent: null },
+        {
+          name: "orders_audit",
+          type: "TR",
+          parent: "orders",
+          definition: "CREATE TRIGGER …",
+        },
+      ],
+    );
+    const report = await getDrift(pg, ms, "app_core");
+    // Bodies are only fetched for a drift report.
+    expect(h.calls[0].sql).toContain("pg_get_functiondef(p.oid)");
+    expect(h.calls[0].sql).toContain("pg_get_viewdef(c.oid, true)");
+    expect(h.calls[0].sql).toContain("pg_get_triggerdef(t.oid, true)");
+    expect(h.calls[1].sql).toContain("OBJECT_DEFINITION(o.object_id)");
+    expect(report.schema).toBe("app_core");
+    expect(report.identical).toBe(0);
+    expect(report.items.map((i) => [i.kind, i.name, i.status])).toEqual([
+      ["function", "refresh_order_totals", "only_right"],
+      ["function", "refresh_order_totals", "only_left"],
+      ["trigger", "orders_audit", "only_right"],
+      ["view", "open_orders", "only_left"],
+    ]);
+  });
+});
+
+describe("definition lookups — edge cases", () => {
+  it("names the table when a Postgres trigger name is ambiguous", async () => {
+    h.rows.push([
+      { args: null, parent: "orders", definition: "a" },
+      { args: null, parent: "customers", definition: "b" },
+    ]);
+    await expect(
+      getObjectDefinition(pg, { kind: "trigger", name: "audit" }),
+    ).rejects.toThrow("pass parent (its table), one of: orders | customers");
+  });
+
+  it("returns null for a missing Postgres object and null for a hidden body", async () => {
+    h.rows.push([]);
+    expect(
+      await getObjectDefinition(pg, { kind: "procedure", name: "nope" }),
+    ).toBeNull();
+    expect(h.calls[0].params).toEqual(["public", "nope", null, null]);
+
+    h.rows.push([{ args: "", parent: null }]);
+    expect(
+      await getObjectDefinition(pg, { kind: "procedure", name: "nightly" }),
+    ).toEqual({
+      schema: "public",
+      name: "nightly",
+      kind: "procedure",
+      args: "",
+      definition: null,
+    });
+  });
+
+  it("returns a SQL Server trigger with its table", async () => {
+    h.rows.push([{ definition: "CREATE TRIGGER …", parent: "orders" }]);
+    expect(
+      await getObjectDefinition(ms, { kind: "trigger", name: "orders_audit" }),
+    ).toMatchObject({ schema: "dbo", parent: "orders" });
+    expect(h.calls[0].sql).toContain("o.type IN ('TR')");
+  });
+});
+
+describe("dependencies — edge cases", () => {
+  it("leaves an SQL Server reference of an unknown type unresolved", async () => {
+    h.rows.push([
+      { dir: "uses", db: null, sch: null, name: "orders_syn", type: "SN" },
+    ]);
+    const deps = await getObjectDependencies(ms, {
+      kind: "procedure",
+      name: "nightly_close",
+    });
+    expect(deps.uses).toEqual([{ name: "orders_syn", kind: null }]);
+    expect(h.calls[0].params).toEqual({ schema: "dbo", name: "nightly_close" });
+  });
+
+  it("reads a Postgres view's exact dependencies plus body matches, deduped", async () => {
+    const orders = {
+      dir: "uses",
+      sch: "app_core",
+      name: "orders",
+      kind: "table",
+    };
+    h.rows.push([orders, orders], []);
+    const deps = await getObjectDependencies(pg, {
+      kind: "view",
+      name: "open_orders",
+      schema: "app_core",
+    });
+    expect(deps).toEqual({
+      uses: [{ schema: "app_core", name: "orders", kind: "table" }],
+      usedBy: [],
+      bestEffort: true,
+    });
+    expect(h.calls[0].params).toEqual(["app_core", "open_orders", "view"]);
+    expect(h.calls[1].params).toEqual(["app_core", "open_orders"]);
+  });
+
+  it("answers a Postgres trigger exactly, with no body search", async () => {
+    h.rows.push([
+      { dir: "uses", sch: "public", name: "orders", kind: "table" },
+    ]);
+    const deps = await getObjectDependencies(pg, {
+      kind: "trigger",
+      name: "orders_audit",
+    });
+    expect(deps.bestEffort).toBe(false);
+    expect(h.calls).toHaveLength(1);
+    expect(h.calls[0].params).toEqual(["public", "orders_audit", null]);
+  });
+
+  it("binds no overload for a routine given without args", async () => {
+    h.rows.push([], []);
+    await getObjectDependencies(pg, { kind: "procedure", name: "nightly" });
+    expect(h.calls[0].params).toEqual(["public", "nightly", null]);
+  });
+});
+
+describe("isUserRoutine", () => {
+  it("asks Postgres by schema and name, and refuses a bare name", async () => {
+    expect(await isUserRoutine(pg, "refresh_order_totals")).toBe(false);
+    expect(h.calls).toEqual([]);
+
+    h.rows.push([{ "?column?": 1 }], []);
+    const ref = { schema: "app_core", name: "refresh_order_totals" };
+    expect(await isUserRoutine(pg, ref)).toBe(true);
+    expect(await isUserRoutine(pg, ref)).toBe(false);
+    expect(h.calls[0].params).toEqual(["app_core", "refresh_order_totals"]);
+    expect(h.calls[0].sql).toContain("deptype = 'e'");
+  });
+
+  it("asks SQL Server by the name SHOWPLAN reported, never across databases", async () => {
+    h.rows.push([{ ok: 1 }], []);
+    expect(await isUserRoutine(ms, "dbo.nightly_close")).toBe(true);
+    expect(await isUserRoutine(ms, "other.dbo.x")).toBe(false);
+    expect(h.calls[0].params).toEqual({ name: "dbo.nightly_close" });
+    expect(h.calls[0].sql).toContain("PARSENAME(@name, 4) IS NULL");
+    expect(h.calls[0].sql).not.toContain("OBJECT_ID");
+  });
+});
+
+describe("pgArgTypes — edge cases", () => {
+  it("resolves a bare type directly and maps a rejected one to null", async () => {
+    h.rows = [[{ t: "integer" }], new Error("syntax error"), []];
+    expect(await pgArgTypes(pg, ["int", "not a type"])).toEqual([
+      "integer",
+      null,
+    ]);
+    expect(h.calls.map((c) => c.params)).toEqual([
+      ["int"],
+      ["a type"],
+      ["not a type"],
+    ]);
   });
 });

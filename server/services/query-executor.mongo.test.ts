@@ -297,3 +297,32 @@ describe("splitMongoArgs", () => {
     expect(text.slice(end)).toBe(".limit(5)");
   });
 });
+
+describe("executeQuery (mongodb) past its own operation parse", () => {
+  it("refuses an operation the switch does not know, before reaching the driver", async () => {
+    // The parse only captures known reads; force one it never would, with no
+    // match index, so the switch's own default is what refuses it.
+    const realMatch = String.prototype.match;
+    const spy = vi
+      .spyOn(String.prototype, "match")
+      .mockImplementation(function (this: string, re: any) {
+        return re instanceof RegExp && re.source.includes("countDocuments")
+          ? [
+              "db.orders.estimatedDocumentCount(",
+              "orders",
+              "estimatedDocumentCount",
+            ]
+          : realMatch.call(this, re);
+      } as any);
+    try {
+      await expect(
+        executeQuery(conn, "db.orders.estimatedDocumentCount()"),
+      ).rejects.toThrow(
+        "Unsupported MongoDB operation: estimatedDocumentCount",
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    expect(sent).toHaveLength(0);
+  });
+});

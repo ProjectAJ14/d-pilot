@@ -149,4 +149,46 @@ describe("secrets", () => {
     expect(message).toContain(file);
     expect(message).toMatch(/empty or not a 64-character hex/);
   });
+  it("rethrows a link failure that is not about link support, leaving no temp file", () => {
+    const dir = freshDir();
+    vi.spyOn(fs, "linkSync").mockImplementation(() => {
+      throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
+    });
+    expect(() => encryptSecret("x")).toThrow("disk full");
+    expect(fs.readdirSync(dir)).toEqual([]);
+  });
+
+  it("rethrows a link failure that carries no code", () => {
+    freshDir();
+    vi.spyOn(fs, "linkSync").mockImplementation(() => {
+      throw new Error("odd");
+    });
+    expect(() => encryptSecret("x")).toThrow("odd");
+  });
+
+  it("keeps the key under ./data when DATA_DIR is unset", () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), "d-pilot-secrets-cwd-"));
+    vi.stubEnv("DATA_DIR", "");
+    vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "");
+    vi.spyOn(process, "cwd").mockReturnValue(cwd);
+    expect(decryptSecret(encryptSecret("x"))).toBe("x");
+    expect(
+      readFileSync(path.join(cwd, "data", "settings.key"), "utf8"),
+    ).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("reads a value without the encryption prefix as no secret", () => {
+    expect(decryptSecret("plain-text")).toBeNull();
+  });
+
+  it("names a broken key file when a decrypt fails because of it", () => {
+    vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "one");
+    const stored = encryptSecret("secret-c");
+    const dir = freshDir();
+    const file = path.join(dir, "settings.key");
+    writeFileSync(file, "not-hex", { mode: 0o600 });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(decryptSecret(stored)).toBeNull();
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(file));
+  });
 });

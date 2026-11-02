@@ -46,4 +46,34 @@ describe("jsonViewerLink", () => {
       globalThis.CompressionStream = saved;
     }
   });
+
+  it("falls back to percent-encoding when the compressor fails", async () => {
+    const saved = globalThis.CompressionStream;
+    globalThis.CompressionStream = class {
+      constructor() {
+        throw new Error("unsupported format");
+      }
+    } as unknown as typeof CompressionStream;
+    try {
+      const { url, needsClipboard } = await jsonViewerLink("[1]");
+      expect(url).toBe("https://json.nonstopio.com/#data=%5B1%5D");
+      expect(needsClipboard).toBe(false);
+    } finally {
+      globalThis.CompressionStream = saved;
+    }
+  });
+
+  it("without CompressionStream a large payload goes via the clipboard", async () => {
+    const saved = globalThis.CompressionStream;
+    // @ts-expect-error — simulating an environment without the compressor
+    delete globalThis.CompressionStream;
+    try {
+      expect(await jsonViewerLink(`"${"x".repeat(5000)}"`)).toEqual({
+        url: "https://json.nonstopio.com/?data=clipboard",
+        needsClipboard: true,
+      });
+    } finally {
+      globalThis.CompressionStream = saved;
+    }
+  });
 });

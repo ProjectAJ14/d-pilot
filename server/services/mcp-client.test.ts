@@ -128,8 +128,65 @@ describe("DPilotApiClient", () => {
 
     const err: unknown = await clientWith(fetchImpl)
       .get("/connections")
-      .catch((e) => e);
+      .catch((e: DPilotApiError) => e);
     expect(err).toBeInstanceOf(DPilotApiError);
     expect((err as DPilotApiError).message).toBe("Invalid credentials");
+  });
+});
+
+describe("DPilotApiClient fallbacks", () => {
+  it("uses the global fetch when none is given, and PUTs JSON", async () => {
+    const globalFetch = vi.fn(async (url: any) =>
+      String(url).endsWith("/api/auth/login")
+        ? jsonResponse(200, { token: "tok-g" })
+        : jsonResponse(200, { saved: true }),
+    );
+    vi.stubGlobal("fetch", globalFetch);
+    try {
+      const client = new DPilotApiClient({
+        baseUrl: "http://dpilot.test",
+        username: "u",
+        password: "p",
+      });
+      expect(await client.put("/artifacts/1", { title: "t" })).toEqual({
+        saved: true,
+      });
+      const [url, init] = globalFetch.mock.calls[1] as unknown as [
+        string,
+        RequestInit,
+      ];
+      expect(url).toBe("http://dpilot.test/api/artifacts/1");
+      expect(init.method).toBe("PUT");
+      expect(init.body).toBe('{"title":"t"}');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("names the status when a failed login or request has no readable error", async () => {
+    const badLogin = clientWith(
+      vi.fn(
+        async () => new Response("<html>", { status: 503 }),
+      ) as unknown as typeof fetch,
+    );
+    const loginErr: DPilotApiError = await badLogin
+      .get<never>("/x")
+      .catch((e: DPilotApiError) => e);
+    expect(loginErr).toBeInstanceOf(DPilotApiError);
+    expect(loginErr.message).toBe("Login failed (503)");
+    expect(loginErr.status).toBe(503);
+
+    const badRequest = clientWith(
+      vi.fn(async (url: any) =>
+        String(url).endsWith("/api/auth/login")
+          ? jsonResponse(200, { token: "t" })
+          : new Response("oops", { status: 500 }),
+      ) as unknown as typeof fetch,
+    );
+    const reqErr: DPilotApiError = await badRequest
+      .get<never>("/x")
+      .catch((e: DPilotApiError) => e);
+    expect(reqErr.message).toBe("Request failed (500)");
+    expect(reqErr.code).toBeUndefined();
   });
 });

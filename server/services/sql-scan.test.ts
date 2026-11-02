@@ -71,4 +71,44 @@ describe("trailing comments", () => {
     const r = scanSql("select 1;\n/* note */\nselect 2;");
     expect(r.statementCount).toBe(2);
   });
+
+  it("tracks nested block comments, so an inner */ does not end the comment", () => {
+    const r = scanSql("/* outer /* inner */ still; comment */ select 1");
+    expect(r.statementCount).toBe(1);
+    expect(r.statements).toEqual([
+      "/* outer /* inner */ still; comment */ select 1",
+    ]);
+    expect(r.masked.trim()).toBe("select 1");
+  });
+
+  it("treats a doubled quote as an escape, not the end of the string", () => {
+    const r = scanSql("select 'it''s; fine', \"a\"\"b;\" from t");
+    expect(r.statementCount).toBe(1);
+    expect(r.masked).not.toContain(";");
+    expect(r.masked).toHaveLength(
+      "select 'it''s; fine', \"a\"\"b;\" from t".length,
+    );
+  });
+
+  it("keeps newlines inside a string so line numbers survive", () => {
+    expect(scanSql("select 'a\nb'").masked).toBe("select   \n  ");
+  });
+
+  it("blanks an unterminated dollar-quoted body to the end", () => {
+    const r = scanSql("select $body$ never closed; drop table t");
+    expect(r.statementCount).toBe(1);
+    expect(r.masked.trimEnd()).toBe("select");
+  });
+
+  it("treats a $ that opens no tag as ordinary text", () => {
+    const r = scanSql("select $1; select $2");
+    expect(r.statements).toEqual(["select $1", "select $2"]);
+  });
+
+  it("does not count empty segments between semicolons", () => {
+    expect(scanSql("select 1;; ;select 2").statements).toEqual([
+      "select 1",
+      "select 2",
+    ]);
+  });
 });

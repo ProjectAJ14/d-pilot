@@ -262,9 +262,7 @@ export function initDatabase(): void {
   // draft like that can still be revised, which re-binds it.
   if (!wrColNames.has("target_fingerprint")) {
     db.exec("ALTER TABLE write_requests ADD COLUMN target_fingerprint TEXT");
-    const conns = new Map(
-      (listDbConnections() ?? []).map((c) => [c.id, c] as const),
-    );
+    const conns = new Map(listDbConnections()!.map((c) => [c.id, c] as const));
     const pending = db
       .prepare(
         "SELECT id, connection_id, env FROM write_requests WHERE status IN ('PENDING', 'DRAFT')",

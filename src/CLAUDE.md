@@ -134,8 +134,8 @@ writing to the tab in the store.
   `localStorage` only — a display preference, never server state). The sidebar sorts
   recent-first, then `sortPinnedFirst` floats pins to the top of each env group in pin
   order. Drag-and-drop and Alt+↑/↓ on the pin button reorder them; the decisions live in
-  the pure `canDropPin` / `nudgeTarget` / `dropEdge` so they are unit-tested (there is no
-  component-test setup). The nudge follows the _visible_ (search-filtered) order.
+  the pure `canDropPin` / `nudgeTarget` / `dropEdge` so they are unit-tested directly
+  (the sidebar's own component test covers the wiring). The nudge follows the _visible_ (search-filtered) order.
 - **`user-search.ts` `filterUsers`** — client-side filter behind the User Management search box
   (name/email/username, case-insensitive substring). It only sees users the tab already
   loaded; Add User clears the query so a new user can't be hidden by it.

@@ -245,12 +245,12 @@ export function AiAssistantPanel() {
   };
 
   // Hand a generated (or selected) statement to the Write composer and go there.
-  const startWriteRequest = (query: string, promptText?: string) => {
-    const title = promptText ? promptText.slice(0, 80) : "AI-drafted change";
+  // Every generated message carries the (non-empty) prompt that produced it.
+  const startWriteRequest = (query: string, promptText: string) => {
     setWriteHandoff({
       writeSql: query,
       connectionId: activeTab?.connectionId ?? null,
-      title,
+      title: promptText.slice(0, 80),
     });
     setOpen(false);
     navigate("/write");
@@ -532,7 +532,7 @@ export function AiAssistantPanel() {
                               color="grape"
                               leftSection={<IconPencilBolt size={13} />}
                               onClick={() =>
-                                startWriteRequest(msg.query!, msg.prompt)
+                                startWriteRequest(msg.query!, msg.prompt!)
                               }
                             >
                               New write request

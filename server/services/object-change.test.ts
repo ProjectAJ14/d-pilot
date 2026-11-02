@@ -198,6 +198,54 @@ describe("validateObjectChange", () => {
     ).toBeNull();
   });
 
+  it("refuses other engines, a missing or non-idempotent CREATE, a materialized view and a nameless CREATE", () => {
+    expect(
+      validateObjectChange(
+        "CREATE OR ALTER VIEW v AS SELECT 1",
+        "mongodb",
+        proc,
+        "x",
+      ),
+    ).toBe("Object changes are supported on PostgreSQL and SQL Server only.");
+    expect(ok("SELECT 1", proc, "postgres")).toBe(
+      "The definition must start with CREATE OR REPLACE PROCEDURE.",
+    );
+    expect(ok("CREATE PROCEDURE app_core.p() AS $$ $$", proc, "postgres")).toBe(
+      'Use CREATE OR REPLACE so the change can\'t fail with "already exists".',
+    );
+    expect(
+      ok(
+        "CREATE OR REPLACE MATERIALIZED VIEW app_core.mv AS SELECT 1",
+        { schema: "app_core", name: "mv", kind: "view" },
+        "postgres",
+      ),
+    ).toContain("materialized view can't be replaced");
+    expect(ok("CREATE OR ALTER PROCEDURE")).toBe(
+      "The definition must create app_core.refresh_order_totals.",
+    );
+  });
+
+  it("names the parent table when a trigger has no ON clause", () => {
+    const trg = {
+      schema: "dbo",
+      name: "orders_audit",
+      kind: "trigger" as const,
+      parent: "orders",
+    };
+    expect(
+      ok("CREATE OR ALTER TRIGGER dbo.orders_audit AS SELECT 1", trg),
+    ).toBe("The definition must keep orders_audit on orders.");
+  });
+
+  it("finds no argument list without a CREATE, a name or a closing parenthesis", () => {
+    expect(toIdempotent("SELECT 1", "postgres")).toBeNull();
+    expect(proposedArgList("SELECT 1")).toBeNull();
+    expect(proposedArgList("CREATE OR REPLACE FUNCTION")).toBeNull();
+    expect(
+      proposedArgList("CREATE OR REPLACE FUNCTION app_core.f(a int, b text"),
+    ).toBeNull();
+  });
+
   it("allows one Postgres statement, $$ body and all, and refuses a second", () => {
     const fn: DbObjectInfo = {
       schema: "app_core",

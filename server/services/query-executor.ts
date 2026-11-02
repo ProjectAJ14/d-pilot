@@ -354,6 +354,20 @@ export async function validateSqlSyntax(
 }
 
 /**
+ * Whether the query already limits its rows (LIMIT n, TOP n, FETCH FIRST/NEXT).
+ * Checked on the scanned text, so the words inside a string literal or comment
+ * (`WHERE note = 'LIMIT 3'`) don't count as a limit.
+ */
+function hasRowLimit(sql: string): boolean {
+  const code = scanSql(sql).masked;
+  return (
+    /\bLIMIT\s+\d/i.test(code) ||
+    /\bTOP\s+\d/i.test(code) ||
+    /\bFETCH\s+(FIRST|NEXT)\b/i.test(code)
+  );
+}
+
+/**
  * Auto-injects LIMIT for SELECT queries that don't already have a LIMIT clause.
  * @param defaultLimit null = skip injection, undefined = use DEFAULT_SELECT_STAR_LIMIT, number = use that value
  */
@@ -367,9 +381,7 @@ export function applyDefaultLimit(
   if (!/^\s*SELECT\b/i.test(trimmed)) return trimmed;
 
   // Skip if already has LIMIT, TOP, or FETCH
-  if (/\bLIMIT\s+\d/i.test(trimmed)) return trimmed;
-  if (/\bTOP\s+\d/i.test(trimmed)) return trimmed;
-  if (/\bFETCH\s+(FIRST|NEXT)\b/i.test(trimmed)) return trimmed;
+  if (hasRowLimit(trimmed)) return trimmed;
 
   // null = user explicitly disabled auto-limit
   if (defaultLimit === null) return trimmed;
@@ -553,9 +565,7 @@ export function applyDefaultLimitMssql(
   const trimmed = sql.trim().replace(/;\s*$/, "");
 
   if (!/^\s*SELECT\b/i.test(trimmed)) return trimmed;
-  if (/\bTOP\s+\d/i.test(trimmed)) return trimmed;
-  if (/\bLIMIT\s+\d/i.test(trimmed)) return trimmed;
-  if (/\bFETCH\s+(FIRST|NEXT)\b/i.test(trimmed)) return trimmed;
+  if (hasRowLimit(trimmed)) return trimmed;
 
   // null = user explicitly disabled auto-limit
   if (defaultLimit === null) return trimmed;
@@ -959,7 +969,7 @@ async function ping(conn: ConnectionConfig, throwaway: boolean): Promise<void> {
     switch (conn.type) {
       case "postgres": {
         const pool = throwaway ? createPgPool(conn) : await getPgPool(conn);
-        if (throwaway) close = () => pool.end();
+        close = throwaway ? () => pool.end() : undefined;
         await pool.query("SELECT 1");
         return;
       }
