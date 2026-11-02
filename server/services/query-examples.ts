@@ -55,7 +55,9 @@ export function extractReferencedTables(
   }
   // SQL dialects (postgres, mssql): tables follow FROM / JOIN / INTO / UPDATE.
   for (const m of sql.matchAll(
-    /\b(?:FROM|JOIN|INTO|UPDATE)\s+("[^"]+"|\[[^\]]+\]|[A-Za-z_][\w.]*)/gi,
+    // A dotted chain of quoted or bare parts: orders, app_core.orders,
+    // public."Orders", [dbo].[Customers]. normalizeTable keeps the last part.
+    /\b(?:FROM|JOIN|INTO|UPDATE)\s+((?:(?:"[^"]+"|\[[^\]]+\]|[A-Za-z_]\w*)\.)*(?:"[^"]+"|\[[^\]]+\]|[A-Za-z_]\w*))/gi,
   )) {
     out.add(normalizeTable(m[1]));
   }
