@@ -63,6 +63,21 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    test: {
+      coverage: {
+        provider: "v8",
+        include: [
+          "src/**/*.{ts,tsx}",
+          "server/**/*.ts",
+          "public/**/*.mjs",
+          "vite.pwa.config.ts",
+        ],
+        exclude: ["**/*.test.*", "**/*.testing.*", "**/*.d.ts"],
+        reporter: ["text-summary", "html"],
+        // CI fails on any uncovered line or branch: coverage is held at 100%.
+        thresholds: { 100: true },
+      },
+    },
     build: {
       outDir: "dist/client",
       rollupOptions: {

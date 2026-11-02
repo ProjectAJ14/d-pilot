@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { parseConnectionsJson, runLimited } from "./connection-import";
 
 describe("parseConnectionsJson", () => {
@@ -19,6 +19,34 @@ describe("parseConnectionsJson", () => {
     });
     const inObject = parseConnectionsJson('{"id": "a",\n}');
     expect("error" in inObject && inObject.error).toMatch(/line 1, column 11/);
+  });
+
+  it("skips escaped quotes inside strings when finding a trailing comma", () => {
+    expect(parseConnectionsJson('[{"p": "a\\",]"},]')).toEqual({
+      error:
+        "Trailing comma at line 1, column 16 — remove the comma after the last item",
+    });
+  });
+
+  it("adds a line/column to an engine message that gives only a position", () => {
+    const parse = vi.spyOn(JSON, "parse");
+    try {
+      parse.mockImplementationOnce(() => {
+        throw new SyntaxError("Unexpected token x at position 3");
+      });
+      expect(parseConnectionsJson("ab\ncd")).toEqual({
+        error:
+          "Invalid JSON: Unexpected token x at position 3 (line 2, column 1)",
+      });
+      parse.mockImplementationOnce(() => {
+        throw new SyntaxError("Unexpected end of JSON input");
+      });
+      expect(parseConnectionsJson("[")).toEqual({
+        error: "Invalid JSON: Unexpected end of JSON input",
+      });
+    } finally {
+      parse.mockRestore();
+    }
   });
 
   it("ignores commas inside strings when looking for one", () => {

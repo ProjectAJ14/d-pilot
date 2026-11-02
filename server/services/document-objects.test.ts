@@ -121,3 +121,106 @@ describe("Elasticsearch objects", () => {
     });
   });
 });
+
+describe("other engines and edge cases", () => {
+  it("has no document objects for a SQL engine", async () => {
+    h.mongo = h.es = null;
+    expect(
+      await getDocumentObjects({
+        id: "p",
+        type: "postgres",
+        env: "QA",
+      } as ConnectionConfig),
+    ).toEqual([]);
+  });
+
+  it("names the Mongo database from the URI (else 'test'), defaults a view's pipeline and skips a plain collection", async () => {
+    const dbNames: string[] = [];
+    h.mongo = {
+      db: (name: string) => {
+        dbNames.push(name);
+        return {
+          listCollections: () =>
+            toArray([
+              {
+                name: "open_orders",
+                type: "view",
+                options: { viewOn: "orders" },
+              },
+              { name: "customers", type: "collection" },
+              {
+                name: "orders",
+                type: "collection",
+                options: {
+                  validator: { status: { $exists: true } },
+                  validationLevel: "moderate",
+                  validationAction: "warn",
+                },
+              },
+            ]),
+          collection: () => ({ listIndexes: () => toArray([]) }),
+        };
+      },
+    };
+    const objects = await getDocumentObjects({
+      id: "m",
+      type: "mongodb",
+      env: "QA",
+      uri: "mongodb://db:27017/app_core?authSource=admin",
+    } as ConnectionConfig);
+    expect(objects.map((o) => [o.kind, o.name])).toEqual([
+      ["view", "open_orders"],
+      ["validator", "orders"],
+    ]);
+    expect(objects[0].schema).toBe("app_core");
+    expect(JSON.parse(objects[0].definition!)).toEqual({
+      viewOn: "orders",
+      pipeline: [],
+    });
+    expect(JSON.parse(objects[1].definition!)).toMatchObject({
+      validationLevel: "moderate",
+      validationAction: "warn",
+    });
+
+    await getDocumentObjects({
+      id: "m2",
+      type: "mongodb",
+      env: "QA",
+    } as ConnectionConfig);
+    expect(dbNames).toEqual(["app_core", "test"]);
+  });
+
+  it("lists user ILM policies, survives a missing ingest API and indices without aliases", async () => {
+    h.es = {
+      indices: {
+        getIndexTemplate: async () => ({}),
+        getAlias: async () => ({ "orders-2026.10": {} }),
+      },
+      ingest: {
+        getPipeline: async () => {
+          throw new Error("no ingest");
+        },
+      },
+      ilm: {
+        getLifecycle: async () => ({
+          "orders-retention": { policy: { phases: { delete: {} } } },
+          ".internal": { policy: {} },
+          "logs-default": { policy: { _meta: { managed: true } } },
+        }),
+      },
+    };
+    const objects = await getDocumentObjects({
+      id: "e",
+      type: "elasticsearch",
+      env: "QA",
+    } as ConnectionConfig);
+    expect(objects).toEqual([
+      {
+        schema: "",
+        name: "orders-retention",
+        kind: "ilm_policy",
+        definition: JSON.stringify({ phases: { delete: {} } }, null, 2),
+      },
+    ]);
+  });
+});

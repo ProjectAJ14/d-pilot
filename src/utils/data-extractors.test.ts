@@ -65,6 +65,50 @@ describe("builtin formats", () => {
   });
 });
 
+describe("markdown and unknown builtins", () => {
+  it("markdown escapes pipes and flattens newlines in every row", () => {
+    expect(
+      renderCopyFormat(byId("markdown"), {
+        columns: ["a", "b"],
+        rows: [{ a: "x|y", b: "line1\nline2" }, { a: 1 }],
+      }),
+    ).toBe(
+      [
+        "| a | b |",
+        "| --- | --- |",
+        "| x\\|y | line1 line2 |",
+        "| 1 |  |",
+      ].join("\n"),
+    );
+  });
+
+  it("csv quotes fields holding a newline, carriage return or quote, and leaves nulls empty", () => {
+    expect(
+      renderCopyFormat(byId("csv"), {
+        columns: ["a", "b", "c", "d"],
+        rows: [{ a: "x\ny", b: "x\ry", c: 'say "hi"', d: null }],
+      }),
+    ).toBe('a,b,c,d\n"x\ny","x\ry","say ""hi""",');
+  });
+
+  it("json fills a missing column with null", () => {
+    expect(
+      JSON.parse(
+        renderCopyFormat(byId("json"), {
+          columns: ["a", "b"],
+          rows: [{ a: 1 }],
+        }),
+      ),
+    ).toEqual([{ a: 1, b: null }]);
+  });
+
+  it("an unknown builtin (a stale saved format) falls through to its own name", () => {
+    expect(
+      renderCopyFormat({ builtin: "yaml" } as unknown as CopyFormat, codeOnly),
+    ).toBe("yaml");
+  });
+});
+
 describe("default template formats reproduce the shared-chat formats", () => {
   it("comma joins every cell row-major, bare", () => {
     expect(renderCopyFormat(byId("comma"), codeOnly)).toBe("1560,1580,1593");

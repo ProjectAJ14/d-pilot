@@ -21,3 +21,6 @@ public/logo/
 
 # AI eval results (scripts/ai-eval/run.mjs --out default)
 scripts/ai-eval/results/
+
+# vitest --coverage output
+coverage/

@@ -126,6 +126,25 @@ describe("formatRows (json)", () => {
   });
 });
 
+describe("formatRows (json) edges", () => {
+  it("leaves out a listed column the row does not have", () => {
+    const { text } = formatRows([{ id: 1 }], ["id", "missing"], {
+      format: "json",
+    });
+    expect(JSON.parse(text)).toEqual([{ id: 1 }]);
+  });
+
+  it("stops adding rows when the budget runs out", () => {
+    const rows = [1, 2, 3].map((id) => ({ id, name: "x".repeat(20) }));
+    const res = formatRows(rows, undefined, {
+      format: "json",
+      budgetChars: 40,
+    });
+    expect(res.rowsShown).toBe(1);
+    expect(JSON.parse(res.text)).toEqual([rows[0]]);
+  });
+});
+
 describe("columnNames", () => {
   it("adds fields that only later documents carry", () => {
     expect(columnNames([{ a: 1 }, { a: 2, b: 3 }], ["a"])).toEqual(["a", "b"]);

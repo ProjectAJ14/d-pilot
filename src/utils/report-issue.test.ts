@@ -100,4 +100,18 @@ describe("issueUrl", () => {
     expect(url.length).toBeLessThanOrEqual(6000);
     expect(new URL(url).searchParams.get("body")).toContain("[truncated]");
   });
+
+  it("leaves out unknown tags and says which kind of env failed", () => {
+    const bare = { ...base, code: undefined, dbType: undefined };
+    expect(params({ ...bare, production: false }).get("title")).toBe(
+      'Query failed: syntax error at or near ":"',
+    );
+    const body = params({ ...bare, production: false }).get("body")!;
+    expect(body).toContain("| Environment | non-production |");
+    expect(body).toContain("| Error code | — |");
+    expect(body).toContain("| Database | — |");
+    expect(params({ ...bare, production: undefined }).get("body")).toContain(
+      "| Environment | — |",
+    );
+  });
 });

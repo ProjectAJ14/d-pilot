@@ -97,6 +97,12 @@ describe("isConnectionError", () => {
     expect(isConnectionError(err)).toBe(true);
   });
 
+  it("reads a bare string or nullish error", () => {
+    expect(isConnectionError("connect ECONNREFUSED 127.0.0.1:5432")).toBe(true);
+    expect(isConnectionError(null)).toBe(false);
+    expect(isConnectionError(undefined)).toBe(false);
+  });
+
   it("leaves query errors alone", () => {
     const err = Object.assign(new Error('relation "nope" does not exist'), {
       code: "42P01",
@@ -150,6 +156,11 @@ describe("isPreConnectError", () => {
       expect(isPreConnectError(tagged)).toBe(false);
     },
   );
+
+  it("reads the code alone when a tagged error has no message", () => {
+    expect(isPreConnectError(markPreConnect({ code: "ENOTFOUND" }))).toBe(true);
+    expect(isPreConnectError(markPreConnect({ code: 42 }))).toBe(false);
+  });
 
   it("only tags objects", () => {
     expect(markPreConnect("ECONNREFUSED")).toBe("ECONNREFUSED");

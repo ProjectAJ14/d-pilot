@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { buildArtifactSrcdoc } from "./artifact-html";
 
 describe("buildArtifactSrcdoc", () => {
@@ -27,5 +27,20 @@ describe("buildArtifactSrcdoc", () => {
 
   it("inlines the theme tokens", () => {
     expect(doc).toContain(":root{--ink:#000}");
+  });
+});
+
+describe("readThemeTokens", () => {
+  it("serialises each theme token from the element's computed style", async () => {
+    const { readThemeTokens } = await import("./artifact-html");
+    const seen: string[] = [];
+    vi.stubGlobal("getComputedStyle", () => ({
+      getPropertyValue: (t: string) => (seen.push(t), ` v${seen.length} `),
+    }));
+    const out = readThemeTokens({} as Element);
+    vi.unstubAllGlobals();
+    expect(seen).toContain("--font-mono");
+    expect(out.split(";")).toHaveLength(seen.length);
+    expect(out.startsWith(`${seen[0]}:v1;`)).toBe(true);
   });
 });

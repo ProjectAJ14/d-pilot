@@ -242,3 +242,88 @@ describe("getSqlCursorContext", () => {
     expect(ctx.qualifier?.ref?.table).toBe("Order Details");
   });
 });
+
+describe("tokenizer and splitter edge cases", () => {
+  it("does not split on a semicolon after an escaped quote or inside block comments", () => {
+    const sql = "SELECT 'it''s; here' /* ; */ FROM orders; SELECT 1";
+    expect(extractCurrentStatement(sql, 5).text).toBe(
+      "SELECT 'it''s; here' /* ; */ FROM orders",
+    );
+  });
+
+  it("swallows the rest of the text for an unterminated comment", () => {
+    expect(extractCurrentStatement("SELECT 1 /* ; never closed", 3).text).toBe(
+      "SELECT 1 /* ; never closed",
+    );
+    expect(extractCurrentStatement("SELECT 1 -- ; trailing", 3).text).toBe(
+      "SELECT 1 -- ; trailing",
+    );
+  });
+
+  it("skips terminated, unterminated and line-final comments", () => {
+    const words = (sql: string) =>
+      tokenize(sql)
+        .filter((t) => t.type === "word")
+        .map((t) => t.text);
+    expect(words("SELECT /* hidden */ a")).toEqual(["SELECT", "a"]);
+    expect(words("SELECT a /* hidden b")).toEqual(["SELECT", "a"]);
+    expect(words("SELECT a -- hidden b")).toEqual(["SELECT", "a"]);
+  });
+
+  it("keeps doubled quotes inside strings and quoted identifiers", () => {
+    const tokens = tokenize(`'it''s' "say ""hi""" [a]]b]`);
+    expect(tokens.map((t) => [t.type, t.unquoted])).toEqual([
+      ["string", ""],
+      ["quoted", 'say "hi"'],
+      ["quoted", "a]b"],
+    ]);
+    expect(tokens[0].text).toBe("'it''s'");
+  });
+});
+
+describe("derived tables and odd FROM targets", () => {
+  const refs = (sql: string) => extractTableRefs(tokenize(sql));
+
+  it("skips nested parens and an AS alias on a derived table", () => {
+    expect(refs("FROM (SELECT max(id), 2 FROM (SELECT 1) x) AS sub")).toEqual([
+      { table: "", alias: "sub" },
+    ]);
+  });
+
+  it("records nothing for a derived table without an alias", () => {
+    expect(refs("FROM (SELECT 1) WHERE 1 = 1")).toEqual([]);
+  });
+
+  it("records nothing when FROM is followed by a keyword or literal", () => {
+    expect(refs("SELECT * FROM WHERE")).toEqual([]);
+    expect(refs("SELECT * FROM 42")).toEqual([]);
+  });
+
+  it("drops an AS that is not followed by an identifier", () => {
+    expect(refs("FROM orders AS")).toEqual([
+      { table: "orders", schema: undefined, alias: undefined },
+    ]);
+  });
+
+  it("unquotes a double-quoted qualifier", () => {
+    const ctx = ctxAt('SELECT "Weird T".| FROM orders');
+    expect(ctx.qualifier?.raw).toBe("Weird T");
+    expect(ctx.qualifier?.ref).toBeUndefined();
+  });
+});
+
+describe("clauseAt edge cases", () => {
+  const clause = (sqlWithCursor: string) => {
+    const offset = sqlWithCursor.indexOf("|");
+    return clauseAt(tokenize(sqlWithCursor.replace("|", "")), offset);
+  };
+
+  it("ignores a stray closing paren at the top level", () => {
+    expect(clause("SELECT 1) WHERE |")).toBe("where");
+  });
+
+  it("only switches clause on a complete GROUP BY / ORDER BY", () => {
+    expect(clause("SELECT x FROM t ORDER x |")).toBe("from");
+    expect(clause("SELECT x FROM t GROUP| BY")).toBe("from");
+  });
+});

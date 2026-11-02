@@ -1,7 +1,25 @@
 import { describe, it, expect, vi } from "vitest";
 
-vi.mock("../store", () => ({ useStore: () => [] }));
-const { envPickerOptions, runEnvStyle } = await import("./environments");
+vi.mock("../store", () => ({
+  useStore: (sel: (s: unknown) => unknown) =>
+    sel({ config: { environments: ["DEV", "QA", "PROD"] } }),
+}));
+const { envLabel, envPickerOptions, runEnvStyle, useEnvironments } =
+  await import("./environments");
+
+describe("useEnvironments", () => {
+  it("lists the configured envs most sensitive first, without mutating config", () => {
+    expect(useEnvironments()).toEqual(["PROD", "QA", "DEV"]);
+    expect(useEnvironments()).toEqual(["PROD", "QA", "DEV"]);
+  });
+});
+
+describe("envLabel", () => {
+  it("names the well-known envs and passes custom ones through", () => {
+    expect(envLabel("STG")).toBe("Staging");
+    expect(envLabel("SUPER_PROD")).toBe("SUPER_PROD");
+  });
+});
 
 describe("envPickerOptions", () => {
   it("offers known envs plus saved ones with no connection, marked", () => {

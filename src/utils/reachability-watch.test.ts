@@ -78,4 +78,36 @@ describe("startReachabilityWatch", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(onRecovered).toHaveBeenCalledOnce();
   });
+
+  it("stop() is idempotent", () => {
+    const { stop, removeOnline } = setup(vi.fn(async () => false));
+    stop();
+    stop();
+    expect(removeOnline).toHaveBeenCalledOnce();
+  });
+
+  it("a success that lands after stop() does not report recovery", async () => {
+    let answer!: (ok: boolean) => void;
+    const ping = vi.fn(() => new Promise<boolean>((r) => (answer = r)));
+    const { stop, onRecovered, removeOnline } = setup(ping);
+    await vi.advanceTimersByTimeAsync(10_000);
+    stop();
+    answer(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onRecovered).not.toHaveBeenCalled();
+    expect(removeOnline).toHaveBeenCalledOnce();
+  });
+
+  it("recovers without an onRecovered callback", async () => {
+    const removeOnline = vi.fn();
+    startReachabilityWatch({
+      ping: async () => true,
+      intervalMs: 1000,
+      addOnline: () => {},
+      removeOnline,
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(removeOnline).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });

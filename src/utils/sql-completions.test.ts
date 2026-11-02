@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { languages } from "monaco-editor";
 import type { ColumnInfo, TableInfo } from "../types";
-import { buildSqlSuggestions, type SchemaEntry } from "./sql-completions";
+import {
+  buildSqlSuggestions,
+  pushKeywordItems,
+  type SchemaEntry,
+} from "./sql-completions";
 import { getSqlCursorContext } from "./sql-context";
 
 const monaco = {
@@ -201,5 +205,127 @@ describe("buildSqlSuggestions decision table", () => {
       range,
     });
     expect(labels(items)).toContain("FETCH NEXT");
+  });
+});
+
+describe("buildSqlSuggestions edge cases", () => {
+  const build = (
+    sqlWithCursor: string,
+    s: SchemaEntry | undefined,
+    dialect: "postgres" | "mssql" = "postgres",
+  ) => {
+    const offset = sqlWithCursor.indexOf("|");
+    return buildSqlSuggestions({
+      monaco,
+      ctx: getSqlCursorContext(sqlWithCursor.replace("|", ""), offset),
+      schema: s,
+      dialect,
+      range,
+    });
+  };
+
+  it("keeps a function keyword's open paren without a trailing space", () => {
+    const out: languages.CompletionItem[] = [];
+    pushKeywordItems(monaco, out, ["COUNT(", "FROM"], range, "0_");
+    expect(out.map((i) => i.insertText)).toEqual(["COUNT(", "FROM "]);
+  });
+
+  it("matches a differently-cased table name and describes FK / PHI columns", () => {
+    const s: SchemaEntry = {
+      tables: [{ schema: "", name: "Orders", type: "view" }],
+      columns: {
+        Orders: [
+          col("customer_id", {
+            isForeignKey: true,
+            references: "customers.id",
+          }),
+          col("region_id", { isForeignKey: true }),
+          col("email", { isPhiField: true }),
+        ],
+      },
+    };
+    const items = build("SELECT orders.|", s);
+    expect(items.map((i) => i.detail)).toEqual([
+      "Orders · text FK → customers.id",
+      "Orders · text FK",
+      "Orders · text 🔐 PHI",
+    ]);
+    const tables = build("SELECT * FROM |", s).filter(
+      (i) => i.kind === monaco.languages.CompletionItemKind.Struct,
+    );
+    expect(tables[0].detail).toBe("view");
+  });
+
+  it("returns nothing for a qualifier when there is no schema", () => {
+    expect(build("SELECT o.| FROM orders o", undefined)).toEqual([]);
+  });
+
+  it("returns nothing for a derived-table alias qualifier", () => {
+    expect(build("SELECT sub.| FROM (SELECT 1) sub", schema)).toEqual([]);
+  });
+
+  it("returns nothing for a table listed without cached columns", () => {
+    const s: SchemaEntry = { tables: [table("Ledger")], columns: {} };
+    expect(build("SELECT ledger.|", s)).toEqual([]);
+  });
+
+  it("skips derived tables when scoping columns", () => {
+    const items = build(
+      "SELECT | FROM (SELECT 1) sub JOIN orders o ON 1=1",
+      schema,
+    );
+    const fields = items.filter(
+      (i) => i.kind === monaco.languages.CompletionItemKind.Field,
+    );
+    expect(labels(fields).sort()).toEqual(["customer_id", "id", "total"]);
+    expect(fields[0].insertText).toBe(fields[0].label);
+  });
+
+  it("bracket-quotes awkward qualifiers on mssql", () => {
+    const s: SchemaEntry = {
+      tables: [table("Order Lines"), table("customers")],
+      columns: { "Order Lines": [col("qty")], customers: [col("name")] },
+    };
+    const items = build(
+      "SELECT | FROM [Order Lines] JOIN customers c ON 1=1",
+      s,
+      "mssql",
+    );
+    expect(items.find((i) => i.label === "qty")!.insertText).toBe(
+      "[Order Lines].qty",
+    );
+  });
+
+  it("offers keywords only for a table position without a schema", () => {
+    const items = build("SELECT * FROM |", undefined);
+    expect(items.length).toBeGreaterThan(0);
+    expect(
+      items.every(
+        (i) => i.kind === monaco.languages.CompletionItemKind.Keyword,
+      ),
+    ).toBe(true);
+  });
+
+  it("offers keywords only when statement tables exist but no schema", () => {
+    const items = build("SELECT * FROM orders WHERE |", undefined);
+    expect(labels(items)).toContain("AND");
+    expect(
+      items.every(
+        (i) => i.kind === monaco.languages.CompletionItemKind.Keyword,
+      ),
+    ).toBe(true);
+  });
+
+  it("caps unscoped columns and skips tables without columns", () => {
+    const many = Array.from({ length: 600 }, (_, i) => col(`c${i}`));
+    const s: SchemaEntry = {
+      tables: [table("empty"), table("wide")],
+      columns: { wide: many },
+    };
+    const fields = build("|", s).filter(
+      (i) => i.kind === monaco.languages.CompletionItemKind.Field,
+    );
+    expect(fields).toHaveLength(500);
+    expect(fields[0].detail).toBe("wide · text");
   });
 });
