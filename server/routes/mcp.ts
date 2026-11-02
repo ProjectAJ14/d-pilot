@@ -556,7 +556,7 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
     {
       title: "Drift report between two connections",
       description:
-        "Which procedures, functions, views and triggers in a schema differ between two connections of the same engine (e.g. QA vs PROD), or exist on only one. Compares normalized definitions by hash; lists names only. Read a pair with get_object_definition on each connection to see how they differ.",
+        "Which procedures, functions, views and triggers in a schema — and which scheduled jobs (SQL Server Agent / pg_cron, matched by name, comparing steps and enabled schedules) — differ between two connections of the same engine (e.g. QA vs PROD), or exist on only one. Compares normalized definitions by hash; lists names only. Read a pair with get_object_definition, or get_job, on each connection to see how they differ.",
       inputSchema: {
         connectionId: z.string(),
         againstConnectionId: z.string(),
@@ -580,6 +580,17 @@ export function createMcpServer(client: DPilotApiClient): McpServer {
             ...r.items.map(
               (i) => `- ${i.kind} ${objectLabel(i)}: ${where[i.status]}`,
             ),
+            ...(!r.jobs
+              ? []
+              : r.jobs.unavailable
+                ? [`Jobs not compared: ${r.jobs.unavailable}`]
+                : [
+                    `Jobs: ${r.jobs.items.length} differ, ${r.jobs.identical} identical.`,
+                    ...r.jobs.items.map(
+                      (j) =>
+                        `- job ${j.name} (${[j.leftId && `${connectionId}: ${j.leftId}`, j.rightId && `${againstConnectionId}: ${j.rightId}`].filter(Boolean).join(", ")}): ${where[j.status]}`,
+                    ),
+                  ]),
           ].join("\n"),
         );
       }),

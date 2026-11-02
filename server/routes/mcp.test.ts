@@ -495,6 +495,58 @@ describe("schema and listing tools", () => {
     await client.close();
   });
 
+  it("compare_objects lists jobs with their id on each side, or why they weren't compared", async () => {
+    const api = answering({
+      "/schema/qa-pg/drift?against=prod-pg": {
+        schema: "app_core",
+        identical: 1,
+        items: [],
+        jobs: {
+          identical: 2,
+          items: [
+            { name: "nightly", status: "different", leftId: "3", rightId: "9" },
+            { name: "qa_cleanup", status: "only_left", leftId: "4" },
+            { name: "prod_report", status: "only_right", rightId: "5" },
+          ],
+        },
+      },
+      "/schema/qa-ms/drift?against=prod-ms": {
+        schema: "dbo",
+        identical: 0,
+        items: [],
+        jobs: { identical: 0, items: [], unavailable: "PROD ms: no grant." },
+      },
+    });
+    const { client, call } = await connect({ get: api.get });
+    expect(
+      (
+        await call("compare_objects", {
+          connectionId: "qa-pg",
+          againstConnectionId: "prod-pg",
+        })
+      ).text,
+    ).toBe(
+      [
+        "0 differ, 1 identical in app_core.",
+        "Jobs: 3 differ, 2 identical.",
+        "- job nightly (qa-pg: 3, prod-pg: 9): differs",
+        "- job qa_cleanup (qa-pg: 4): only on qa-pg",
+        "- job prod_report (prod-pg: 5): only on prod-pg",
+      ].join("\n"),
+    );
+    expect(
+      (
+        await call("compare_objects", {
+          connectionId: "qa-ms",
+          againstConnectionId: "prod-ms",
+        })
+      ).text,
+    ).toBe(
+      "0 differ, 0 identical in dbo.\nJobs not compared: PROD ms: no grant.",
+    );
+    await client.close();
+  });
+
   it("get_object_dependencies marks unresolved references, best effort, and the jobs that run it", async () => {
     const api = answering({
       "/schema/qa-pg/objects/view/open_orders/dependencies": {

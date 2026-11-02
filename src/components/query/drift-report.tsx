@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Badge, Loader, Modal, Select, Table, Text } from "@mantine/core";
-import type { DriftItem, DriftReport } from "../../types";
+import type { DriftItem, DriftReport, JobDriftItem } from "../../types";
 import { api } from "../../utils/api-client";
 import { pressable } from "../../utils/pressable";
 import { useStore } from "../../store";
@@ -12,10 +12,12 @@ const STATUS_COLOR: Record<DriftItem["status"], string> = {
 };
 
 /**
- * Every procedure, function, view and trigger in a schema that differs between
- * this connection and another — "does QA run what production runs?". The
- * server compares hashes of normalized definitions and returns names only;
- * a row opens the object with the other connection already diffed against it.
+ * Every procedure, function, view and trigger in a schema — and every
+ * scheduled job on the database — that differs between this connection and
+ * another: "does QA run what production runs?". The server compares hashes of
+ * normalized definitions and returns names only; an object row opens it with
+ * the other connection already diffed against it, a job row opens the job on
+ * each side it exists on.
  */
 export function DriftReportModal({
   connId,
@@ -30,6 +32,7 @@ export function DriftReportModal({
 }) {
   const connections = useStore((s) => s.connections);
   const openObjectTab = useStore((s) => s.openObjectTab);
+  const openJobTab = useStore((s) => s.openJobTab);
   const conn = connections.find((c) => c.id === connId);
   const [against, setAgainst] = useState<string | null>(null);
   const [report, setReport] = useState<DriftReport | null>(null);
@@ -54,6 +57,20 @@ export function DriftReportModal({
   const latest = useRef<string | null>(null);
 
   const other = connections.find((c) => c.id === against);
+  const badge = (status: DriftItem["status"]) => (
+    <Badge size="xs" variant="light" color={STATUS_COLOR[status]}>
+      {status === "different"
+        ? "differs"
+        : `only on ${(status === "only_left" ? conn : other)?.name}`}
+    </Badge>
+  );
+  // Ids differ per server: open the job on each side it exists on, this
+  // connection's last so it is the tab in front.
+  const openJob = (job: JobDriftItem) => {
+    if (job.rightId) openJobTab(against!, { id: job.rightId, name: job.name });
+    if (job.leftId) openJobTab(connId, { id: job.leftId, name: job.name });
+    onClose();
+  };
   return (
     <Modal
       opened={opened}
@@ -127,20 +144,44 @@ export function DriftReportModal({
                           </Text>
                         )}
                       </Table.Td>
-                      <Table.Td>
-                        <Badge
-                          size="xs"
-                          variant="light"
-                          color={STATUS_COLOR[item.status]}
-                        >
-                          {item.status === "different"
-                            ? "differs"
-                            : `only on ${(item.status === "only_left" ? conn : other)?.name}`}
-                        </Badge>
-                      </Table.Td>
+                      <Table.Td>{badge(item.status)}</Table.Td>
                     </Table.Tr>
                   );
                 })}
+              </Table.Tbody>
+            </Table>
+          )}
+          {report.jobs && (
+            <Text size="xs" c="dimmed" mt="md" mb="xs">
+              {report.jobs.unavailable
+                ? `Jobs not compared. ${report.jobs.unavailable}`
+                : report.jobs.items.length
+                  ? `Jobs: ${report.jobs.items.length} differ, ${report.jobs.identical} identical.`
+                  : `All ${report.jobs.identical} jobs are identical on ${other?.name}.`}
+            </Text>
+          )}
+          {!!report.jobs?.items.length && (
+            <Table highlightOnHover verticalSpacing={4} fz="xs">
+              <Table.Tbody>
+                {report.jobs.items.map((job) => (
+                  <Table.Tr
+                    key={job.name}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => openJob(job)}
+                  >
+                    <Table.Td c="dimmed">job</Table.Td>
+                    <Table.Td ff="monospace">
+                      <span
+                        {...pressable(() => openJob(job))}
+                        onClick={undefined}
+                        aria-label={`Open job ${job.name}`}
+                      >
+                        {job.name}
+                      </span>
+                    </Table.Td>
+                    <Table.Td>{badge(job.status)}</Table.Td>
+                  </Table.Tr>
+                ))}
               </Table.Tbody>
             </Table>
           )}

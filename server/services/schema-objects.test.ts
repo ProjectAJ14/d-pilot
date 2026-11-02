@@ -7,6 +7,15 @@ const h = vi.hoisted(() => ({
   calls: [] as { sql: string; params: unknown }[],
   rows: [] as (unknown[] | Error)[],
   docs: [] as unknown[],
+  jobs: {} as Record<string, unknown>,
+}));
+// Jobs come from jobs.ts, whose own tests cover the drivers.
+vi.mock("./jobs.js", () => ({
+  getJobDefinitions: async (c: { id: string }) => {
+    const r = h.jobs[c.id];
+    if (r instanceof Error) throw r;
+    return r ?? { available: false, jobs: [] };
+  },
 }));
 // Mongo/Elasticsearch objects come from document-objects; its own tests cover
 // the drivers, so here it just answers with what the test queued.
@@ -68,6 +77,7 @@ const {
   getObjectDependencies,
   AmbiguousObjectError,
   compareDefinitions,
+  compareJobs,
   pgArgTypes,
   normalizeDefinition,
   objectKindsFor,
@@ -90,6 +100,7 @@ beforeEach(() => {
   h.calls = [];
   h.rows = [];
   h.docs = [];
+  h.jobs = {};
 });
 
 describe("getObjects", () => {
@@ -608,6 +619,108 @@ describe("getDrift", () => {
       ["trigger", "orders_audit", "only_right"],
       ["view", "open_orders", "only_left"],
     ]);
+  });
+
+  it("has no jobs section when neither side has jobs", async () => {
+    expect(await getDrift(pg, pg, "app_core")).not.toHaveProperty("jobs");
+  });
+
+  it("compares the jobs on both databases, whatever the schema", async () => {
+    const prod = { ...pg, id: "prod-core", name: "PROD core" };
+    h.jobs = {
+      "qa-core": {
+        available: true,
+        jobs: [
+          {
+            id: "1",
+            name: "vacuum",
+            key: "vacuum",
+            definition: "schedule: 0 3 * * *\n\nVACUUM orders",
+          },
+        ],
+      },
+      // pg_cron missing on one side: its jobs are only on the other.
+      "prod-core": { available: false, jobs: [] },
+    };
+    expect((await getDrift(pg, prod, "app_core")).jobs).toEqual({
+      identical: 0,
+      items: [{ name: "vacuum", status: "only_left", leftId: "1" }],
+    });
+  });
+
+  it("says which side can't read jobs instead of comparing them", async () => {
+    const left = { ...ms, name: "QA ms" };
+    const right = { ...ms, id: "prod-ms", name: "PROD ms" };
+    h.jobs = {
+      "qa-ms": {
+        available: true,
+        jobs: [{ id: "a", name: "nightly", key: "nightly", definition: "x" }],
+      },
+      "prod-ms": {
+        available: false,
+        reason: "Needs SQLAgentReaderRole.",
+        jobs: [],
+      },
+    };
+    expect((await getDrift(left, right)).jobs).toEqual({
+      identical: 0,
+      items: [],
+      unavailable: "PROD ms: Needs SQLAgentReaderRole.",
+    });
+    h.jobs["qa-ms"] = { available: false, reason: "No grant.", jobs: [] };
+    expect((await getDrift(left, right)).jobs?.unavailable).toBe(
+      "QA ms: No grant. PROD ms: Needs SQLAgentReaderRole.",
+    );
+  });
+
+  it("names a failure to read jobs and still compares the objects", async () => {
+    const left = { ...ms, name: "QA ms" };
+    const right = { ...ms, id: "prod-ms", name: "PROD ms" };
+    h.jobs = { "prod-ms": new Error("msdb timeout") };
+    h.rows.push([
+      { name: "open_orders", type: "V", parent: null, definition: "x" },
+    ]);
+    const report = await getDrift(left, right);
+    expect(report.items.map((i) => [i.name, i.status])).toEqual([
+      ["open_orders", "only_left"],
+    ]);
+    expect(report.jobs?.unavailable).toBe(
+      "PROD ms: Couldn't read its jobs (msdb timeout).",
+    );
+  });
+});
+
+describe("compareJobs", () => {
+  it("matches jobs by key across servers and compares normalized definitions", () => {
+    const j = (id: string, name: string, definition: string, key = name) => ({
+      id,
+      name,
+      key,
+      definition,
+    });
+    const report = compareJobs(
+      [
+        j("1", "same", "SELECT 1  \r\n"),
+        j("2", "changed", "a"),
+        j("3", "qa_only", "x"),
+        // Unnamed: different ids and names on each server, same key.
+        j("4", "(unnamed job 4)", "y", "unnamed:abc"),
+      ],
+      [
+        j("9", "same", "SELECT 1"),
+        j("8", "changed", "b"),
+        j("7", "prod_only", "y"),
+        j("6", "(unnamed job 6)", "y", "unnamed:abc"),
+      ],
+    );
+    expect(report).toEqual({
+      identical: 2,
+      items: [
+        { name: "changed", status: "different", leftId: "2", rightId: "8" },
+        { name: "prod_only", status: "only_right", rightId: "7" },
+        { name: "qa_only", status: "only_left", leftId: "3" },
+      ],
+    });
   });
 });
 

@@ -14,6 +14,7 @@ vi.mock("../../utils/api-client", async (orig) => {
 
 const getDrift = vi.mocked(api.getDrift);
 const openObjectTab = vi.fn();
+const openJobTab = vi.fn();
 const onClose = vi.fn();
 
 const connections: ConnectionInfo[] = [
@@ -47,7 +48,7 @@ const report: DriftReport = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useStore.setState({ connections, openObjectTab });
+  useStore.setState({ connections, openObjectTab, openJobTab });
 });
 
 function deferred<T>() {
@@ -183,6 +184,85 @@ describe("DriftReportModal", () => {
     await first.promise.catch(() => {});
     await Promise.resolve();
     expect(screen.queryByText("stale failure")).toBeNull();
+  });
+
+  it("lists jobs that differ and opens each on every side it exists on", async () => {
+    getDrift.mockResolvedValue({
+      schema: "app_core",
+      identical: 3,
+      items: [],
+      jobs: {
+        identical: 1,
+        items: [
+          { name: "nightly", status: "different", leftId: "3", rightId: "9" },
+          { name: "qa_cleanup", status: "only_left", leftId: "4" },
+          { name: "prod_report", status: "only_right", rightId: "5" },
+        ],
+      },
+    });
+    renderModal();
+    pickConnection("PROD · app_core PROD");
+    await waitFor(() =>
+      expect(screen.getByText("Jobs: 3 differ, 1 identical.")).toBeTruthy(),
+    );
+    expect(
+      screen.getByText("All 3 objects are identical on app_core PROD."),
+    ).toBeTruthy();
+    expect(screen.getByText("only on app_core QA")).toBeTruthy();
+    expect(screen.getByText("only on app_core PROD")).toBeTruthy();
+
+    // Both sides: PROD's first, so this connection's is the tab in front.
+    fireEvent.click(screen.getByText("nightly"));
+    expect(openJobTab.mock.calls).toEqual([
+      ["prod", { id: "9", name: "nightly" }],
+      ["qa", { id: "3", name: "nightly" }],
+    ]);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    openJobTab.mockClear();
+    fireEvent.keyDown(screen.getByLabelText("Open job prod_report"), {
+      key: "Enter",
+    });
+    expect(openJobTab.mock.calls).toEqual([
+      ["prod", { id: "5", name: "prod_report" }],
+    ]);
+    openJobTab.mockClear();
+    fireEvent.click(screen.getByText("qa_cleanup"));
+    expect(openJobTab.mock.calls).toEqual([
+      ["qa", { id: "4", name: "qa_cleanup" }],
+    ]);
+  });
+
+  it("says when all jobs match", async () => {
+    getDrift.mockResolvedValue({
+      schema: "app_core",
+      identical: 0,
+      items: [],
+      jobs: { identical: 2, items: [] },
+    });
+    renderModal();
+    pickConnection("PROD · app_core PROD");
+    await waitFor(() =>
+      expect(
+        screen.getByText("All 2 jobs are identical on app_core PROD."),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("says why jobs weren't compared", async () => {
+    getDrift.mockResolvedValue({
+      schema: "app_core",
+      identical: 0,
+      items: [],
+      jobs: { identical: 0, items: [], unavailable: "app_core DEV: no grant." },
+    });
+    renderModal();
+    pickConnection("DEV · app_core DEV");
+    await waitFor(() =>
+      expect(
+        screen.getByText("Jobs not compared. app_core DEV: no grant."),
+      ).toBeTruthy(),
+    );
   });
 
   it("falls back to the connection id when the connection is unknown", () => {

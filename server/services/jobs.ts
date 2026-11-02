@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import mssql from "mssql";
 import type {
   ConnectionConfig,
@@ -428,4 +429,110 @@ async function getCronJobDetail(
     };
   });
   return detail === "absent" ? null : detail;
+}
+
+// --- drift ---
+
+/** One job as text for a drift report: what it runs and when. */
+export interface JobDefinition {
+  id: string;
+  name: string;
+  /** What the job is matched on across servers: its name, or for an unnamed job a hash of its command. */
+  key: string;
+  definition: string;
+}
+
+/**
+ * Every job on this database as comparable text — its enabled schedules and
+ * each step's name, subsystem and command — for matching against another
+ * environment by name (ids differ per server). Enabled state is left out: a
+ * job deliberately switched off outside production is not drift. A step on
+ * another database counts by its placeholder, never its command.
+ */
+export async function getJobDefinitions(conn: ConnectionConfig): Promise<{
+  available: boolean;
+  reason?: string;
+  jobs: JobDefinition[];
+}> {
+  try {
+    if (conn.type === "mssql") return await getAgentDefinitions(conn);
+    if (conn.type === "postgres") return await getCronDefinitions(conn);
+  } catch (err) {
+    if (conn.type === "mssql" && isAgentAccessError(err))
+      return { available: false, reason: AGENT_GRANT, jobs: [] };
+    if (conn.type === "postgres" && isPgAccessError(err))
+      return { available: false, reason: PG_CRON_GRANT, jobs: [] };
+    throw err;
+  }
+  return { available: false, jobs: [] };
+}
+
+async function getAgentDefinitions(conn: ConnectionConfig) {
+  return withAgent(conn, async (pool) => {
+    const res = await pool.request().query(
+      `SELECT CONVERT(varchar(36), j.job_id) AS job_id, j.name,
+              s.step_id, s.step_name, s.subsystem,
+              CASE WHEN ${THIS_DB} THEN 0 ELSE 1 END AS other_db,
+              CASE WHEN ${THIS_DB} THEN s.command END AS command
+       FROM msdb.dbo.sysjobs j
+       JOIN msdb.dbo.sysjobsteps s ON s.job_id = j.job_id
+       WHERE EXISTS (SELECT 1 FROM msdb.dbo.sysjobsteps x
+                     WHERE x.job_id = j.job_id AND x.database_name = DB_NAME())
+       ORDER BY j.name, s.step_id;
+       SELECT CONVERT(varchar(36), js.job_id) AS job_id, ${AGENT_SCHEDULE_COLS}
+       FROM msdb.dbo.sysjobschedules js
+       JOIN msdb.dbo.sysschedules sc ON sc.schedule_id = js.schedule_id
+       WHERE sc.enabled = 1 AND EXISTS (SELECT 1 FROM msdb.dbo.sysjobsteps x
+             WHERE x.job_id = js.job_id AND x.database_name = DB_NAME())`,
+    );
+    const [steps, schedules] = res.recordsets as unknown as any[][];
+    const when = new Map<string, string[]>();
+    for (const s of schedules) {
+      const id = s.job_id.toLowerCase();
+      when.set(id, [...(when.get(id) ?? []), describeSchedule(s)]);
+    }
+    const jobs = new Map<string, JobDefinition>();
+    for (const s of steps) {
+      const id = s.job_id.toLowerCase();
+      const job = jobs.get(id) ?? {
+        id,
+        name: s.name,
+        key: s.name,
+        definition: `schedule: ${(when.get(id) ?? []).sort().join("; ")}`,
+      };
+      job.definition += `\n\nstep ${s.step_id} ${s.step_name} [${s.subsystem}]\n${
+        s.other_db ? OTHER_DB_STEP : s.command
+      }`;
+      jobs.set(id, job);
+    }
+    return { available: true, jobs: [...jobs.values()] };
+  });
+}
+
+async function getCronDefinitions(conn: ConnectionConfig) {
+  const rows = await withCron(
+    conn,
+    async (pool) =>
+      (
+        await pool.query(
+          `SELECT jobid, jobname, schedule, command FROM cron.job
+           WHERE database = current_database() ORDER BY jobname, jobid`,
+        )
+      ).rows,
+  );
+  // No extension: no jobs to compare, which another side may still have.
+  if (rows === "absent") return { available: false, jobs: [] };
+  return {
+    available: true,
+    jobs: rows.map((r: any) => ({
+      id: String(r.jobid),
+      // An unnamed job's id differs per server, so it matches on its command
+      // — by hash: the report carries names only, a command is a JOB_VIEW.
+      name: r.jobname ?? `(unnamed job ${r.jobid})`,
+      key:
+        r.jobname ??
+        `unnamed:${createHash("sha256").update(r.command.trim()).digest("hex")}`,
+      definition: `schedule: ${r.schedule}\n\n${r.command}`,
+    })),
+  };
 }
