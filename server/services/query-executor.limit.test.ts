@@ -123,6 +123,24 @@ describe("a limit written in the query wins over the checkbox", () => {
     expect(apply(sql, null)).toBe(sql);
   });
 
+  it.each([
+    ["postgres", applyDefaultLimit, " LIMIT 200"],
+    ["mssql", applyDefaultLimitMssql, "SELECT TOP 200"],
+  ])(
+    "%s: limit words inside a string or comment are not a limit",
+    (_, apply, injected) => {
+      for (const sql of [
+        "SELECT * FROM orders WHERE note = 'LIMIT 3'",
+        "SELECT * FROM orders WHERE note = 'TOP 3'",
+        "SELECT * FROM orders WHERE note = 'FETCH FIRST'",
+        'SELECT "LIMIT 3" FROM orders',
+        "SELECT * FROM orders /* LIMIT 3 */",
+      ]) {
+        expect(apply(sql, 200)).toContain(injected);
+      }
+    },
+  );
+
   it("mongo .limit(N)", async () => {
     await executeQuery(mongo, "db.orders.find({}).limit(5)", null);
     expect(mongoLimits).toEqual([5]);
