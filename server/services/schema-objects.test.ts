@@ -11,8 +11,11 @@ const h = vi.hoisted(() => ({
 }));
 // Jobs come from jobs.ts, whose own tests cover the drivers.
 vi.mock("./jobs.js", () => ({
-  getJobDefinitions: async (c: { id: string }) =>
-    h.jobs[c.id] ?? { available: false, jobs: [] },
+  getJobDefinitions: async (c: { id: string }) => {
+    const r = h.jobs[c.id];
+    if (r instanceof Error) throw r;
+    return r ?? { available: false, jobs: [] };
+  },
 }));
 // Mongo/Elasticsearch objects come from document-objects; its own tests cover
 // the drivers, so here it just answers with what the test queued.
@@ -666,6 +669,22 @@ describe("getDrift", () => {
     h.jobs["qa-ms"] = { available: false, reason: "No grant.", jobs: [] };
     expect((await getDrift(left, right)).jobs?.unavailable).toBe(
       "QA ms: No grant. PROD ms: Needs SQLAgentReaderRole.",
+    );
+  });
+
+  it("names a failure to read jobs and still compares the objects", async () => {
+    const left = { ...ms, name: "QA ms" };
+    const right = { ...ms, id: "prod-ms", name: "PROD ms" };
+    h.jobs = { "prod-ms": new Error("msdb timeout") };
+    h.rows.push([
+      { name: "open_orders", type: "V", parent: null, definition: "x" },
+    ]);
+    const report = await getDrift(left, right);
+    expect(report.items.map((i) => [i.name, i.status])).toEqual([
+      ["open_orders", "only_left"],
+    ]);
+    expect(report.jobs?.unavailable).toBe(
+      "PROD ms: Couldn't read its jobs (msdb timeout).",
     );
   });
 });

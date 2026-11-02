@@ -124,8 +124,8 @@ export async function getDrift(
   const [l, r, lj, rj] = await Promise.all([
     listObjects(left, s, true),
     listObjects(right, s, true),
-    getJobDefinitions(left),
-    getJobDefinitions(right),
+    jobsOrReason(left),
+    jobsOrReason(right),
   ]);
   const report: DriftReport = compareDefinitions(s, l, r);
   // Jobs belong to the database, not the schema; matched by name.
@@ -143,6 +143,15 @@ export async function getDrift(
     report.jobs = compareJobs(lj.jobs, rj.jobs);
   return report;
 }
+
+// Jobs are extra to an object drift report: a failure to read them is named,
+// never allowed to sink the objects.
+const jobsOrReason = (conn: ConnectionConfig) =>
+  getJobDefinitions(conn).catch((err: Error) => ({
+    available: false,
+    reason: `Couldn't read its jobs (${err.message}).`,
+    jobs: [] as JobDefinition[],
+  }));
 
 export function compareJobs(
   left: JobDefinition[],

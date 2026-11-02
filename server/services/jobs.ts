@@ -479,7 +479,8 @@ async function getAgentDefinitions(conn: ConnectionConfig) {
        SELECT CONVERT(varchar(36), js.job_id) AS job_id, ${AGENT_SCHEDULE_COLS}
        FROM msdb.dbo.sysjobschedules js
        JOIN msdb.dbo.sysschedules sc ON sc.schedule_id = js.schedule_id
-       WHERE sc.enabled = 1`,
+       WHERE sc.enabled = 1 AND EXISTS (SELECT 1 FROM msdb.dbo.sysjobsteps x
+             WHERE x.job_id = js.job_id AND x.database_name = DB_NAME())`,
     );
     const [steps, schedules] = res.recordsets as unknown as any[][];
     const when = new Map<string, string[]>();
@@ -521,7 +522,8 @@ async function getCronDefinitions(conn: ConnectionConfig) {
     available: true,
     jobs: rows.map((r: any) => ({
       id: String(r.jobid),
-      name: r.jobname ?? `job ${r.jobid}`,
+      // An unnamed job's id differs per server; its command is what matches.
+      name: r.jobname ?? `(unnamed) ${r.command}`,
       definition: `schedule: ${r.schedule}\n\n${r.command}`,
     })),
   };

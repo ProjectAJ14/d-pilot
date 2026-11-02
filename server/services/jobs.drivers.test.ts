@@ -570,6 +570,9 @@ describe("getJobDefinitions", () => {
     // Only jobs on this database, and only enabled schedules.
     expect(sql).toContain("x.database_name = DB_NAME()");
     expect(sql).toContain("sc.enabled = 1");
+    expect(sql).toContain(
+      "x.job_id = js.job_id AND x.database_name = DB_NAME()",
+    );
     expect(h.log).toEqual(["connect", "close"]);
   });
 
@@ -618,7 +621,7 @@ describe("getJobDefinitions", () => {
         },
         {
           id: "8",
-          name: "job 8",
+          name: "(unnamed) SELECT 1",
           definition: "schedule: */5 * * * *\n\nSELECT 1",
         },
       ],
