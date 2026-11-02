@@ -5,6 +5,19 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [2.8.0](https://github.com/ProjectAJ14/d-pilot/compare/v2.7.1...v2.8.0) (2026-11-02)
+
+
+### Bug Fixes
+
+* **schema:** keep job drift best effort and match unnamed cron jobs ([a15f8c0](https://github.com/ProjectAJ14/d-pilot/commit/a15f8c0536be84bc7ae2f4e60599797f7e2bcac3))
+* **schema:** match unnamed cron jobs by hash, never show their command ([8146478](https://github.com/ProjectAJ14/d-pilot/commit/81464781a4b8958837486449d8a4825894cd71c0))
+
+
+### Features
+
+* **schema:** compare jobs in the drift report ([cc9d9ce](https://github.com/ProjectAJ14/d-pilot/commit/cc9d9cedbea7a6f4fb6c5679b08a66ec57c0addd))
+
 ## [2.7.1](https://github.com/ProjectAJ14/d-pilot/compare/v2.7.0...v2.7.1) (2026-11-02)
 
 
