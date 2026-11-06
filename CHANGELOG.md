@@ -5,6 +5,13 @@ below v1.0.0's successors are generated automatically by semantic-release from
 [Conventional Commits](https://www.conventionalcommits.org/); do not edit them
 by hand.
 
+# [2.9.0](https://github.com/ProjectAJ14/d-pilot/compare/v2.8.0...v2.9.0) (2026-11-06)
+
+
+### Features
+
+* **settings:** search and paging for every admin list ([9ee911b](https://github.com/ProjectAJ14/d-pilot/commit/9ee911ba2adb88bc770ba439947bd92fc70e46fc))
+
 # [2.8.0](https://github.com/ProjectAJ14/d-pilot/compare/v2.7.1...v2.8.0) (2026-11-02)
 
 
