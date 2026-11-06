@@ -78,8 +78,11 @@ async function openLog(list: unknown[] = [full, failed, minimal]) {
 describe("AI chat log tab", () => {
   it("lists generations with status, tokens and latency", async () => {
     await openLog();
-    expect(await screen.findByText("3 generations")).toBeTruthy();
-    expect(mockApi.getAiChatLog).toHaveBeenCalledWith({ limit: 500 });
+    expect(await screen.findByText("Generations 1–3")).toBeTruthy();
+    expect(mockApi.getAiChatLog).toHaveBeenCalledWith({
+      limit: 101,
+      offset: 0,
+    });
     expect(screen.getByText("count orders per customer")).toBeTruthy();
     expect(screen.getByText("120")).toBeTruthy();
     expect(screen.getByText("900ms")).toBeTruthy();
@@ -95,7 +98,7 @@ describe("AI chat log tab", () => {
     expect(screen.getByText("0 generations")).toBeTruthy();
     mockApi.getAiChatLog.mockResolvedValueOnce([minimal]);
     await user().click(btn("Refresh"));
-    expect(await screen.findByText("1 generation")).toBeTruthy();
+    expect(await screen.findByText("Generations 1–1")).toBeTruthy();
     mockApi.getAiChatLog.mockRejectedValueOnce(new Error("log down"));
     await user().click(btn("Search"));
     expect(await screen.findByText("log down")).toBeTruthy();
@@ -122,7 +125,8 @@ describe("AI chat log tab", () => {
     await u.click(btn("Search"));
     await waitFor(() =>
       expect(mockApi.getAiChatLog).toHaveBeenLastCalledWith({
-        limit: 500,
+        limit: 101,
+        offset: 0,
         from: "2026-06-01",
         to: "2026-06-05T23:59:59",
         status: "error",
@@ -233,5 +237,105 @@ describe("AI chat log tab", () => {
     await u.click(copyFor("User Prompt (plain English)"));
     expect(execCommand).toHaveBeenCalledWith("copy");
     expect(document.querySelector("body > textarea")).toBeNull();
+  });
+
+  it("searches text and pages with filters kept", async () => {
+    const rows = (n: number, start = 0) =>
+      Array.from({ length: n }, (_, i) => ({
+        ...minimal,
+        id: `r${start + i}`,
+      }));
+    mockApi.getAiChatLog
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(rows(101))
+      .mockResolvedValueOnce(rows(3, 100))
+      .mockResolvedValueOnce(rows(101))
+      .mockResolvedValueOnce([]);
+    renderSettings("ai-log");
+    const u = user();
+    await screen.findByText("No AI generations logged yet");
+    expect(btn("Search")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
+
+    const box = screen.getByLabelText("Search AI log");
+    expect(box.getAttribute("placeholder")).toBe("Search user, prompt, query…");
+    await u.type(box, "  orders {Enter}");
+    await screen.findByText("Generations 1–100");
+    expect(mockApi.getAiChatLog).toHaveBeenLastCalledWith({
+      limit: 101,
+      offset: 0,
+      q: "orders",
+    });
+    expect((btn("Previous") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Page 1")).toBeTruthy();
+
+    await u.click(btn("Next"));
+    await screen.findByText("Generations 101–103");
+    expect(mockApi.getAiChatLog).toHaveBeenLastCalledWith({
+      limit: 101,
+      offset: 100,
+      q: "orders",
+    });
+    // Fewer than page+1 rows: no further page.
+    expect((btn("Next") as HTMLButtonElement).disabled).toBe(true);
+
+    await u.click(btn("Previous"));
+    await screen.findByText("Generations 1–100");
+    expect(mockApi.getAiChatLog).toHaveBeenLastCalledWith({
+      limit: 101,
+      offset: 0,
+      q: "orders",
+    });
+
+    // Other keys do not search; Clear empties the box; a new search resets to page 0.
+    await u.type(box, "x");
+    expect(mockApi.getAiChatLog).toHaveBeenCalledTimes(4);
+    await u.click(btn("Clear"));
+    expect((box as HTMLInputElement).value).toBe("");
+    await u.click(btn("Search"));
+    await waitFor(() =>
+      expect(mockApi.getAiChatLog).toHaveBeenLastCalledWith({
+        limit: 101,
+        offset: 0,
+      }),
+    );
+    expect(await screen.findByText("0 generations")).toBeTruthy();
+  });
+
+  it("refreshes and pages with the applied search, not unsearched typing; Clear reloads", async () => {
+    mockApi.getAiChatLog.mockResolvedValue(
+      Array.from({ length: 101 }, (_, i) => ({ ...minimal, id: `r${i}` })),
+    );
+    renderSettings("ai-log");
+    const u = user();
+    await screen.findByText("Generations 1–100");
+    const box = screen.getByLabelText("Search AI log");
+    await u.type(box, "orders{Enter}");
+    await waitFor(() =>
+      expect(mockApi.getAiChatLog).toHaveBeenLastCalledWith(
+        expect.objectContaining({ q: "orders", offset: 0 }),
+      ),
+    );
+    await u.clear(box);
+    await u.type(box, "other");
+    await u.click(btn("Next"));
+    await waitFor(() =>
+      expect(mockApi.getAiChatLog).toHaveBeenLastCalledWith(
+        expect.objectContaining({ q: "orders", offset: 100 }),
+      ),
+    );
+    await u.click(btn("Refresh"));
+    await waitFor(() =>
+      expect(mockApi.getAiChatLog).toHaveBeenLastCalledWith(
+        expect.objectContaining({ q: "orders", offset: 100 }),
+      ),
+    );
+    await u.click(btn("Clear"));
+    await waitFor(() =>
+      expect(mockApi.getAiChatLog).toHaveBeenLastCalledWith({
+        limit: 101,
+        offset: 0,
+      }),
+    );
   });
 });

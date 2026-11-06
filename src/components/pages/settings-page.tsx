@@ -27,6 +27,7 @@ import {
   Autocomplete,
   TagsInput,
   Skeleton,
+  Pagination,
   Alert,
   Stack,
   Anchor,
@@ -95,7 +96,7 @@ import type { ConnectionInput } from "../../utils/api-client";
 import { loadAppConfig, loadConnections } from "../../utils/app-config";
 import { BASE_PATH } from "../../utils/base-path";
 import { settingBool } from "../../utils/setting-bool";
-import { filterUsers } from "../../utils/user-search";
+import { useListFilter } from "../../utils/use-list-filter";
 import {
   parseConnectionsJson,
   runLimited,
@@ -948,7 +949,6 @@ function AnalyticsTab() {
 function UserManagementTab({ currentUserId }: { currentUserId: string }) {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
   const [addModalOpen, setAddModalOpen] = useState(false);
   const emailDomain = useStore((s) => s.config.emailDomain);
   const [editUser, setEditUser] = useState<User | null>(null);
@@ -972,20 +972,37 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
     loadUsers();
   }, []);
 
-  const visibleUsers = filterUsers(users, search);
+  const {
+    query: search,
+    setQuery: setSearch,
+    page: userPage,
+    setPage: setUserPage,
+    pageItems: visibleUsers,
+    total: userMatches,
+    totalPages: userPages,
+  } = useListFilter(users, (u) =>
+    [
+      u.displayName,
+      u.email,
+      u.username,
+      ...(u.allowedEnvironments ?? []),
+      ...(u.unmaskEnvironments ?? []),
+      ...(u.writeEnvironments ?? []),
+      ...(u.approveEnvironments ?? []),
+      ...(u.jobEnvironments ?? []),
+    ].join(" "),
+  );
 
   return (
     <>
       <Group justify="space-between" mb="md">
         <Text fw={600} size="sm" c="var(--text)">
-          {search.trim()
-            ? `${visibleUsers.length} of ${users.length}`
-            : users.length}{" "}
+          {search.trim() ? `${userMatches} of ${users.length}` : users.length}{" "}
           user{users.length !== 1 ? "s" : ""}
         </Text>
         <TextInput
           size="xs"
-          placeholder="Search name or email"
+          placeholder="Search name, email or environment"
           aria-label="Search users"
           type="search"
           leftSection={<IconSearch size={14} />}
@@ -1108,7 +1125,7 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
                 </Table.Td>
               </Table.Tr>
             ))}
-            {visibleUsers.length === 0 && !loading && (
+            {userMatches === 0 && !loading && (
               <Table.Tr>
                 <Table.Td colSpan={4}>
                   <Text ta="center" c="dimmed" py="lg">
@@ -1122,6 +1139,15 @@ function UserManagementTab({ currentUserId }: { currentUserId: string }) {
           </Table.Tbody>
         </Table>
       </div>
+      {userPages > 1 && (
+        <Pagination
+          size="xs"
+          mt="sm"
+          total={userPages}
+          value={userPage}
+          onChange={setUserPage}
+        />
+      )}
 
       {/* Add User Modal */}
       <AddUserModal
@@ -2112,6 +2138,17 @@ function PhiManagementTab() {
   const [loading, setLoading] = useState(true);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [deleteRule, setDeleteRule] = useState<PhiFieldRule | null>(null);
+  const {
+    query: ruleQuery,
+    setQuery: setRuleQuery,
+    page: rulePage,
+    setPage: setRulePage,
+    pageItems: pageRules,
+    total: ruleMatches,
+    totalPages: rulePages,
+  } = useListFilter(rules, (r) =>
+    [r.pattern, r.maskingType, r.database, r.table].join(" "),
+  );
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   const [deleteAllLocked, setDeleteAllLocked] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
@@ -2410,6 +2447,17 @@ function PhiManagementTab() {
         </Group>
       </Group>
 
+      <TextInput
+        size="xs"
+        mb="sm"
+        placeholder="Search rules by pattern, masking type or scope"
+        aria-label="Search PHI rules"
+        leftSection={<IconSearch size={14} />}
+        value={ruleQuery}
+        onChange={(e) => setRuleQuery(e.currentTarget.value)}
+        style={{ maxWidth: 320 }}
+      />
+
       <div
         style={{
           background: "var(--surface)",
@@ -2431,7 +2479,7 @@ function PhiManagementTab() {
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {rules.map((rule) => (
+              {pageRules.map((rule) => (
                 <Table.Tr key={rule.id}>
                   <Table.Td>
                     <span style={{ fontSize: 16 }}>
@@ -2491,11 +2539,13 @@ function PhiManagementTab() {
                   </Table.Td>
                 </Table.Tr>
               ))}
-              {rules.length === 0 && !loading && (
+              {ruleMatches === 0 && !loading && (
                 <Table.Tr>
                   <Table.Td colSpan={6}>
                     <Text ta="center" c="dimmed" py="lg">
-                      No PHI rules configured
+                      {rules.length === 0
+                        ? "No PHI rules configured"
+                        : "No matches"}
                     </Text>
                   </Table.Td>
                 </Table.Tr>
@@ -2504,6 +2554,15 @@ function PhiManagementTab() {
           </Table>
         </ScrollArea>
       </div>
+      {rulePages > 1 && (
+        <Pagination
+          size="xs"
+          mt="sm"
+          total={rulePages}
+          value={rulePage}
+          onChange={setRulePage}
+        />
+      )}
 
       {/* Add Rule Modal */}
       <AddPhiRuleModal
@@ -2792,22 +2851,34 @@ function AuditLogTab() {
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [q, setQ] = useState("");
+  // The search that was actually run; paging and export use this, not the box.
+  const [appliedQ, setAppliedQ] = useState("");
 
-  const filterParams = () => ({
+  const filterParams = (term = appliedQ) => ({
     action: filter !== "all" && filter !== "phi" ? filter : undefined,
     phi: filter === "phi",
+    q: term || undefined,
   });
 
-  const loadAudit = async (p = 0) => {
+  const search = () => {
+    setAppliedQ(q.trim());
+    loadAudit(0, { q: q.trim() });
+  };
+
+  const loadAudit = async (
+    p = 0,
+    o: { q?: string; from?: string; to?: string } = {},
+  ) => {
     setLoading(true);
     try {
       // One extra row tells us whether there is a next page.
       const params = {
-        ...filterParams(),
+        ...filterParams(o.q),
         limit: AUDIT_PAGE_SIZE + 1,
         offset: p * AUDIT_PAGE_SIZE,
-        from: fromDate || undefined,
-        to: toDate ? toDate + "T23:59:59" : undefined,
+        from: (o.from ?? fromDate) || undefined,
+        to: (o.to ?? toDate) ? (o.to ?? toDate) + "T23:59:59" : undefined,
       };
       const data =
         source === "archive"
@@ -2880,6 +2951,18 @@ function AuditLogTab() {
           />
           <TextInput
             size="xs"
+            placeholder="Search user, action, SQL…"
+            aria-label="Search audit log"
+            leftSection={<IconSearch size={14} />}
+            value={q}
+            onChange={(e) => setQ(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") search();
+            }}
+            style={{ width: 220 }}
+          />
+          <TextInput
+            size="xs"
             type="date"
             placeholder="From"
             value={fromDate}
@@ -2894,15 +2977,10 @@ function AuditLogTab() {
             onChange={(e) => setToDate(e.currentTarget.value)}
             style={{ width: 140 }}
           />
-          <Button
-            size="xs"
-            variant="light"
-            onClick={() => loadAudit(0)}
-            loading={loading}
-          >
+          <Button size="xs" variant="light" onClick={search} loading={loading}>
             Search
           </Button>
-          {(fromDate || toDate) && (
+          {(fromDate || toDate || q || appliedQ) && (
             <Button
               size="xs"
               variant="subtle"
@@ -2910,6 +2988,9 @@ function AuditLogTab() {
               onClick={() => {
                 setFromDate("");
                 setToDate("");
+                setQ("");
+                setAppliedQ("");
+                loadAudit(0, { q: "", from: "", to: "" });
               }}
             >
               Clear
@@ -3932,6 +4013,17 @@ function ConnectionsTab() {
   const [deleting, setDeleting] = useState<ConnectionAdminView | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [tests, setTests] = useState<Record<string, boolean | "pending">>({});
+  const {
+    query: connQuery,
+    setQuery: setConnQuery,
+    page: connPage,
+    setPage: setConnPage,
+    pageItems: pageConns,
+    total: connMatches,
+    totalPages: connPages,
+  } = useListFilter(conns ?? [], (c) =>
+    [c.name, c.id, c.env, c.type, c.host, c.database].join(" "),
+  );
 
   const load = () => {
     api
@@ -4008,6 +4100,16 @@ function ConnectionsTab() {
         </Panel>
       ) : (
         <Panel>
+          <TextInput
+            size="xs"
+            mb="sm"
+            placeholder="Search connections…"
+            aria-label="Search connections"
+            leftSection={<IconSearch size={14} />}
+            value={connQuery}
+            onChange={(e) => setConnQuery(e.currentTarget.value)}
+            style={{ maxWidth: 320 }}
+          />
           <Table verticalSpacing="xs" highlightOnHover>
             <Table.Thead>
               <Table.Tr>
@@ -4020,7 +4122,16 @@ function ConnectionsTab() {
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {conns.map((c) => {
+              {connMatches === 0 && (
+                <Table.Tr>
+                  <Table.Td colSpan={6}>
+                    <Text size="sm" c="dimmed" ta="center" py="lg">
+                      No matches
+                    </Text>
+                  </Table.Td>
+                </Table.Tr>
+              )}
+              {pageConns.map((c) => {
                 const t = tests[c.id];
                 return (
                   <Table.Tr key={c.id}>
@@ -4107,6 +4218,15 @@ function ConnectionsTab() {
               })}
             </Table.Tbody>
           </Table>
+          {connPages > 1 && (
+            <Pagination
+              size="xs"
+              mt="sm"
+              total={connPages}
+              value={connPage}
+              onChange={setConnPage}
+            />
+          )}
         </Panel>
       )}
 
@@ -4906,16 +5026,39 @@ function AiChatLogTab() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [selected, setSelected] = useState<AiChatLogEntry | null>(null);
+  const [q, setQ] = useState("");
+  // The search that was actually run; paging and Refresh use this, not the box.
+  const [appliedQ, setAppliedQ] = useState("");
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
 
-  const loadLog = async () => {
+  const search = () => {
+    setAppliedQ(q.trim());
+    loadLog(0, { q: q.trim() });
+  };
+
+  const loadLog = async (
+    p = 0,
+    o: { q?: string; from?: string; to?: string } = {},
+  ) => {
     setLoading(true);
     try {
-      const params: any = { limit: 500 };
-      if (fromDate) params.from = fromDate;
-      if (toDate) params.to = toDate + "T23:59:59";
+      // One extra row tells us whether there is a next page.
+      const params: any = {
+        limit: AUDIT_PAGE_SIZE + 1,
+        offset: p * AUDIT_PAGE_SIZE,
+      };
+      const from = o.from ?? fromDate;
+      const to = o.to ?? toDate;
+      const term = o.q ?? appliedQ;
+      if (from) params.from = from;
+      if (to) params.to = to + "T23:59:59";
       if (status !== "all") params.status = status;
+      if (term) params.q = term;
       const data = await api.getAiChatLog(params);
-      setEntries(data);
+      setEntries(data.slice(0, AUDIT_PAGE_SIZE));
+      setHasMore(data.length > AUDIT_PAGE_SIZE);
+      setPage(p);
     } catch (err: any) {
       notifyError(err, "Settings");
     } finally {
@@ -4951,6 +5094,18 @@ function AiChatLogTab() {
           />
           <TextInput
             size="xs"
+            placeholder="Search user, prompt, query…"
+            aria-label="Search AI log"
+            leftSection={<IconSearch size={14} />}
+            value={q}
+            onChange={(e) => setQ(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") search();
+            }}
+            style={{ width: 220 }}
+          />
+          <TextInput
+            size="xs"
             type="date"
             value={fromDate}
             onChange={(e) => setFromDate(e.currentTarget.value)}
@@ -4963,10 +5118,10 @@ function AiChatLogTab() {
             onChange={(e) => setToDate(e.currentTarget.value)}
             style={{ width: 140 }}
           />
-          <Button size="xs" variant="light" onClick={loadLog} loading={loading}>
+          <Button size="xs" variant="light" onClick={search} loading={loading}>
             Search
           </Button>
-          {(fromDate || toDate) && (
+          {(fromDate || toDate || q || appliedQ) && (
             <Button
               size="xs"
               variant="subtle"
@@ -4974,6 +5129,9 @@ function AiChatLogTab() {
               onClick={() => {
                 setFromDate("");
                 setToDate("");
+                setQ("");
+                setAppliedQ("");
+                loadLog(0, { q: "", from: "", to: "" });
               }}
             >
               Clear
@@ -4984,7 +5142,7 @@ function AiChatLogTab() {
           size="xs"
           variant="subtle"
           leftSection={<IconRefresh size={14} />}
-          onClick={loadLog}
+          onClick={() => loadLog(page)}
           loading={loading}
         >
           Refresh
@@ -4992,7 +5150,9 @@ function AiChatLogTab() {
       </Group>
 
       <Text size="xs" c="dimmed" mb="sm">
-        {entries.length} generation{entries.length !== 1 ? "s" : ""}
+        {entries.length === 0
+          ? "0 generations"
+          : `Generations ${page * AUDIT_PAGE_SIZE + 1}–${page * AUDIT_PAGE_SIZE + entries.length}`}
       </Text>
 
       <div
@@ -5107,6 +5267,30 @@ function AiChatLogTab() {
           </Table>
         </div>
       </div>
+
+      {(page > 0 || hasMore) && (
+        <Group justify="flex-end" gap="xs" mt="sm">
+          <Button
+            size="xs"
+            variant="subtle"
+            disabled={page === 0 || loading}
+            onClick={() => loadLog(page - 1)}
+          >
+            Previous
+          </Button>
+          <Text size="xs" c="dimmed">
+            Page {page + 1}
+          </Text>
+          <Button
+            size="xs"
+            variant="subtle"
+            disabled={!hasMore || loading}
+            onClick={() => loadLog(page + 1)}
+          >
+            Next
+          </Button>
+        </Group>
+      )}
 
       <AiChatDetailModal entry={selected} onClose={() => setSelected(null)} />
     </>

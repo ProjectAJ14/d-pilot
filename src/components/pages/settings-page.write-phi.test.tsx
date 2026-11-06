@@ -116,6 +116,45 @@ function openPhi(list: unknown[] = rules, masked = ["PROD", "OLD"]) {
   renderSettings("phi");
 }
 
+describe("PHI search and paging", () => {
+  it("filters by pattern, masking type and scope, with a no-match row", async () => {
+    openPhi();
+    const u = user();
+    await screen.findByText("3 tokenization rules");
+    const box = screen.getByLabelText("Search PHI rules");
+    await u.type(box, "hash");
+    expect(screen.getByText("*account_code*")).toBeTruthy();
+    expect(screen.queryByText("*email*")).toBeNull();
+    await u.clear(box);
+    await u.type(box, "orders");
+    expect(screen.getByText("*notes*")).toBeTruthy();
+    expect(screen.queryByText("*account_code*")).toBeNull();
+    await u.clear(box);
+    await u.type(box, "zzz");
+    expect(screen.getByText("No matches")).toBeTruthy();
+    expect(screen.queryByText("No PHI rules configured")).toBeNull();
+  });
+
+  it("pages past 25 rules and returns to page 1 on search", async () => {
+    openPhi(
+      Array.from({ length: 30 }, (_, i) => ({
+        id: `p${i + 1}`,
+        pattern: `*col${String(i + 1).padStart(2, "0")}*`,
+        maskingType: "FULL",
+        alwaysMasked: false,
+      })),
+    );
+    const u = user();
+    await screen.findByText("30 tokenization rules");
+    expect(screen.queryByText("*col26*")).toBeNull();
+    await u.click(screen.getByRole("button", { name: "2" }));
+    expect(screen.getByText("*col26*")).toBeTruthy();
+    await u.type(screen.getByLabelText("Search PHI rules"), "col0");
+    expect(screen.getByText("*col01*")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "2" })).toBeNull();
+  });
+});
+
 describe("PHI tab", () => {
   it("lists rules with icon, scope and lock state", async () => {
     openPhi();

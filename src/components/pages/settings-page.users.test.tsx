@@ -123,6 +123,35 @@ describe("User management", () => {
     expect(screen.getByText('No user matches "bobzzz"')).toBeTruthy();
   });
 
+  it("matches capability environments", async () => {
+    await openUsers();
+    const u = user();
+    await waitFor(() => expect(screen.getByText("3 users")).toBeTruthy());
+    await u.type(screen.getByLabelText("Search users"), "qa");
+    expect(screen.getByText("1 of 3 users")).toBeTruthy();
+    expect(screen.getByText("Change jobs: QA")).toBeTruthy();
+  });
+
+  it("pages past 25 users and returns to page 1 on search", async () => {
+    await openUsers(
+      Array.from({ length: 30 }, (_, i) => ({
+        ...bob,
+        id: `u${i + 1}`,
+        username: `user${String(i + 1).padStart(2, "0")}`,
+        email: `user${String(i + 1).padStart(2, "0")}@x.test`,
+        displayName: `Person ${String(i + 1).padStart(2, "0")}`,
+      })),
+    );
+    const u = user();
+    await screen.findByText("Person 01");
+    expect(screen.queryByText("Person 26")).toBeNull();
+    await u.click(screen.getByRole("button", { name: "2" }));
+    expect(screen.getByText("Person 26")).toBeTruthy();
+    await u.type(screen.getByLabelText("Search users"), "Person 0");
+    expect(screen.getByText("Person 01")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "2" })).toBeNull();
+  });
+
   it("shows a single user without a plural and reports a load failure", async () => {
     await openUsers([bob]);
     await waitFor(() => expect(screen.getByText("1 user")).toBeTruthy());

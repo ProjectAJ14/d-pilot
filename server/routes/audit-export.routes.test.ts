@@ -97,6 +97,39 @@ const get = (url: string, admin = true) =>
 
 const lastAudit = () => store.getAuditLog({ limit: 1 })[0];
 
+describe("audit search (q)", () => {
+  it("export honours q, case-insensitively, combined with other filters, and audits it", async () => {
+    const csv = await (
+      await get("/audit/export?from=2026-01-01&to=2026-01-14&q=IN_RANGE")
+    ).text();
+    expect(csv.split("\n")).toHaveLength(2);
+    expect(csv).toContain("SELECT in_range");
+    expect(lastAudit().sql).toContain("search=IN_RANGE");
+
+    const none = await (
+      await get(
+        "/audit/export?from=2026-01-01&to=2026-01-14&q=in_range&action=QUERY_ERROR",
+      )
+    ).text();
+    expect(none.split("\n")).toHaveLength(1);
+  });
+
+  it("list and archive honour q; a literal % is not a wildcard", async () => {
+    const live = await (await get("/audit?q=not_mine")).json();
+    expect(live.map((e: any) => e.sql)).toEqual(["SELECT not_mine"]);
+    expect(await (await get("/audit?q=%25")).json()).toEqual([]);
+    const arch = await (await get("/audit/archive?q=archived")).json();
+    expect(arch.map((e: any) => e.sql)).toEqual(["SELECT archived"]);
+  });
+
+  it("ignores a repeated q (an array) instead of failing", async () => {
+    const res = await get("/audit?q=a&q=b");
+    expect(res.status).toBe(200);
+    const all = await (await get("/audit")).json();
+    expect((await res.json()).length).toBe(all.length);
+  });
+});
+
 describe("GET /audit/export", () => {
   it("returns every entry in the inclusive UTC range as CSV, and audits it", async () => {
     const res = await get("/audit/export?from=2026-01-01&to=2026-01-14");

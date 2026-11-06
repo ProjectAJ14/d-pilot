@@ -607,7 +607,7 @@ router.post(
 
 // ── Read the AI chat log (admin only) ──
 router.get("/chat-log", requireAdmin, (req: Request, res: Response) => {
-  const { limit, offset, from, to, status, userId } = req.query;
+  const { limit, offset, from, to, status, userId, q } = req.query;
   const entries = getAiChatLog({
     limit: limit ? parseInt(limit as string, 10) : undefined,
     offset: offset ? parseInt(offset as string, 10) : undefined,
@@ -615,6 +615,7 @@ router.get("/chat-log", requireAdmin, (req: Request, res: Response) => {
     to: to as string | undefined,
     status: status as string | undefined,
     userId: userId as string | undefined,
+    q: typeof q === "string" ? q : undefined,
   });
   res.json(entries);
 });

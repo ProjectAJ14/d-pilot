@@ -534,7 +534,7 @@ describe("admin maintenance routes", () => {
   it("passes chat-log filters through, parsing paging as numbers", async () => {
     const r = await call(
       "GET",
-      "/ai/chat-log?limit=5&offset=10&from=a&to=b&status=error&userId=u2",
+      "/ai/chat-log?limit=5&offset=10&from=a&to=b&status=error&userId=u2&q=boom",
     );
     expect(r.body).toEqual([{ id: "c1" }]);
     expect(h.getAiChatLog).toHaveBeenCalledWith({
@@ -544,6 +544,7 @@ describe("admin maintenance routes", () => {
       to: "b",
       status: "error",
       userId: "u2",
+      q: "boom",
     });
     await call("GET", "/ai/chat-log");
     expect(h.getAiChatLog).toHaveBeenLastCalledWith({
@@ -553,6 +554,13 @@ describe("admin maintenance routes", () => {
       to: undefined,
       status: undefined,
       userId: undefined,
+      q: undefined,
     });
+    // A repeated ?q= arrives as an array: ignored, never a 500.
+    const rep = await call("GET", "/ai/chat-log?q=a&q=b");
+    expect(rep.status).toBe(200);
+    expect(h.getAiChatLog).toHaveBeenLastCalledWith(
+      expect.objectContaining({ q: undefined }),
+    );
   });
 });
