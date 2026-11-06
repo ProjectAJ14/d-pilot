@@ -274,4 +274,92 @@ describe("Audit log tab", () => {
     await pick("Archive (30d+)", "Archive (30d+)");
     expect(await screen.findByText("Events 1–1")).toBeTruthy();
   });
+
+  it("searches text, keeps it across pages and exports with it", async () => {
+    mockApi.getAuditLog.mockResolvedValue([plain]);
+    renderSettings("audit");
+    const u = user();
+    await screen.findByText("Events 1–1");
+    const box = screen.getByLabelText("Search audit log");
+    expect(box.getAttribute("placeholder")).toBe("Search user, action, SQL…");
+
+    mockApi.getAuditLog.mockResolvedValue(page(101));
+    await u.type(box, " carol{Enter}");
+    await waitFor(() =>
+      expect(mockApi.getAuditLog).toHaveBeenLastCalledWith(
+        expect.objectContaining({ q: "carol", offset: 0, limit: 101 }),
+      ),
+    );
+    await screen.findByText("Events 1–100");
+    await u.click(btn("Next"));
+    await waitFor(() =>
+      expect(mockApi.getAuditLog).toHaveBeenLastCalledWith(
+        expect.objectContaining({ q: "carol", offset: 100 }),
+      ),
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("From"), {
+      target: { value: "2026-06-01" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("To"), {
+      target: { value: "2026-06-05" },
+    });
+    mockApi.exportAuditLog.mockResolvedValueOnce("id");
+    await u.click(btn(/Export CSV/));
+    await waitFor(() =>
+      expect(mockApi.exportAuditLog).toHaveBeenCalledWith(
+        expect.objectContaining({ q: "carol" }),
+      ),
+    );
+
+    // Other keys do not search; Clear empties the box.
+    const calls = mockApi.getAuditLog.mock.calls.length;
+    await u.type(box, "x");
+    expect(mockApi.getAuditLog).toHaveBeenCalledTimes(calls);
+    await u.click(btn("Clear"));
+    expect((box as HTMLInputElement).value).toBe("");
+    await u.click(btn("Search"));
+    await waitFor(() =>
+      expect(mockApi.getAuditLog).toHaveBeenLastCalledWith(
+        expect.objectContaining({ q: undefined, offset: 0 }),
+      ),
+    );
+  });
+
+  it("pages and exports with the applied search, not unsearched typing; Clear reloads", async () => {
+    mockApi.getAuditLog.mockResolvedValue(page(101));
+    renderSettings("audit");
+    const u = user();
+    await screen.findByText("Events 1–100");
+    const box = screen.getByLabelText("Search audit log");
+    await u.type(box, "carol{Enter}");
+    await screen.findByText("Events 1–100");
+    await u.clear(box);
+    await u.type(box, "bob");
+    await u.click(btn("Next"));
+    await waitFor(() =>
+      expect(mockApi.getAuditLog).toHaveBeenLastCalledWith(
+        expect.objectContaining({ q: "carol", offset: 100 }),
+      ),
+    );
+    fireEvent.change(screen.getByPlaceholderText("From"), {
+      target: { value: "2026-06-01" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("To"), {
+      target: { value: "2026-06-05" },
+    });
+    mockApi.exportAuditLog.mockResolvedValueOnce("id");
+    await u.click(btn(/Export CSV/));
+    await waitFor(() =>
+      expect(mockApi.exportAuditLog).toHaveBeenCalledWith(
+        expect.objectContaining({ q: "carol" }),
+      ),
+    );
+    await u.click(btn("Clear"));
+    await waitFor(() =>
+      expect(mockApi.getAuditLog).toHaveBeenLastCalledWith(
+        expect.objectContaining({ q: undefined, offset: 0 }),
+      ),
+    );
+  });
 });

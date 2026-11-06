@@ -24,6 +24,7 @@ function auditFilter(req: Request): AuditFilter {
     action: (req.query.action as string) || undefined,
     userId: (req.query.userId as string) || undefined,
     phiOnly: req.query.phi === "1",
+    q: typeof req.query.q === "string" ? req.query.q : undefined,
   };
 }
 
@@ -67,6 +68,7 @@ router.get("/export", requireAdmin, (req: Request, res: Response) => {
     filter.action && `action=${filter.action}`,
     filter.userId && `userId=${filter.userId}`,
     filter.phiOnly && "PHI only",
+    filter.q?.trim() && `search=${filter.q.trim().slice(0, 200)}`,
   ].filter(Boolean);
   logAudit({
     userId: req.user!.sub,

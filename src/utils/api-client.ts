@@ -203,6 +203,8 @@ interface AuditQuery {
   userId?: string;
   /** PHI access of any kind (unmasked query, unmask, denied unmask). */
   phi?: boolean;
+  /** Free-text search over user, action, SQL and connection. */
+  q?: string;
 }
 
 function auditParams(params: AuditQuery): string {
@@ -214,6 +216,7 @@ function auditParams(params: AuditQuery): string {
   if (params.action) q.set("action", params.action);
   if (params.userId) q.set("userId", params.userId);
   if (params.phi) q.set("phi", "1");
+  if (params.q) q.set("q", params.q);
   return q.toString();
 }
 
@@ -718,9 +721,11 @@ export const api = {
       from?: string;
       to?: string;
       status?: string;
+      q?: string;
     } = {},
   ) => {
     const q = new URLSearchParams();
+    if (params.q) q.set("q", params.q);
     if (params.limit) q.set("limit", String(params.limit));
     if (params.offset) q.set("offset", String(params.offset));
     if (params.from) q.set("from", params.from);

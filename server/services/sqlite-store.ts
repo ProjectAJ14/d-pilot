@@ -982,6 +982,27 @@ export interface AuditFilter {
   userId?: string;
   /** PHI access of any kind: an unmasked query, an unmask, or a denied unmask. */
   phiOnly?: boolean;
+  /** Free-text, case-insensitive substring match (see `searchCondition`). */
+  q?: string;
+}
+
+/**
+ * Case-insensitive substring match over `columns`. Trimmed, capped at 200
+ * chars, empty = no filter; LIKE wildcards in the input are literal.
+ */
+function searchCondition(
+  q: string | undefined,
+  columns: string[],
+  conditions: string[],
+  params: any[],
+): void {
+  const term = (q ?? "").trim().slice(0, 200);
+  if (!term) return;
+  const like = `%${term.replace(/[\\%_]/g, "\\$&")}%`;
+  conditions.push(
+    `(${columns.map((c) => `${c} LIKE ? ESCAPE '\\'`).join(" OR ")})`,
+  );
+  params.push(...columns.map(() => like));
 }
 
 /** Room for one export batch (10,000) plus the row that says it overflowed. */
@@ -1012,6 +1033,12 @@ function selectAudit(conn: Database.Database, f: AuditFilter): AuditEntry[] {
       "(phi_accessed = 1 OR action IN ('PHI_UNMASK', 'PHI_UNMASK_DENIED'))",
     );
   }
+  searchCondition(
+    f.q,
+    ["user_email", "action", "sql", "connection_id"],
+    conditions,
+    params,
+  );
   const where =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   params.push(Math.min(f.limit ?? 100, AUDIT_READ_MAX), f.offset ?? 0);
@@ -1326,6 +1353,7 @@ export function getAiChatLog(
     to?: string;
     status?: string;
     userId?: string;
+    q?: string;
   } = {},
 ): AiChatLogEntry[] {
   const limit = Math.min(options.limit ?? 100, 1000);
@@ -1350,6 +1378,12 @@ export function getAiChatLog(
     conditions.push("user_id = ?");
     params.push(options.userId);
   }
+  searchCondition(
+    options.q,
+    ["user_email", "prompt", "generated_query", "error_message", "model"],
+    conditions,
+    params,
+  );
 
   const where =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";

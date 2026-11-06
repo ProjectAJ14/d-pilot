@@ -88,6 +88,51 @@ async function openConnections(
   if (list.length) await screen.findByText((list[0] as { name: string }).name);
 }
 
+const many = Array.from({ length: 30 }, (_, i) => ({
+  id: `c${i + 1}`,
+  name: `Conn ${String(i + 1).padStart(2, "0")}`,
+  env: "DEV",
+  type: "postgres",
+  passwordSet: false,
+  uriSet: false,
+}));
+
+describe("Connections search and paging", () => {
+  it("filters by name, env, type and target, with a no-match row", async () => {
+    await openConnections();
+    const u = user();
+    const box = screen.getByLabelText("Search connections");
+    await u.type(box, "elasticsearch");
+    expect(screen.getByText("Search")).toBeTruthy();
+    expect(screen.queryByText("Orders QA")).toBeNull();
+    await u.clear(box);
+    await u.type(box, "db.local");
+    expect(screen.getByText("Orders QA")).toBeTruthy();
+    expect(screen.queryByText("Mongo")).toBeNull();
+    await u.clear(box);
+    await u.type(box, "app_core");
+    expect(screen.getByText("Mongo")).toBeTruthy();
+    await u.clear(box);
+    await u.type(box, "zzz");
+    expect(screen.getByText("No matches")).toBeTruthy();
+    expect(
+      screen.queryByText("No connections yet. Add one to start querying."),
+    ).toBeNull();
+  });
+
+  it("pages past 25 rows and returns to page 1 on search", async () => {
+    await openConnections(many);
+    const u = user();
+    expect(screen.queryByText("Conn 26")).toBeNull();
+    await u.click(screen.getByRole("button", { name: "2" }));
+    expect(screen.getByText("Conn 26")).toBeTruthy();
+    expect(screen.queryByText("Conn 01")).toBeNull();
+    await u.type(screen.getByLabelText("Search connections"), "Conn 0");
+    expect(screen.getByText("Conn 01")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "2" })).toBeNull();
+  });
+});
+
 describe("Connections list", () => {
   it("shows each connection's target and stored credentials", async () => {
     await openConnections();
